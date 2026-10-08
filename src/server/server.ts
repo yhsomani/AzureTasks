@@ -1,21 +1,14 @@
 import * as fs from 'fs';
-import * as http from 'http';
 import * as path from 'path';
+import * as http from 'http';
+import express from 'express';
+import cors from 'cors';
 import { logger } from '../utils/logger.js';
 import { loadDotenv } from '../utils/dotenv.js';
 import { ApiRouter } from './api-router.js';
 
-const MIME_TYPES: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.ico': 'image/x-icon',
-};
-
 export class AppServer {
+  private app: express.Application;
   private server: http.Server;
   private apiRouter: ApiRouter;
   private staticDir: string;
@@ -29,70 +22,41 @@ export class AppServer {
     if (pat) {
       logger.registerSecret(pat);
     }
+    
+    this.app = express();
+    this.server = http.createServer(this.app);
     this.apiRouter = new ApiRouter();
+    
     const distUi = path.resolve(process.cwd(), 'dist/ui');
     const srcUi = path.resolve(process.cwd(), 'src/ui');
     this.staticDir = fs.existsSync(distUi) ? distUi : srcUi;
 
-    this.server = http.createServer(async (req, res) => {
-      // Set basic CORS headers
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-      if (req.method === 'OPTIONS') {
-        res.writeHead(204);
-        res.end();
-        return;
-      }
-
-      // Try API router first
-      const handled = await this.apiRouter.handleRequest(req, res);
-      if (handled) return;
-
-      // Serve static frontend assets
-      this.serveStatic(req, res);
-    });
+    this.configureMiddleware();
+    this.configureRoutes();
   }
 
-  private serveStatic(req: http.ServerResponse['req'], res: http.ServerResponse): void {
-    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-    let relativePath = url.pathname;
+  private configureMiddleware() {
+    this.app.use(cors());
+    this.app.use(express.json());
+    // Attach raw request for SSE (Server Sent Events) logs stream if needed
+  }
 
-    if (relativePath === '/' || relativePath === '') {
-      relativePath = '/index.html';
-    }
+  private configureRoutes() {
+    // API Routes
+    this.app.use('/api', this.apiRouter.getRouter());
 
-    const filePath = path.join(this.staticDir, relativePath);
+    // Static Frontend
+    this.app.use(express.static(this.staticDir));
 
-    // Security check: prevent directory traversal
-    if (!filePath.startsWith(this.staticDir)) {
-      res.writeHead(403, { 'Content-Type': 'text/plain' });
-      res.end('Access Denied');
-      return;
-    }
-
-    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-      // Fallback to index.html for SPA navigation
+    // SPA Fallback
+    this.app.get('*', (req, res) => {
       const indexPath = path.join(this.staticDir, 'index.html');
       if (fs.existsSync(indexPath)) {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        fs.createReadStream(indexPath).pipe(res);
-        return;
+        res.sendFile(indexPath);
+      } else {
+        res.status(404).send('Not Found');
       }
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('Not Found');
-      return;
-    }
-
-    const ext = path.extname(filePath).toLowerCase();
-    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-
-    res.writeHead(200, {
-      'Content-Type': contentType,
-      'Cache-Control': 'no-cache',
     });
-    fs.createReadStream(filePath).pipe(res);
   }
 
   public start(): Promise<number> {
