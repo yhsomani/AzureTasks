@@ -1,0 +1,27 @@
+{
+  "organization": "BFLDevOpsOrg",
+  "project": "3in1_Agile_Projects",
+  "workItemType": "3in1 Task",
+  "titlePrefix": "3in1_PWA_MyAccount |",
+  "startTime": "09:30",
+  "timezone": "Asia/Kolkata",
+  "thursdayMode": "CURRENT",
+  "people": [
+    {
+      "key": "yash_somani",
+      "name": "Yash Somani",
+      "assignedTo": "yash.somani@bajajfinserv.in",
+      "pod": "108_My Account Part 2",
+      "role": "Dev On-Role",
+      "enabled": true
+    },
+    {
+      "key": "ajinkya_lendikar",
+      "name": "Ajinkya Lendikar",
+      "assignedTo": "ajinkya.lendika@bajajfinserv.in",
+      "pod": "108_My Account Part 2",
+      "role": "SDM",
+      "enabled": true
+    }
+  ]
+}

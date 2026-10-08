@@ -1,0 +1,362 @@
+/**
+ * Azure DevOps Work Item Service
+ * Implements the WorkItemRepository port
+ */
+
+import { AzureDevOpsClient } from './client.js';
+import { 
+  WorkItemRepository, 
+  WorkItem, 
+  DiscoveredTask, 
+  Person, 
+  CreatedTask,
+  parseTitleDate
+} from '../../domain/index.js';
+
+interface WiqlQueryResult {
+  workItems: Array<{ id: number }>;
+}
+
+interface WorkItemBatchResult {
+  value: WorkItem[];
+  count: number;
+}
+
+export class AzureWorkItemService implements WorkItemRepository {
+  constructor(private readonly client: AzureDevOpsClient) {}
+
+  async validateProject(project: string): Promise<void> {
+    await this.client.get<any>(`/${project}/_apis/projects/${project}?api-version=7.0`);
+  }
+
+  async validateWorkItemType(project: string, workItemType: string): Promise<void> {
+    const result = await this.client.get<any>(
+      `/${project}/_apis/wit/workitemtypes/${encodeURIComponent(workItemType)}?api-version=7.0`
+    );
+    if (!result.name) {
+      throw new Error(`Work item type "${workItemType}" not found in project "${project}"`);
+    }
+  }
+
+  async findLatestTaskForPerson(
+    project: string,
+    workItemType: string,
+    titlePrefix: string,
+    personIdentity: string,
+    sourceTaskIdOverride?: number
+  ): Promise<DiscoveredTask | null> {
+    if (sourceTaskIdOverride) {
+      const workItem = await this.getWorkItem(sourceTaskIdOverride);
+      const parsedDate = parseTitleDate(workItem.fields['System.Title'] || '', titlePrefix);
+      if (!parsedDate.isValid) {
+        return null;
+      }
+      return {
+        workItem,
+        parsedDate,
+        key: personIdentity.toLowerCase().trim(),
+      };
+    }
+
+    // Query for latest task matching prefix for this person
+    const wiql = `
+      SELECT [System.Id]
+      FROM WorkItems
+      WHERE [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
+        AND [System.Title] LIKE '${this.escapeWiql(titlePrefix)}%'
+        AND [System.AssignedTo] = '${this.escapeWiql(personIdentity)}'
+        AND [System.State] <> 'Removed'
+      ORDER BY [Microsoft.VSTS.Scheduling.StartDate] DESC, [System.Id] DESC
+    `;
+
+    const result = await this.client.post<WiqlQueryResult>(
+      `/${project}/_apis/wit/wiql?api-version=7.0`,
+      { query: wiql }
+    );
+
+    if (!result.workItems || result.workItems.length === 0) {
+      return null;
+    }
+
+    // Get the latest task
+    const latestId = result.workItems[0].id;
+    const workItem = await this.getWorkItem(latestId);
+    const parsedDate = parseTitleDate(workItem.fields['System.Title'] || '', titlePrefix);
+    
+    if (!parsedDate.isValid) {
+      return null;
+    }
+
+    return {
+      workItem,
+      parsedDate,
+      key: personIdentity.toLowerCase().trim(),
+    };
+  }
+
+  async discoverLatestTasksForPeople(
+    project: string,
+    workItemType: string,
+    titlePrefix: string,
+    people: Person[],
+    sourceTaskIdOverride?: number,
+    defaultSourceTaskId?: number
+  ): Promise<Map<string, DiscoveredTask>> {
+    const results = new Map<string, DiscoveredTask>();
+
+    // If global override, use it for everyone without existing task
+    if (sourceTaskIdOverride) {
+      const workItem = await this.getWorkItem(sourceTaskIdOverride);
+      const parsedDate = parseTitleDate(workItem.fields['System.Title'] || '', titlePrefix);
+      if (parsedDate.isValid) {
+        for (const person of people) {
+          results.set(person.key, {
+            workItem,
+            parsedDate,
+            key: person.key,
+          });
+        }
+      }
+      return results;
+    }
+
+    // Build a query for all people at once
+    const identities = people.map(p => `'${this.escapeWiql(p.assignedTo)}'`).join(',');
+    
+    const wiql = `
+      SELECT [System.Id], [System.AssignedTo], [System.Title], [Microsoft.VSTS.Scheduling.StartDate]
+      FROM WorkItems
+      WHERE [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
+        AND [System.Title] LIKE '${this.escapeWiql(titlePrefix)}%'
+        AND [System.AssignedTo] IN (${identities})
+        AND [System.State] <> 'Removed'
+      ORDER BY [System.AssignedTo], [Microsoft.VSTS.Scheduling.StartDate] DESC, [System.Id] DESC
+    `;
+
+    const result = await this.client.post<WiqlQueryResult>(
+      `/${project}/_apis/wit/wiql?api-version=7.0`,
+      { query: wiql }
+    );
+
+    if (!result.workItems || result.workItems.length === 0) {
+      // Try default source task if configured
+      if (defaultSourceTaskId) {
+        const workItem = await this.getWorkItem(defaultSourceTaskId);
+        const parsedDate = parseTitleDate(workItem.fields['System.Title'] || '', titlePrefix);
+        if (parsedDate.isValid) {
+          for (const person of people) {
+            if (!results.has(person.key)) {
+              results.set(person.key, { workItem, parsedDate, key: person.key });
+            }
+          }
+        }
+      }
+      return results;
+    }
+
+    // Get full work items for the found IDs (batch)
+    const ids = result.workItems.map(w => w.id).join(',');
+    const batchResult = await this.client.get<WorkItemBatchResult>(
+      `/${project}/_apis/wit/workitems?ids=${ids}&$expand=relations&api-version=7.0`
+    );
+
+    // Group by person and take the latest for each
+    const personTasks = new Map<string, DiscoveredTask>();
+
+    const resolvePersonKey = (assignedTo: any): string | null => {
+      const unique = (assignedTo?.uniqueName || '').trim().toLowerCase();
+      const display = (assignedTo?.displayName || '').trim().toLowerCase();
+      for (const person of people) {
+        const id = person.assignedTo.trim().toLowerCase();
+        if (id === unique || id === display || person.name.trim().toLowerCase() === display) {
+          return person.key;
+        }
+      }
+      return null;
+    };
+
+    for (const workItem of batchResult.value || []) {
+      const personKey = resolvePersonKey(workItem.fields['System.AssignedTo']);
+      if (!personKey) continue;
+      if (!personTasks.has(personKey)) {
+        const title = workItem.fields['System.Title'] || '';
+        const parsedDate = parseTitleDate(title, titlePrefix);
+        if (parsedDate.isValid) {
+          personTasks.set(personKey, { workItem, parsedDate, key: personKey });
+        }
+      }
+    }
+
+    // Apply default source task for people without tasks
+    if (defaultSourceTaskId) {
+      const workItem = await this.getWorkItem(defaultSourceTaskId);
+      const parsedDate = parseTitleDate(workItem.fields['System.Title'] || '', titlePrefix);
+      if (parsedDate.isValid) {
+        for (const person of people) {
+          if (!personTasks.has(person.key)) {
+            personTasks.set(person.key, { workItem, parsedDate, key: person.key });
+          }
+        }
+      }
+    }
+
+    return personTasks;
+  }
+
+  async getExistingTasksForPerson(
+    project: string,
+    workItemType: string,
+    titlePrefix: string,
+    personIdentity: string,
+    startDate: string,
+    endDate: string
+  ): Promise<Map<string, { id: number; title: string; isoDate: string }>> {
+    const wiql = `
+      SELECT [System.Id], [System.Title], [Microsoft.VSTS.Scheduling.StartDate]
+      FROM WorkItems
+      WHERE [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
+        AND [System.Title] LIKE '${this.escapeWiql(titlePrefix)}%'
+        AND [System.AssignedTo] = '${this.escapeWiql(personIdentity)}'
+        AND [Microsoft.VSTS.Scheduling.StartDate] >= '${startDate}'
+        AND [Microsoft.VSTS.Scheduling.StartDate] <= '${endDate}'
+        AND [System.State] <> 'Removed'
+      ORDER BY [Microsoft.VSTS.Scheduling.StartDate] ASC
+    `;
+
+    const result = await this.client.post<WiqlQueryResult>(
+      `/${project}/_apis/wit/wiql?api-version=7.0`,
+      { query: wiql }
+    );
+
+    const existingMap = new Map<string, { id: number; title: string; isoDate: string }>();
+    
+    if (result.workItems && result.workItems.length > 0) {
+      const ids = result.workItems.map(w => w.id).join(',');
+      const batchResult = await this.client.get<WorkItemBatchResult>(
+        `/${project}/_apis/wit/workitems?ids=${ids}&fields=System.Title,Microsoft.VSTS.Scheduling.StartDate&api-version=7.0`
+      );
+
+      for (const workItem of batchResult.value || []) {
+        const startDate = workItem.fields['Microsoft.VSTS.Scheduling.StartDate'];
+        const title = workItem.fields['System.Title'];
+        if (startDate && title) {
+          const isoDate = startDate.split('T')[0];
+          existingMap.set(isoDate, { id: workItem.id, title, isoDate });
+        }
+      }
+    }
+
+    return existingMap;
+  }
+
+  async getWorkItem(id: number): Promise<WorkItem> {
+    return this.client.get<WorkItem>(
+      `/_apis/wit/workitems/${id}?$expand=relations&api-version=7.0`
+    );
+  }
+
+  async createWorkItemWithReconciliation(
+    project: string,
+    workItemType: string,
+    fieldOps: any[],
+    reconciliationData: { title: string; assignedTo: string }
+  ): Promise<CreatedTask> {
+    // First try to create
+    try {
+      const result = await this.client.post<WorkItem>(
+        `/${project}/_apis/wit/workitems/$${encodeURIComponent(workItemType)}?api-version=7.0`,
+        fieldOps
+      );
+
+      return {
+        id: result.id,
+        title: result.fields['System.Title'] || '',
+        isoDate: result.fields['Microsoft.VSTS.Scheduling.StartDate']?.split('T')[0] || '',
+        url: `${this.client.baseUrl}/${this.client.organization}/${project}/_workitems/edit/${result.id}`,
+      };
+    } catch (error: any) {
+      // If duplicate error (unlikely with our duplicate detection), try to find existing
+      if (error.message.includes('duplicate') || error.message.includes('already exists')) {
+        const existing = await this.findExistingByTitleAndAssignee(project, workItemType, reconciliationData);
+        if (existing) {
+          return {
+            id: existing.id,
+            title: existing.fields['System.Title'] || '',
+            isoDate: existing.fields['Microsoft.VSTS.Scheduling.StartDate']?.split('T')[0] || '',
+            url: `${this.client.baseUrl}/${this.client.organization}/${project}/_workitems/edit/${existing.id}`,
+          };
+        }
+      }
+      throw error;
+    }
+  }
+
+  async copyRelations(
+    sourceWorkItem: WorkItem,
+    targetId: number,
+    copyableTypes: string[]
+  ): Promise<{ copiedCount: number; failedCount: number; totalRelations: number }> {
+    const relations = sourceWorkItem.relations || [];
+    const copyable = relations.filter(r => copyableTypes.includes(r.rel));
+    
+    if (copyable.length === 0) {
+      return { copiedCount: 0, failedCount: 0, totalRelations: 0 };
+    }
+
+    let copiedCount = 0;
+    let failedCount = 0;
+
+    for (const relation of copyable) {
+      try {
+        const relBody = {
+          op: 'add',
+          path: '/relations/-',
+          value: {
+            rel: relation.rel,
+            url: relation.url,
+            attributes: relation.attributes,
+          },
+        };
+
+        await this.client.patch(
+          `/_apis/wit/workitems/${targetId}?api-version=7.0`,
+          [relBody]
+        );
+        copiedCount++;
+      } catch {
+        failedCount++;
+      }
+    }
+
+    return { copiedCount, failedCount, totalRelations: copyable.length };
+  }
+
+  private async findExistingByTitleAndAssignee(
+    project: string,
+    workItemType: string,
+    data: { title: string; assignedTo: string }
+  ): Promise<WorkItem | null> {
+    const wiql = `
+      SELECT [System.Id]
+      FROM WorkItems
+      WHERE [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
+        AND [System.Title] = '${this.escapeWiql(data.title)}'
+        AND [System.AssignedTo] = '${this.escapeWiql(data.assignedTo)}'
+        AND [System.State] <> 'Removed'
+    `;
+
+    const result = await this.client.post<WiqlQueryResult>(
+      `/${project}/_apis/wit/wiql?api-version=7.0`,
+      { query: wiql }
+    );
+
+    if (result.workItems && result.workItems.length > 0) {
+      return this.getWorkItem(result.workItems[0].id);
+    }
+    return null;
+  }
+
+  private escapeWiql(value: string): string {
+    return value.replace(/'/g, "''").replace(/\[/g, '[[]').replace(/\]/g, '[]]');
+  }
+}

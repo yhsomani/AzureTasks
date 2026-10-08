@@ -1,0 +1,187 @@
+/**
+ * Azure DevOps HTTP Client
+ * Low-level HTTP client for Azure DevOps REST API
+ */
+
+export interface AzureClientConfig {
+  organization: string;
+  pat: string;
+  baseUrl?: string;
+  maxRetries?: number;
+  initialRetryDelayMs?: number;
+}
+
+export interface RequestOptions {
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  headers?: Record<string, string>;
+  body?: any;
+  timeout?: number;
+}
+
+/** Error that knows whether a retry could help. */
+class AzureClientError extends Error {
+  constructor(message: string, readonly retryable: boolean) {
+    super(message);
+    this.name = 'AzureClientError';
+  }
+}
+
+export class AzureDevOpsClient {
+  readonly organization: string;
+  private readonly pat: string;
+  readonly baseUrl: string;
+  private readonly maxRetries: number;
+  private readonly initialRetryDelayMs: number;
+  private readonly authHeader: string;
+
+  constructor(config: AzureClientConfig) {
+    this.organization = config.organization;
+    this.pat = config.pat;
+    this.baseUrl = config.baseUrl || 'https://dev.azure.com';
+    this.maxRetries = config.maxRetries ?? 3;
+    this.initialRetryDelayMs = config.initialRetryDelayMs ?? 1000;
+    
+    // Basic auth: PAT as password, empty username
+    const credentials = Buffer.from(`:${this.pat}`).toString('base64');
+    this.authHeader = `Basic ${credentials}`;
+  }
+
+  /**
+   * Make an HTTP request with retry logic
+   */
+  async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    if (!this.pat?.trim()) {
+      throw new AzureClientError(
+        'AZURE_DEVOPS_PAT is not configured. Set it in .env or the Settings page.',
+        false
+      );
+    }
+
+    const url = `${this.baseUrl}/${this.organization}${path}`;
+    const headers = {
+      'Authorization': this.authHeader,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      ...options.headers,
+    };
+
+    let lastError: Error | null = null;
+    
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), options.timeout ?? 30000);
+
+        const response = await fetch(url, {
+          method: options.method || 'GET',
+          headers,
+          body: options.body ? JSON.stringify(options.body) : undefined,
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        // Handle rate limiting
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('Retry-After');
+          const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : this.calculateBackoff(attempt);
+          await this.sleep(delay);
+          continue;
+        }
+
+        // Handle server errors with retry
+        if (response.status >= 500 && attempt < this.maxRetries) {
+          await this.sleep(this.calculateBackoff(attempt));
+          continue;
+        }
+
+        // Handle auth errors (never retryable)
+        if (response.status === 401) {
+          throw new AzureClientError('Authentication failed. Check your PAT permissions.', false);
+        }
+
+        if (response.status === 403) {
+          throw new AzureClientError('Access denied. Check PAT scopes (Work Items Read/Write required).', false);
+        }
+
+        const responseBody = await response.text();
+        
+        if (!response.ok) {
+          let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+          try {
+            const errorData = JSON.parse(responseBody);
+            if (errorData.message) errorMessage = errorData.message;
+          } catch {
+            errorMessage = responseBody || errorMessage;
+          }
+          throw new AzureClientError(errorMessage, false);
+        }
+
+        if (!responseBody) {
+          return {} as T;
+        }
+
+        return JSON.parse(responseBody);
+      } catch (error) {
+        let err = error instanceof Error ? error : new Error(String(error));
+
+        // Non-retryable client errors fail fast.
+        if (err instanceof AzureClientError && !err.retryable) {
+          throw err;
+        }
+
+        // Normalize low-level network failures into an actionable message.
+        if (err.name === 'AbortError') {
+          err = new AzureClientError(`Request timed out after ${options.timeout ?? 30000}ms: ${path}`, true);
+        } else if (!err.message.includes('HTTP ') && !err.message.startsWith('Authentication') && !err.message.startsWith('Access denied')) {
+          err = new AzureClientError(`Network error contacting Azure DevOps: ${err.message}`, true);
+        }
+
+        lastError = err;
+        if (attempt < this.maxRetries) {
+          await this.sleep(this.calculateBackoff(attempt));
+        }
+      }
+    }
+
+    throw lastError || new Error('Max retries exceeded');
+  }
+
+  private calculateBackoff(attempt: number): number {
+    const baseDelay = this.initialRetryDelayMs * Math.pow(2, attempt);
+    const jitter = Math.random() * 1000;
+    return baseDelay + jitter;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * GET request
+   */
+  async get<T>(path: string): Promise<T> {
+    return this.request<T>(path, { method: 'GET' });
+  }
+
+  /**
+   * POST request
+   */
+  async post<T>(path: string, body: any): Promise<T> {
+    return this.request<T>(path, { method: 'POST', body });
+  }
+
+  /**
+   * PATCH request
+   */
+  async patch<T>(path: string, body: any): Promise<T> {
+    return this.request<T>(path, { method: 'PATCH', body });
+  }
+
+  /**
+   * Delete request
+   */
+  async delete<T>(path: string): Promise<T> {
+    return this.request<T>(path, { method: 'DELETE' });
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.execution-lock.json
+.task-journal.json
+.journal-archives/
+coverage/
+*.log
+.DS_Store

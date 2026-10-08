@@ -1,0 +1,192 @@
+/**
+ * API Routes
+ * HTTP endpoints exposing application use cases
+ */
+
+import { Router, Request, Response } from 'express';
+import { CreateTasksUseCase } from '../../application/use-cases/create-tasks.js';
+import { PlanTasksUseCase } from '../../application/use-cases/plan-tasks.js';
+import { GetSystemStatusUseCase } from '../../application/use-cases/get-status.js';
+import { ConfigUseCases } from '../../application/use-cases/config.js';
+import { JournalRepository, SchedulerRepository } from '../../domain/ports/repositories.js';
+import { logger } from '../../infrastructure/logging/logger.js';
+
+export interface ApiDependencies {
+  createTasks: CreateTasksUseCase;
+  planTasks: PlanTasksUseCase;
+  getStatus: GetSystemStatusUseCase;
+  config: ConfigUseCases;
+  journal: JournalRepository;
+  scheduler: SchedulerRepository;
+}
+
+export function createApiRouter(deps: ApiDependencies): Router {
+  const router = Router();
+
+  // Health check
+  router.get('/health', (_req, res) => {
+    res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+  });
+
+  // Status
+  router.get('/status', async (_req, res) => {
+    try {
+      const data = await deps.getStatus.execute();
+      res.json({ success: true, data });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Config
+  router.get('/config', async (_req, res) => {
+    try {
+      const data = await deps.config.getConfig();
+      res.json({ success: true, data });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/config/people', async (req, res) => {
+    try {
+      const data = await deps.config.savePeople(req.body);
+      res.json({ success: true, data });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/config/settings', async (req, res) => {
+    try {
+      const data = await deps.config.saveSettings(req.body);
+      res.json({ success: true, data });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/config/pat', async (req, res) => {
+    try {
+      const data = await deps.config.savePat(req.body);
+      res.json({ success: true, data });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Tasks
+  router.post('/tasks/plan', async (req, res) => {
+    try {
+      const { personKeys, asOf, thursdayMode } = req.body || {};
+      const data = await deps.planTasks.execute({
+        personKeys,
+        all: !personKeys || personKeys.length === 0,
+        asOf,
+        thursdayMode,
+      });
+      res.json({ success: true, data });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/tasks/execute', async (req, res) => {
+    try {
+      const { personKeys, asOf, thursdayMode, dryRun } = req.body || {};
+      const data = await deps.createTasks.execute(
+        {
+          personKeys,
+          all: !personKeys || personKeys.length === 0,
+          asOf,
+          thursdayMode,
+          dryRun: !!dryRun,
+          yes: true,
+        },
+        (event) => logger.info(event.message)
+      );
+      res.json({ success: true, data });
+    } catch (err: any) {
+      logger.error(`Task execution failed: ${err.message}`);
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Journal
+  router.get('/journal', async (req, res) => {
+    try {
+      const limit = parseInt(String(req.query.limit || '100'), 10);
+      const entries = await deps.journal.getEntries(limit);
+      const unfinished = await deps.journal.getUnfinishedRelations();
+      res.json({
+        success: true,
+        data: { totalEntries: entries.length, incompleteEntriesCount: unfinished.length, entries },
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/journal/export', async (req, res) => {
+    try {
+      const format = String(req.query.format || 'csv');
+      if (format === 'json') {
+        const content = await deps.journal.exportJson();
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', 'attachment; filename="task-journal.json"');
+        res.send(content);
+      } else {
+        const content = await deps.journal.exportCsv();
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="task-journal.csv"');
+        res.send(content);
+      }
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Scheduler
+  router.get('/scheduler', (_req, res) => {
+    res.json({ success: true, data: deps.scheduler.getStatus() });
+  });
+
+  router.post('/scheduler/toggle', (req, res) => {
+    const shouldEnable = req.body?.enabled !== undefined
+      ? Boolean(req.body.enabled)
+      : Boolean(req.body?.enable);
+    if (shouldEnable) deps.scheduler.start();
+    else deps.scheduler.stop();
+    res.json({ success: true, data: deps.scheduler.getStatus() });
+  });
+
+  // Logs
+  router.get('/logs/recent', (req, res) => {
+    const limit = parseInt(String(req.query.limit || '300'), 10);
+    res.json({ success: true, data: logger.getRecentLogs(limit) });
+  });
+
+  router.get('/logs/stream', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    // Replay recent history so a fresh client isn't empty
+    for (const entry of logger.getRecentLogs(100)) {
+      res.write(`data: ${JSON.stringify(entry)}\n\n`);
+    }
+
+    const unsubscribe = logger.addListener(entry => {
+      res.write(`data: ${JSON.stringify(entry)}\n\n`);
+    });
+    const heartbeat = setInterval(() => res.write(': ping\n\n'), 15000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
+  });
+
+  return router;
+}

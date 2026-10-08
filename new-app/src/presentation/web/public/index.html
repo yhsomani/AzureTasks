@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Azure DevOps 3in1 Task Creator — automated multi-person daily task creation" />
+  <title>3in1 Task Studio</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230078d4'/%3E%3Cpath d='M9 16l4 4 10-10' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="28" height="28"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M9 16l4 4 10-10" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="brand-text">
+          <strong>3in1 Task Studio</strong>
+          <span>Azure DevOps automation</span>
+        </div>
+      </div>
+
+      <nav class="nav" aria-label="Primary">
+        <button class="nav-item active" data-view="dashboard">
+          <span class="ico" aria-hidden="true">◧</span> Dashboard
+        </button>
+        <button class="nav-item" data-view="planner">
+          <span class="ico" aria-hidden="true">▶</span> Planner
+        </button>
+        <button class="nav-item" data-view="explorer">
+          <span class="ico" aria-hidden="true">▦</span> Explorer
+        </button>
+        <button class="nav-item" data-view="people">
+          <span class="ico" aria-hidden="true">☰</span> Team
+        </button>
+        <button class="nav-item" data-view="journal">
+          <span class="ico" aria-hidden="true">▤</span> Audit Log
+        </button>
+        <button class="nav-item" data-view="scheduler">
+          <span class="ico" aria-hidden="true">⏱</span> Scheduler
+        </button>
+        <button class="nav-item" data-view="logs">
+          <span class="ico" aria-hidden="true">≡</span> Logs
+        </button>
+        <button class="nav-item" data-view="settings">
+          <span class="ico" aria-hidden="true">⚙</span> Settings
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="conn" id="connBadge" role="status">
+          <span class="dot" id="connDot"></span>
+          <span id="connText">Checking…</span>
+        </div>
+        <button class="icon-btn" id="themeToggle" title="Toggle theme" aria-label="Toggle colour theme">◐</button>
+      </div>
+    </aside>
+
+    <main class="main" id="main">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" id="menuBtn" aria-label="Toggle navigation">☰</button>
+        <div>
+          <h1 id="viewTitle">Dashboard</h1>
+          <p class="subtitle" id="viewSubtitle">System health and today's picture</p>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn ghost" id="refreshBtn">Refresh</button>
+          <button class="btn primary" id="quickRunBtn">Create tasks now</button>
+        </div>
+      </header>
+
+      <section class="view active" id="view-dashboard">
+        <div class="grid cols-4">
+          <article class="card kpi"><span class="kpi-label">Connection</span><span class="kpi-value" id="kpiConn">—</span><span class="kpi-hint" id="kpiConnHint">Azure DevOps</span></article>
+          <article class="card kpi"><span class="kpi-label">Team members</span><span class="kpi-value" id="kpiPeople">—</span><span class="kpi-hint">enabled identities</span></article>
+          <article class="card kpi"><span class="kpi-label">Timezone</span><span class="kpi-value small" id="kpiTz">—</span><span class="kpi-hint" id="kpiMode">window: current week</span></article>
+          <article class="card kpi"><span class="kpi-label">Scheduler</span><span class="kpi-value" id="kpiSched">—</span><span class="kpi-hint" id="kpiSchedHint">weekdays 09:30</span></article>
+        </div>
+
+        <div class="grid cols-2">
+          <article class="card">
+            <header class="card-head"><h2>Today's plan</h2><button class="btn small ghost" data-view-link="planner">Open planner</button></header>
+            <div id="dashboardPlan" class="plan-preview"><p class="muted">Loading plan…</p></div>
+          </article>
+          <article class="card">
+            <header class="card-head"><h2>Recent activity</h2><button class="btn small ghost" data-view-link="journal">View all</button></header>
+            <div id="dashboardJournal" class="timeline"><p class="muted">No entries yet.</p></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" id="view-planner">
+        <article class="card">
+          <header class="card-head">
+            <h2>Create tasks</h2>
+            <div class="row gap">
+              <label class="field inline"><span>As of</span><input type="date" id="asOf" /></label>
+              <label class="field inline"><span>Thursday mode</span>
+                <select id="thursdayMode"><option value="CURRENT">Current week</option><option value="FOLLOWING">Following week</option></select>
+              </label>
+            </div>
+          </header>
+          <div class="row wrap gap" id="personPicker"></div>
+          <div class="row gap">
+            <button class="btn ghost" id="planBtn">Preview plan</button>
+            <button class="btn primary" id="executeBtn">Execute creation</button>
+          </div>
+          <p class="muted small">Preview never writes to Azure DevOps. Execution is guarded by a concurrency lock and recorded in the audit log.</p>
+          <div id="planResults"></div>
+        </article>
+      </section>
+
+      <section class="view" id="view-explorer">
+        <article class="card">
+          <header class="card-head">
+            <h2>Coverage explorer</h2>
+            <div class="row gap">
+              <button class="btn small ghost" id="exploreRefresh">Refresh</button>
+              <button class="btn small primary" id="exploreCreateMissing">Create missing</button>
+            </div>
+          </header>
+          <p class="muted small">Per-person coverage across the creation window (today → Thursday). A filled cell means a matching task already exists; an empty cell is missing and can be created.</p>
+          <div id="explorerGrid" class="explorer-grid"><p class="muted">Loading coverage…</p></div>
+        </article>
+      </section>
+
+      <section class="view" id="view-people">
+        <article class="card">
+          <header class="card-head"><h2>Team members</h2><button class="btn primary small" id="addPersonBtn">Add member</button></header>
+          <div id="peopleList" class="people-list"></div>
+          <div class="row end">
+            <button class="btn primary" id="savePeopleBtn">Save team</button>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-journal">
+        <article class="card">
+          <header class="card-head">
+            <h2>Audit log</h2>
+            <div class="row gap">
+              <button class="btn small ghost" id="exportCsv">Export CSV</button>
+              <button class="btn small ghost" id="exportJson">Export JSON</button>
+            </div>
+          </header>
+          <div id="journalStats" class="stat-chips"></div>
+          <div class="table-wrap">
+            <table class="table" id="journalTable">
+              <thead><tr><th>Time</th><th>Person</th><th>Date</th><th>Title</th><th>Item</th><th>Fields</th><th>Relations</th><th>Verified</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-scheduler">
+        <article class="card">
+          <header class="card-head"><h2>Scheduler</h2>
+            <label class="switch">
+              <input type="checkbox" id="schedToggle" />
+              <span class="slider"></span>
+              <span class="switch-label" id="schedState">Stopped</span>
+            </label>
+          </header>
+          <div class="grid cols-3">
+            <div class="mini"><span>Timezone</span><strong id="schedTz">—</strong></div>
+            <div class="mini"><span>Next run</span><strong id="schedNext">—</strong></div>
+            <div class="mini"><span>Last result</span><strong id="schedLast">—</strong></div>
+          </div>
+          <p class="muted small">When enabled, the server runs task creation automatically on weekdays at 09:30 in the configured timezone.</p>
+        </article>
+      </section>
+
+      <section class="view" id="view-logs">
+        <article class="card">
+          <header class="card-head"><h2>Live logs</h2><span class="pill" id="logStatus">connecting…</span></header>
+          <pre class="logs" id="logStream" aria-live="polite"></pre>
+        </article>
+      </section>
+
+      <section class="view" id="view-settings">
+        <article class="card">
+          <header class="card-head"><h2>Connection settings</h2></header>
+          <div class="grid cols-2">
+            <label class="field"><span>Organization</span><input type="text" id="setOrg" placeholder="BFLDevOpsOrg" /></label>
+            <label class="field"><span>Project</span><input type="text" id="setProject" placeholder="3in1_Agile_Projects" /></label>
+            <label class="field"><span>Timezone</span><input type="text" id="setTz" placeholder="Asia/Kolkata" /></label>
+            <label class="field"><span>Start time (HH:mm)</span><input type="text" id="setStart" placeholder="09:30" /></label>
+          </div>
+          <div class="row end"><button class="btn primary" id="saveSettingsBtn">Save settings</button></div>
+        </article>
+        <article class="card">
+          <header class="card-head"><h2>Personal Access Token</h2></header>
+          <label class="field"><span>New PAT (stored to server .env)</span><input type="password" id="setPat" placeholder="••••••••••••••••" autocomplete="off" /></label>
+          <p class="muted small">Requires Work Items: Read &amp; Write. The token is never echoed back.</p>
+          <div class="row end"><button class="btn primary" id="savePatBtn">Save PAT</button></div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast-stack" id="toasts" aria-live="polite"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
