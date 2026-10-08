@@ -1,0 +1,18 @@
+{
+  "people": [
+    {
+      "name": "Yash Somani",
+      "assignedTo": "yash.somani@bajajfinserv.in",
+      "pod": "108_My Account Part 2",
+      "role": "Dev On-Role",
+      "enabled": true
+    },
+    {
+      "name": "Ajinkya Lendikar",
+      "assignedTo": "ajinkya.lendika@bajajfinserv.in",
+      "pod": "108_My Account Part 2",
+      "role": "SDM",
+      "enabled": true
+    }
+  ]
+}

@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Azure DevOps 3in1 Task Automation Studio</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <!-- Top App Header -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="logo-section">
+        <div class="logo-icon">3:1</div>
+        <div>
+          <div class="app-title">
+            Work Intelligence
+            <span id="connectionBadge" class="badge-pill badge-disconnected">
+              <span class="pulse-dot"></span> Checking...
+            </span>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--text-muted);">
+            Track daily contributions, monitor team workloads, analyze task progress, and understand delivery performance in one unified workspace.
+          </div>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <span class="meta-tag" id="orgProjectTag">BFLDevOpsOrg / 3in1_Agile_Projects</span>
+        <button id="btnToggleDrawer" class="btn btn-secondary btn-sm" title="Toggle Execution Console Drawer">
+          💻 Console
+        </button>
+        <button id="themeToggleBtn" class="btn-icon" title="Toggle Light/Dark Theme">
+          <span id="themeIcon">☀️</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <div class="nav-tabs-wrapper">
+    <nav class="nav-tabs">
+      <button class="nav-tab-btn active" data-tab="overview">
+        📈 Overview
+      </button>
+      <button class="nav-tab-btn" data-tab="burndown">
+        📅 Daily Burndown
+      </button>
+      <button class="nav-tab-btn" data-tab="mywork">
+        👨‍💻 My Work
+      </button>
+      <button class="nav-tab-btn" data-tab="team">
+        👥 Team Insights
+      </button>
+      <button class="nav-tab-btn" data-tab="explorer">
+        🔍 Task Explorer
+      </button>
+      <button class="nav-tab-btn" data-tab="audit">
+        📜 Activity &amp; Audit
+      </button>
+      <button class="nav-tab-btn" data-tab="settings">
+        ⚙️ Settings
+      </button>
+    </nav>
+  </div>
+
+  <!-- Main View Area -->
+  <main class="main-content">
+
+    <!-- TAB 1: DASHBOARD & MATRIX -->
+    <section id="tab-overview" class="tab-pane active">
+
+        <div class="panel" style="margin-bottom: 1.5rem;">
+          <div class="panel-header">
+            <div class="panel-title"><span>💡 Smart Insights</span></div>
+          </div>
+          <div class="panel-body" id="insightsContainer">
+            <div style="color: var(--text-muted); padding: 1rem;">Loading insights...</div>
+          </div>
+        </div>
+
+      <!-- KPI Stats -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Team Members</span>
+            <span class="kpi-icon">👥</span>
+          </div>
+          <div class="kpi-value" id="kpiPeopleCount">-</div>
+          <div class="kpi-subtext" id="kpiPeopleSubtext">Configured in people.json</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Rolling Window</span>
+            <span class="kpi-icon">📅</span>
+          </div>
+          <div class="kpi-value" id="kpiWindowRange" style="font-size: 1.45rem;">-</div>
+          <div class="kpi-subtext" id="kpiWindowSubtext">Today &rarr; Next Thursday</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Tasks to Create</span>
+            <span class="kpi-icon">✨</span>
+          </div>
+          <div class="kpi-value" id="kpiToCreateCount" style="color: var(--brand-primary);">-</div>
+          <div class="kpi-subtext">Planned for upcoming working days</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Existing / Skipped</span>
+            <span class="kpi-icon">🛡️</span>
+          </div>
+          <div class="kpi-value" id="kpiExistingCount" style="color: var(--success);">-</div>
+          <div class="kpi-subtext">Protected from duplication</div>
+        </div>
+
+        <div class="kpi-card" id="kpiSchedulerCard">
+          <div class="kpi-header">
+            <span class="kpi-title">Daily Scheduler</span>
+            <span class="kpi-icon">⏰</span>
+          </div>
+          <div style="display: flex; align-items: baseline; justify-content: space-between;">
+            <div class="kpi-value" id="kpiSchedulerStatus" style="font-size: 1.25rem; color: var(--text-muted);">Disabled</div>
+            <button id="btnToggleScheduler" class="btn btn-secondary btn-sm" style="padding: 0.2rem 0.6rem; font-size: 0.75rem;">Enable</button>
+          </div>
+          <div class="kpi-subtext" id="kpiSchedulerSubtext">09:30 AM IST &bull; Weekdays</div>
+        </div>
+      </div>
+
+      
+      <!-- DASHBOARD CHARTS -->
+      <div class="chart-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span>📈 Daily Effort Trend</span></div>
+          </div>
+          <div class="panel-body">
+            <canvas id="effortTrendChart" height="200"></canvas>
+          </div>
+        </div>
+        <div class="panel-body panel">
+          <div class="panel-header">
+            <div class="panel-title"><span>📊 Task Status Distribution</span></div>
+          </div>
+          <div class="panel-body">
+            <canvas id="statusDistributionChart" height="200"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Upcoming Plan Details -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>📋 Planned Task Creation Details</span>
+          </div>
+          <div style="font-size: 0.85rem; color: var(--text-muted);">
+            Start Time: 09:30 AM IST &bull; State: New &bull; Child links protected
+          </div>
+        </div>
+        <div class="panel-body">
+          <div id="plannedTaskList">
+            <div style="color: var(--text-muted); font-size: 0.9rem;">
+              No pending tasks to create in this window. All members are up to date!
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    
+    <!-- TAB: DAILY BURNDOWN -->
+    
+    <!-- TAB: DAILY BURNDOWN -->
+    <section id="tab-burndown" class="tab-pane">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>📅 Daily Work & Burndown Matrix</span>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <input type="month" id="burndownMonthSelector" class="form-control" style="width: auto;">
+            <button id="btnLoadBurndown" class="btn btn-primary btn-sm">Load Month</button>
+          </div>
+        </div>
+        <div class="panel-body" id="burndownMatrixContainer" style="padding: 0;">
+           <!-- Matrix injected here -->
+        </div>
+      </div>
+    </section>
+
+<section id="tab-mywork" class="tab-pane">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>👨‍💻 My Work</span>
+          </div>
+        </div>
+        <div class="panel-body">
+           <p>Personalized view coming soon...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: TASK EXPLORER & TRACKING -->
+    <section id="tab-explorer" class="tab-pane">
+      
+      <!-- Date Range & User Filter Panel -->
+      <div class="panel" style="margin-bottom: 1.25rem;">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>🔍 Intelligent Date-Range Task Explorer</span>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <span id="explorerLastRefresh" class="meta-tag" style="font-size: 0.75rem;">Last updated: -</span>
+            <button id="btnRefreshExplorer" class="btn btn-secondary btn-sm" title="Refresh task data from Azure DevOps">
+              🔄 Refresh
+            </button>
+          </div>
+        </div>
+
+        <div class="panel-body">
+          <div class="explorer-filter-grid">
+            <!-- Date Preset Selector -->
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Date Range Preset</label>
+              <select id="explorerPresetSelect" class="form-select">
+                <option value="today_to_next_thursday" selected>Today to Next Thursday (Creation Window)</option>
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="this_week">This Week</option>
+                <option value="last_week">Last Week</option>
+                <option value="current_month">Current Month</option>
+                <option value="previous_month">Previous Month</option>
+                <option value="last_7_days">Last 7 Days</option>
+                <option value="last_30_days">Last 30 Days</option>
+                <option value="custom">Custom Range</option>
+              </select>
+            </div>
+
+            <!-- Start Date -->
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Start Date</label>
+              <input type="date" id="explorerStartDate" class="form-input">
+            </div>
+
+            <!-- End Date -->
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">End Date</label>
+              <input type="date" id="explorerEndDate" class="form-input">
+            </div>
+
+            <!-- Filter Buttons -->
+            <div class="form-group" style="margin-bottom: 0; display: flex; align-items: flex-end; gap: 0.5rem;">
+              <button id="btnApplyExplorerFilters" class="btn btn-primary" style="flex: 1; height: 38px;">
+                ⚡ Apply Filters
+              </button>
+              <button id="btnResetExplorerFilters" class="btn btn-secondary" style="height: 38px;" title="Reset to default window">
+                ↺ Reset
+              </button>
+            </div>
+          </div>
+
+          <!-- Multi-User Filter Bar -->
+          <div class="user-filter-container" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span style="font-weight: 600; font-size: 0.85rem;">👥 Team Members Filter:</span>
+                <span id="selectedUsersCountTag" class="badge-pill badge-info" style="font-size: 0.75rem;">All selected</span>
+              </div>
+              <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <input type="text" id="explorerUserSearch" class="form-input form-input-sm" placeholder="Search members..." style="width: 180px; padding: 0.25rem 0.5rem; font-size: 0.8rem;">
+                <button id="btnSelectAllUsers" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">Select All</button>
+                <button id="btnDeselectAllUsers" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">Deselect All</button>
+              </div>
+            </div>
+            <div id="explorerUserPills" class="user-pills-container">
+              <!-- Injected by app.js with only configured members in people.json -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Intelligent Summary KPI Bar -->
+      <div class="kpi-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin-bottom: 1.25rem;">
+        <div class="kpi-card" style="padding: 1rem;">
+          <div class="kpi-header"><span class="kpi-title">Selected Users</span><span>👥</span></div>
+          <div class="kpi-value" id="kpiExpUsers" style="font-size: 1.5rem;">-</div>
+          <div class="kpi-subtext">Configured team members</div>
+        </div>
+        <div class="kpi-card" style="padding: 1rem;">
+          <div class="kpi-header"><span class="kpi-title">Working Dates</span><span>📅</span></div>
+          <div class="kpi-value" id="kpiExpWorkingDays" style="font-size: 1.5rem;">-</div>
+          <div class="kpi-subtext" id="kpiExpWorkingDaysSubtext">Excl. weekends</div>
+        </div>
+        <div class="kpi-card" style="padding: 1rem;">
+          <div class="kpi-header"><span class="kpi-title">Expected Tasks</span><span>🎯</span></div>
+          <div class="kpi-value" id="kpiExpExpected" style="font-size: 1.5rem;">-</div>
+          <div class="kpi-subtext">User &times; working days</div>
+        </div>
+        <div class="kpi-card" style="padding: 1rem;">
+          <div class="kpi-header"><span class="kpi-title">Existing / Created</span><span>✅</span></div>
+          <div class="kpi-value" id="kpiExpCreated" style="font-size: 1.5rem; color: var(--success);">-</div>
+          <div class="kpi-subtext" id="kpiExpCoveragePct">0% coverage</div>
+        </div>
+        <div class="kpi-card" style="padding: 1rem;">
+          <div class="kpi-header"><span class="kpi-title">Missing Tasks</span><span>⚠️</span></div>
+          <div class="kpi-value" id="kpiExpMissing" style="font-size: 1.5rem; color: var(--warning);">-</div>
+          <div class="kpi-subtext" id="kpiExpMissingSubtext">-</div>
+        </div>
+        <div class="kpi-card" style="padding: 1rem;">
+          <div class="kpi-header"><span class="kpi-title">Duplicates</span><span>🛡️</span></div>
+          <div class="kpi-value" id="kpiExpDuplicates" style="font-size: 1.5rem;">0</div>
+          <div class="kpi-subtext">Flagged for review</div>
+        </div>
+        <div class="kpi-card" style="padding: 1rem;">
+          <div class="kpi-header"><span class="kpi-title">ADO States</span><span>📊</span></div>
+          <div id="kpiExpStateBadges" style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.35rem;">
+            <span class="badge-pill" style="font-size: 0.72rem;">New: 0</span>
+            <span class="badge-pill" style="font-size: 0.72rem;">Active: 0</span>
+            <span class="badge-pill" style="font-size: 0.72rem;">Closed: 0</span>
+          </div>
+          <div class="kpi-subtext" style="margin-top: 0.35rem;">Live ADO states</div>
+        </div>
+      </div>
+
+      <!-- Controls & View Mode Toggle -->
+      <div class="panel">
+        <div class="panel-header" style="flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <div class="btn-group">
+              <button id="btnViewMatrix" class="btn btn-secondary btn-sm active">
+                📊 Coverage Matrix
+              </button>
+              <button id="btnViewList" class="btn btn-secondary btn-sm">
+                📋 Detailed Task List
+              </button>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <!-- Filter by State -->
+            <select id="explorerStateFilter" class="form-select form-select-sm" style="width: 130px; font-size: 0.8rem;">
+              <option value="all">All States</option>
+              <option value="New">New</option>
+              <option value="Active">Active</option>
+              <option value="Closed">Closed</option>
+              <option value="Resolved">Resolved</option>
+            </select>
+
+            <!-- Filter by Status -->
+            <select id="explorerStatusFilter" class="form-select form-select-sm" style="width: 140px; font-size: 0.8rem;">
+              <option value="all">All Statuses</option>
+              <option value="CREATED">Created Only</option>
+              <option value="MISSING">Missing Only</option>
+              <option value="DUPLICATE">Duplicates Only</option>
+            </select>
+
+            <button id="btnCreateMissingInRange" class="btn btn-primary btn-sm">
+              🚀 Create Missing Tasks
+            </button>
+          </div>
+        </div>
+
+        <!-- View A: Coverage Matrix -->
+        <div id="explorerMatrixView" class="panel-body" style="padding: 0;">
+          <div class="matrix-container">
+            <table class="matrix-table" id="explorerMatrixTable">
+              <thead>
+                <tr id="explorerMatrixHeaderRow">
+                  <th style="min-width: 180px; position: sticky; left: 0; z-index: 3; background: var(--bg-surface);">Team Member</th>
+                  <!-- Injected Dates -->
+                </tr>
+              </thead>
+              <tbody id="explorerMatrixBody">
+                <tr>
+                  <td colspan="10" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+                    Loading Task Explorer data from Azure DevOps...
+                  </td>
+                </tr>
+              </tbody>
+              <tfoot id="explorerMatrixFooter" style="background: var(--bg-surface); font-weight: 600;">
+                <!-- Injected summary row -->
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <!-- View B: Detailed Task List -->
+        <div id="explorerListView" class="panel-body" style="padding: 0; display: none;">
+          <div style="padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+            <input type="text" id="explorerListSearch" class="form-input form-input-sm" placeholder="🔍 Search by Title, Task ID, or Assignee..." style="max-width: 350px;">
+            <div id="explorerListCountTag" style="font-size: 0.825rem; color: var(--text-muted);">Showing 0 items</div>
+          </div>
+          <div class="matrix-container">
+            <table class="matrix-table" id="explorerListTable">
+              <thead>
+                <tr>
+                  <th data-sort="date" style="cursor: pointer;">Date ↕</th>
+                  <th data-sort="user" style="cursor: pointer;">Assignee ↕</th>
+                  <th data-sort="id" style="cursor: pointer;">Task ID ↕</th>
+                  <th>Title</th>
+                  <th data-sort="state" style="cursor: pointer;">State ↕</th>
+                  <th data-sort="created" style="cursor: pointer;">Created On ↕</th>
+                  <th>Status</th>
+                  <th style="text-align: right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="explorerListBody">
+                <!-- Injected rows -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- TAB 3: TEAM MANAGEMENT -->
+    <section id="tab-team" class="tab-pane">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>👥 Team Members (people.json)</span>
+          </div>
+          <button id="btnAddPerson" class="btn btn-primary btn-sm">
+            ➕ Add Team Member
+          </button>
+        </div>
+        <div class="panel-body" style="padding: 0;">
+          <table class="matrix-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Assigned Identity (Email / UPN)</th>
+                <th>POD / Team</th>
+                <th>Role</th>
+                <th>Source Task Override</th>
+                <th>Status</th>
+                <th style="text-align: right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="teamTableBody">
+              <!-- Injected by app.js -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: DAILY BURNDOWN MATRIX -->
+    
+    <!-- TAB: ACTIVITY & AUDIT -->
+    <section id="tab-audit" class="tab-pane">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>📜 Activity &amp; Audit Timeline</span>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <a href="/api/journal/export?format=csv" download="task-journal.csv" class="btn btn-secondary btn-sm" style="text-decoration: none;">
+              📥 Export CSV
+            </a>
+            <a href="/api/journal/export?format=json" download="task-journal.json" class="btn btn-secondary btn-sm" style="text-decoration: none;">
+              📥 Export JSON
+            </a>
+          </div>
+        </div>
+        <div class="panel-body">
+           <div class="table-container">
+             <table class="data-table">
+               <thead>
+                 <tr>
+                   <th>Timestamp</th>
+                   <th>Operation</th>
+                   <th>Status</th>
+                   <th>User</th>
+                   <th>Work Item ID</th>
+                   <th>Details</th>
+                 </tr>
+               </thead>
+               <tbody id="auditListBody">
+                 <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Loading audit logs...</td></tr>
+               </tbody>
+             </table>
+           </div>
+        </div>
+      </div>
+    </section>
+
+<section id="tab-settings" class="tab-pane">
+      <div class="panel" style="max-width: 680px; margin: 0 auto;">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>⚙️ Configuration &amp; Azure DevOps Connection</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <form id="settingsForm">
+            <div class="form-group">
+              <label class="form-label">Personal Access Token (PAT)</label>
+              <div style="display: flex; gap: 0.5rem;">
+                <input type="password" id="settingPat" class="form-input" placeholder="Enter new PAT or leave blank to keep current">
+                <button type="button" id="btnTogglePatVisibility" class="btn btn-secondary" title="Show/Hide PAT text" style="padding: 0 0.75rem;">
+                  👁️
+                </button>
+                <button type="button" id="btnSavePat" class="btn btn-secondary" style="white-space: nowrap;">
+                  🔑 Update PAT
+                </button>
+              </div>
+              <small id="patStatusHint" style="color: var(--text-muted); display: block; margin-top: 0.35rem;">
+                Status: Checking...
+              </small>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Azure DevOps Organization</label>
+              <input type="text" id="settingOrg" class="form-input" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Project Name</label>
+              <input type="text" id="settingProject" class="form-input" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Timezone</label>
+              <input type="text" id="settingTimezone" class="form-input" value="Asia/Kolkata" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Thursday Rolling Window Mode</label>
+              <select id="settingThursdayMode" class="form-select">
+                <option value="CURRENT">CURRENT (Ends today when running on Thursday)</option>
+                <option value="FOLLOWING">FOLLOWING (Includes following week Thursday)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Task Start Time</label>
+              <input type="text" id="settingStartTime" class="form-input" value="09:30" required>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+              <button type="button" id="btnTestConn" class="btn btn-secondary">
+                🔌 Test Connection
+              </button>
+              <button type="submit" class="btn btn-primary">
+                💾 Save Settings
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Live Execution Drawer / Terminal Console -->
+  <div id="executionDrawer" class="drawer">
+    <div class="drawer-header">
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <span style="font-weight: 600;">⚡ Task Creation Execution Console</span>
+        <span id="drawerStatusPill" class="badge-pill badge-connected">Active</span>
+      </div>
+      <button id="btnCloseDrawer" class="btn-icon" style="width: 28px; height: 28px;">✕</button>
+    </div>
+    <div id="drawerBody" class="drawer-body">
+      <!-- Injected terminal logs -->
+    </div>
+  </div>
+
+  <!-- Add / Edit Person Modal -->
+  <div id="personModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title" id="personModalTitle">Add Team Member</h3>
+        <button class="btn-icon" id="btnClosePersonModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="personForm">
+          <input type="hidden" id="editPersonIndex">
+          <div class="form-group">
+            <label class="form-label">Display Name *</label>
+            <input type="text" id="personNameInput" class="form-input" placeholder="e.g. Rahul Sharma" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Assigned Identity (Email / UPN) *</label>
+            <input type="email" id="personEmailInput" class="form-input" placeholder="e.g. rahul.sharma@bajajfinserv.in" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">POD / Team Name</label>
+            <input type="text" id="personPodInput" class="form-input" placeholder="e.g. 101_EMI Card Insurance">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Role</label>
+            <input type="text" id="personRoleInput" class="form-input" placeholder="e.g. Software Engineer">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Source Task ID Override (Optional)</label>
+            <input type="number" id="personSourceIdInput" class="form-input" placeholder="e.g. 10647986">
+            <small style="color: var(--text-muted);">Leave empty to automatically discover latest dated task.</small>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="btnCancelPersonModal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btnSavePerson">Save Member</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Date-Wise Inspection Modal -->
+  <div id="dateInspectModal" class="modal-overlay">
+    <div class="modal-card" style="max-width: 600px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="dateInspectTitle">Date Details</h3>
+        <button class="btn-icon" id="btnCloseDateInspectModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="dateInspectSummary" style="margin-bottom: 1rem; display: flex; gap: 0.75rem; flex-wrap: wrap;">
+          <!-- Injected metrics -->
+        </div>
+        <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem; letter-spacing: 0.5px;">
+          Created Tasks
+        </h4>
+        <div id="dateInspectCreatedList" style="margin-bottom: 1.25rem;">
+          <!-- Injected items -->
+        </div>
+        <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem; letter-spacing: 0.5px;">
+          Missing Tasks
+        </h4>
+        <div id="dateInspectMissingList">
+          <!-- Injected items -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="btnCloseDateInspectBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- User-Wise Inspection Modal -->
+  <div id="userInspectModal" class="modal-overlay">
+    <div class="modal-card" style="max-width: 650px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="userInspectTitle">User Details</h3>
+        <button class="btn-icon" id="btnCloseUserInspectModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="userInspectSummary" style="margin-bottom: 1rem; display: flex; gap: 0.75rem; flex-wrap: wrap;">
+          <!-- Injected metrics -->
+        </div>
+        <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem; letter-spacing: 0.5px;">
+          Date Coverage Breakdown
+        </h4>
+        <div id="userInspectTimeline" style="max-height: 380px; overflow-y: auto;">
+          <!-- Injected items -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="btnCloseUserInspectBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirmation Modal -->
+  <div id="confirmModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Confirm Task Creation in Azure DevOps</h3>
+        <button class="btn-icon" id="btnCloseConfirmModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom: 1rem;">
+          You are about to create the following work items in project <strong>3in1_Agile_Projects</strong>:
+        </p>
+        <ul id="confirmTaskList" style="padding-left: 1.25rem; font-size: 0.9rem; color: var(--text-secondary); line-height: 1.7;">
+          <!-- Injected items -->
+        </ul>
+        <div style="background: var(--warning-light); border: 1px solid var(--warning-border); padding: 0.75rem; border-radius: var(--radius-sm); margin-top: 1rem; font-size: 0.825rem; color: var(--warning);">
+          ⚠️ Work items will be created with State <strong>New</strong> and Start Time <strong>09:30 AM</strong>. All existing parent user stories and dependencies will be preserved.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="btnCancelConfirmModal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btnConfirmExecute">🚀 Confirm &amp; Create Tasks</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

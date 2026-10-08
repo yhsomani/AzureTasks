@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+dist/
+
+# Environment files and credentials (NEVER COMMIT)
+.env
+.env.local
+.env.*.local
+*.pat
+*.key
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Test coverage
+coverage/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Task Creator Local State (Locks & Non-Authoritative Journals)
+.task-creator.lock
+.task-journal.json
+.scheduler-state.json
