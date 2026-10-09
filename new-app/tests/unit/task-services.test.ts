@@ -17,6 +17,14 @@ const sourceItem: WorkItem = {
     'System.IterationPath': 'Proj\\Sprint1',
     'Microsoft.VSTS.Scheduling.OriginalEstimate': 4,
     'Microsoft.VSTS.Scheduling.CompletedWork': 3,
+    'Microsoft.VSTS.Scheduling.TargetDate': '2026-10-20T00:00:00Z',
+    'System.Watermark': 999,
+    'System.TeamProject': 'Proj',
+    'System.AreaId': 12,
+    'System.IterationId': 34,
+    'System.RevisedDate': '2026-10-01T00:00:00Z',
+    'System.BoardColumn': 'Doing',
+    'System.Reason': 'New',
     'Custom.MyField': 'should-not-copy',
     'WEF_ABC': 'should-not-copy',
     'Company.CustomNote': 'keep-me',
@@ -74,6 +82,18 @@ describe('FieldCopyService: buildFieldPatchOperations', () => {
     expect(paths).not.toContain('/fields/System.Id');
     expect(paths).not.toContain('/fields/System.CreatedDate');
     expect(paths).not.toContain('/fields/System.ChangedBy');
+  });
+
+  it('does NOT copy read-only system fields (would be rejected by Azure)', () => {
+    const paths = ops.map(o => o.path);
+    for (const f of [
+      'System.Watermark', 'System.TeamProject', 'System.AreaId', 'System.IterationId',
+      'System.RevisedDate', 'System.PersonId', 'System.NodeName', 'System.Reason',
+      'System.BoardColumn', 'System.BoardColumnDone', 'System.BoardLane',
+      'Microsoft.VSTS.Scheduling.TargetDate',
+    ]) {
+      expect(paths).not.toContain(`/fields/${f}`);
+    }
   });
 
   it('skips custom/WEF prefixed fields but copies other custom fields', () => {

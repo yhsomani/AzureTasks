@@ -56,7 +56,7 @@ export interface WorkItemRepository {
     personIdentity: string,
     startDate: string,
     endDate: string
-  ): Promise<Map<string, { id: number; title: string; isoDate: string }>>;
+  ): Promise<Map<string, { id: number; title: string; isoDate: string; count?: number }>>;
 
   /**
    * Get a work item by ID

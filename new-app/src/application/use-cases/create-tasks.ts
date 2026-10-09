@@ -3,6 +3,7 @@
  * Orchestrates the complete task creation workflow for one or more people
  */
 
+import * as readline from 'node:readline/promises';
 import { WorkItemRepository, JournalRepository, LockRepository, AppConfig } from '../../domain/ports/repositories.js';
 import { Person, PersonConfig } from '../../domain/entities/person.js';
 import { 
@@ -132,7 +133,9 @@ export class CreateTasksUseCase {
       validateNotPastDate(configuredTodayIso, actualTodayIso);
       
       const todayIso = configuredTodayIso;
-      const nextThursdayIso = this.datePlanning.getNextThursdayIso(todayIso, input.thursdayMode ?? this.config.thursdayMode);
+      // Effective window mode: request override wins over persisted config.
+      const thursdayMode = input.thursdayMode ?? this.config.thursdayMode;
+      const nextThursdayIso = this.datePlanning.getNextThursdayIso(todayIso, thursdayMode, this.config.stopDayOfWeek);
 
       onProgress?.({ type: 'progress', message: 'Discovering source tasks...', timestamp: new Date().toISOString() });
 
@@ -147,13 +150,13 @@ export class CreateTasksUseCase {
       );
 
       // Build execution plans
-      const plans = await this.buildPlans(people, discoveredTasks, todayIso, nextThursdayIso);
+      const plans = await this.buildPlans(people, discoveredTasks, todayIso, thursdayMode);
 
       // Get existing tasks for duplicate detection
       await this.populateDuplicateMaps(people, todayIso, nextThursdayIso);
 
       // Recalculate plans with duplicate info
-      const finalPlans = this.recalculatePlans(plans, todayIso, nextThursdayIso);
+      const finalPlans = this.recalculatePlans(plans, todayIso, thursdayMode);
 
       // Dry run - just return plans
       if (input.dryRun) {
@@ -234,8 +237,9 @@ export class CreateTasksUseCase {
     people: Person[],
     discoveredTasks: Map<string, DiscoveredTask>,
     todayIso: string,
-    nextThursdayIso: string
+    thursdayMode: 'CURRENT' | 'FOLLOWING'
   ): Promise<PersonExecutionPlan[]> {
+    const nextThursdayIso = this.datePlanning.getNextThursdayIso(todayIso, thursdayMode, this.config.stopDayOfWeek);
     const plans: PersonExecutionPlan[] = [];
 
     for (const person of people) {
@@ -258,9 +262,8 @@ export class CreateTasksUseCase {
         person,
         discovered,
         todayIso,
-        nextThursdayIso,
         this.config.titlePrefix,
-        this.config.thursdayMode,
+        thursdayMode,
         this.config.skipWeekends,
         this.config.stopDayOfWeek,
         this.duplicateDetector
@@ -311,7 +314,7 @@ export class CreateTasksUseCase {
     }
   }
 
-  private recalculatePlans(plans: PersonExecutionPlan[], todayIso: string, nextThursdayIso: string): PersonExecutionPlan[] {
+  private recalculatePlans(plans: PersonExecutionPlan[], todayIso: string, thursdayMode: 'CURRENT' | 'FOLLOWING'): PersonExecutionPlan[] {
     return plans.map(plan => {
       if (!plan.sourceTask) return plan;
       
@@ -319,9 +322,8 @@ export class CreateTasksUseCase {
         plan.person,
         plan.sourceTask,
         todayIso,
-        nextThursdayIso,
         this.config.titlePrefix,
-        this.config.thursdayMode,
+        thursdayMode,
         this.config.skipWeekends,
         this.config.stopDayOfWeek,
         this.duplicateDetector
@@ -424,7 +426,6 @@ export class CreateTasksUseCase {
           item.status = 'FAILED';
           item.errorMessage = error instanceof Error ? error.message : String(error);
           failedTasks.push(item);
-          relsProcessed++;
 
           onProgress?.({
             type: 'task_failed',
@@ -555,9 +556,20 @@ export class CreateTasksUseCase {
   }
 
   private async promptConfirm(message: string): Promise<boolean> {
-    // In a real CLI, this would use a proper prompt library
-    // For now, we'll simulate with a simple check
-    // The actual CLI layer will handle this properly
-    return true;
+    // Automation (API/daemon) always passes yes:true, so this only runs for an
+    // interactive CLI `run` without --yes. Refuse rather than silently proceed
+    // when there is no TTY to read from.
+    if (!process.stdin.isTTY) {
+      console.log('No interactive terminal detected. Re-run with --yes to confirm non-interactively.');
+      return false;
+    }
+
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      const answer = (await rl.question(`${message} [y/N] `)).trim().toLowerCase();
+      return answer === 'y' || answer === 'yes';
+    } finally {
+      rl.close();
+    }
   }
 }

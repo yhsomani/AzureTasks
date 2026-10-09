@@ -26,7 +26,7 @@ export interface DatePlanInput {
   todayIso: string;
   latestExistingTaskIso: string;
   latestExistingTaskId: number;
-  existingTasksMap: Map<string, { id: number; title: string; isoDate: string }>;
+  existingTasksMap: Map<string, { id: number; title: string; isoDate: string; count?: number }>;
   titlePrefix: string;
   thursdayMode: 'CURRENT' | 'FOLLOWING';
   skipWeekends: boolean;
@@ -68,14 +68,20 @@ export function addDays(isoDate: string, days: number): string {
 }
 
 /**
- * Get the next Thursday from a given date, UTC-safe
+ * Get the next stop day (default: Thursday) from a given date, UTC-safe.
+ * `stopDayOfWeek` is 0=Sun … 6=Sat and lets callers honour a configured
+ * window end other than Thursday.
  */
-export function getNextThursdayIso(fromIso: string, mode: 'CURRENT' | 'FOLLOWING'): string {
-  const from = new Date(fromIso + 'T00:00:00Z');
-  const day = from.getUTCDay(); // 0=Sun, 4=Thu
-  let daysUntilThursday = (4 - day + 7) % 7;
-  if (mode === 'FOLLOWING' && day === 4) daysUntilThursday = 7; // already Thursday -> next week
-  return addDays(fromIso, daysUntilThursday);
+export function getNextThursdayIso(
+  fromIso: string,
+  mode: 'CURRENT' | 'FOLLOWING',
+  stopDayOfWeek: number = 4
+): string {
+  const target = ((Math.trunc(stopDayOfWeek) % 7) + 7) % 7;
+  const day = getDayOfWeek(fromIso);
+  let daysUntilStopDay = (target - day + 7) % 7;
+  if (mode === 'FOLLOWING' && day === target) daysUntilStopDay = 7; // already the stop day -> next week
+  return addDays(fromIso, daysUntilStopDay);
 }
 
 /**
@@ -122,7 +128,7 @@ export function zonedTimeToUtcIso(isoDate: string, hhmm: string, timeZone: strin
 export function planCreationDates(input: DatePlanInput): DatePlan {
   const { todayIso, latestExistingTaskIso, latestExistingTaskId, existingTasksMap, titlePrefix, thursdayMode, skipWeekends, stopDayOfWeek } = input;
 
-  const nextThursdayIso = getNextThursdayIso(todayIso, thursdayMode);
+  const nextThursdayIso = getNextThursdayIso(todayIso, thursdayMode, stopDayOfWeek);
   const plannedDates: PlannedDate[] = [];
 
   // If latest existing task is beyond the window, warn
@@ -159,15 +165,15 @@ export function planCreationDates(input: DatePlanInput): DatePlan {
     } else {
       const existing = existingTasksMap.get(currentIso);
       if (existing) {
-        // Check for multiple existing tasks (edge case)
-        // Since existingTasksMap is keyed by date, if there are multiple, 
-        // we'd need a different structure. For now, treat as duplicate.
+        const multiple = (existing.count ?? 1) > 1;
         plannedDates.push({
           isoDate: currentIso,
           formattedTitleDate: formatTitleDate(currentIso),
           fullTitle: `${titlePrefix} ${formatTitleDate(currentIso)}`,
-          status: 'DUPLICATE_ALREADY_EXISTS',
-          skipReason: `Task already exists (#${existing.id})`,
+          status: multiple ? 'MULTIPLE_EXISTING_TASKS' : 'DUPLICATE_ALREADY_EXISTS',
+          skipReason: multiple
+            ? `${existing.count} tasks already exist for this date`
+            : `Task already exists (#${existing.id})`,
         });
       } else {
         plannedDates.push({

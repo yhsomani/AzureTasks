@@ -7,6 +7,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ConfigRepository, AppConfig, PersonConfig } from '../../domain/ports/repositories.js';
 
+const STOP_DAY_NAMES: Record<string, number> = {
+  SUNDAY: 0, MONDAY: 1, TUESDAY: 2, WEDNESDAY: 3,
+  THURSDAY: 4, FRIDAY: 5, SATURDAY: 6,
+};
+
 export class FileConfigRepository implements ConfigRepository {
   private readonly configPath: string;
   private readonly envPath: string;
@@ -40,8 +45,9 @@ export class FileConfigRepository implements ConfigRepository {
         delete overrides.people;
       }
 
-      const stopDayOfWeek = parsed.stopDay?.toUpperCase() === 'THURSDAY'
-        ? 4
+      const namedStopDay = STOP_DAY_NAMES[String(parsed.stopDay ?? '').toUpperCase()];
+      const stopDayOfWeek = namedStopDay !== undefined
+        ? namedStopDay
         : typeof parsed.stopDayOfWeek === 'number'
           ? parsed.stopDayOfWeek
           : defaultConfig.stopDayOfWeek;

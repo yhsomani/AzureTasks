@@ -72,8 +72,11 @@ export class FileJournalRepository implements JournalRepository {
 
   async getUnfinishedRelations(): Promise<JournalEntry[]> {
     const entries = await this.getEntries();
-    return entries.filter(e => 
-      e.relationCopyStatus === 'PARTIAL' || e.relationCopyStatus === 'FAILED'
+    // Only entries that actually produced a work item can have missing relations
+    // to repair. A task-creation failure has no target and is not repairable.
+    return entries.filter(e =>
+      e.createdWorkItemId != null &&
+      (e.relationCopyStatus === 'PARTIAL' || e.relationCopyStatus === 'FAILED')
     );
   }
 

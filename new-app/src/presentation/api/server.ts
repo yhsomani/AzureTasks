@@ -48,20 +48,24 @@ export class AppServer {
 
   start(): Promise<number> {
     return new Promise((resolve, reject) => {
+      const onListening = () => {
+        const addr = this.server.address();
+        const actualPort = typeof addr === 'object' && addr ? addr.port : this.port;
+        logger.info(`Web UI running at http://localhost:${actualPort}`);
+        resolve(actualPort);
+      };
+
       this.server.on('error', (err: any) => {
         if (err.code === 'EADDRINUSE') {
           logger.warn(`Port ${this.port} in use, trying ${this.port + 1}...`);
           this.port++;
-          this.server.listen(this.port);
+          this.server.listen(this.port, onListening);
         } else {
           reject(err);
         }
       });
 
-      this.server.listen(this.port, () => {
-        logger.info(`Web UI running at http://localhost:${this.port}`);
-        resolve(this.port);
-      });
+      this.server.listen(this.port, onListening);
     });
   }
 

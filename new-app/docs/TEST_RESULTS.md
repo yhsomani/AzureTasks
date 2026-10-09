@@ -1,21 +1,24 @@
 # Test results
 
 **Command:** `npm test` (`vitest run`)
-**Result:** ✅ **9 files, 76 tests passed** · ~1 s
+**Result:** ✅ **12 files, 104 tests passed** · ~5 s
 
 ```
- ✓ tests/unit/date-window.test.ts      (15 tests)
- ✓ tests/unit/person.test.ts           (10 tests)
- ✓ tests/unit/task-services.test.ts    (14 tests)
- ✓ tests/unit/task-entities.test.ts    ( 8 tests)
- ✓ tests/unit/repositories.test.ts     (12 tests)
- ✓ tests/unit/azure-client.test.ts     ( 4 tests)
- ✓ tests/integration/create-tasks.test.ts   ( 8 tests)
+ ✓ tests/unit/date-window.test.ts            (18 tests)
+ ✓ tests/unit/person.test.ts                 (10 tests)
+ ✓ tests/unit/task-services.test.ts          (15 tests)
+ ✓ tests/unit/task-entities.test.ts          ( 9 tests)
+ ✓ tests/unit/repositories.test.ts           (13 tests)
+ ✓ tests/unit/azure-client.test.ts           ( 6 tests)
+ ✓ tests/unit/config-use-cases.test.ts       ( 6 tests)
+ ✓ tests/unit/work-item-service.test.ts      ( 2 tests)
+ ✓ tests/integration/create-tasks.test.ts    (10 tests)
  ✓ tests/integration/repair-relations.test.ts (3 tests)
- ✓ tests/integration/discovery.test.ts      ( 2 tests)
+ ✓ tests/integration/discovery.test.ts        ( 2 tests)
+ ✓ tests/integration/api-routes.test.ts      (10 tests)
 
- Test Files  9 passed (9)
-      Tests  76 passed (76)
+ Test Files  12 passed (12)
+      Tests  104 passed (104)
 ```
 
 ## What is covered
@@ -26,8 +29,11 @@
 | Person entity | `createPersonKey`, `normalizeIdentity`, identity matching, enable/disable |
 | Task entities | `parseTitleDate` (incl. trailing-pipe prefix), relation whitelist/blacklist, dedupe |
 | Domain services | `DuplicateDetector` (person+date scoping), `FieldCopyService` overrides/exclusions, `DatePlanningService` |
-| Adapters | File journal (append/rotation/export), file lock (acquire/release/stale-PID reclaim), config load |
-| Azure client | Fail-fast on missing PAT, no retry on 401/403, retry on 5xx, network-error normalization |
+| Adapters | File journal (append/rotation/export/repair), file lock (acquire/release/stale-PID reclaim), config load |
+| Config use-cases | Roster validation (required key, duplicate key/identity), settings validation (IANA timezone, `HH:MM`), live config update |
+| Azure client | Fail-fast on missing PAT, no retry on 401/403, retry on 5xx, network-error normalization, live org/PAT read |
+| Work-item discovery | `getExistingTasksForPerson`: multiple tasks per date counted, timezone-widened StartDate bound |
+| API routes | Real ephemeral HTTP server: health/status, plan (default-all + 400 path), execute (progress + `yes`), journal list/export, scheduler toggle, SSE headers, SPA served |
 | Create flow | Full `CreateTasksUseCase` with in-memory fakes: multi-person, duplicate skip, failure isolation, dry-run, output aggregation |
 | Discovery mapping | Regression: Azure identity → `person.key` mapping + default-source fallback |
 | Repair | `RelationCopyService.repairRelations` (idempotent missing-only copy), `FileJournalRepository.markRepaired`, `RepairRelationsUseCase` (isolation, skip, journal update) |
@@ -47,6 +53,17 @@
    and a missing PAT failed after ~10 s with "fetch failed".
    `tests/unit/azure-client.test.ts` asserts fail-fast behavior and clear
    messages.
+5. **Read-only field copy bug** — copying derived fields such as
+   `System.Watermark`, `System.TeamProject`, `System.AreaId` or
+   `Microsoft.VSTS.Scheduling.TargetDate` made Azure reject the create patch.
+   `tests/unit/task-services.test.ts` asserts they are never emitted.
+6. **Ignored stop-day bug** — `stopDayOfWeek` was persisted and validated but
+   never used, so the window always ended on Thursday. It is now threaded
+   through `getNextThursdayIso`/`planCreationDates`/the use-cases, with tests
+   for a non-Thursday window end and the request-level `thursdayMode` override.
+7. **Silent January bug** — `parseTitleDate` mapped an unknown month
+   abbreviation to January (`?? 0`). It now returns invalid, so a malformed
+   title is skipped rather than dated wrongly.
 
 ## Coverage
 
@@ -54,18 +71,18 @@
 
 | Layer | % Stmts | % Branch | % Funcs |
 |---|---|---|---|
-| **All files** | 49.6 | 72.2 | 80.0 |
-| `domain` (incl. value-objects) | 98–100 | 88–100 | 100 |
-| `domain/services` | 97.4 | 87.5 | 90.5 |
-| `application/use-cases` | 63.5 | 65.1 | 77.8 |
-| `infrastructure` | 18–88 | 62–68 | 43–100 |
-| `presentation` | 0 | 0 | 0 |
+| **All files** | 72.5 | 72.6 | 79.9 |
+| `domain` (incl. value-objects) | 100 | 97–100 | 100 |
+| `domain/services` | 97.7 | 85.4 | 90.9 |
+| `application/use-cases` | 74.0 | 68.9 | 80.8 |
+| `presentation/api` | 71.6 | 57.1 | 100 |
+| `infrastructure` | 34–88 | 53–88 | 46–100 |
 
 **Interpretation:** the pure business logic — where correctness matters most —
-is fully covered. Infrastructure adapters and HTTP routes are exercised by the
-end-to-end smoke test (server boot + `/api/*` responses + DOM render) rather
-than unit tests, because they are thin I/O wrappers over the tested ports. This
-is a deliberate trade-off, not a gap in the rules engine.
+is fully covered, and the HTTP layer is now covered by route smoke tests over a
+real ephemeral server. Infrastructure adapters remain thinner (I/O wrappers over
+the tested ports) and are exercised by end-to-end smoke runs. This is a
+deliberate trade-off, not a gap in the rules engine.
 
 ## How to reproduce
 

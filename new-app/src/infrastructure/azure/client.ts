@@ -5,7 +5,7 @@
 
 export interface AzureClientConfig {
   organization: string;
-  pat: string;
+  pat?: string;
   baseUrl?: string;
   maxRetries?: number;
   initialRetryDelayMs?: number;
@@ -27,23 +27,36 @@ class AzureClientError extends Error {
 }
 
 export class AzureDevOpsClient {
-  readonly organization: string;
-  private readonly pat: string;
-  readonly baseUrl: string;
-  private readonly maxRetries: number;
-  private readonly initialRetryDelayMs: number;
-  private readonly authHeader: string;
+  constructor(private readonly config: AzureClientConfig) {}
 
-  constructor(config: AzureClientConfig) {
-    this.organization = config.organization;
-    this.pat = config.pat;
-    this.baseUrl = config.baseUrl || 'https://dev.azure.com';
-    this.maxRetries = config.maxRetries ?? 3;
-    this.initialRetryDelayMs = config.initialRetryDelayMs ?? 1000;
-    
+  /** Read live so a settings change applies without rebuilding the client. */
+  get organization(): string {
+    return this.config.organization;
+  }
+
+  /**
+   * Constructor PAT wins when explicitly provided (including empty string);
+   * otherwise fall back to the environment so a runtime-saved PAT applies.
+   */
+  private get pat(): string {
+    return this.config.pat ?? process.env.AZURE_DEVOPS_PAT?.trim() ?? '';
+  }
+
+  get baseUrl(): string {
+    return this.config.baseUrl || 'https://dev.azure.com';
+  }
+
+  private get maxRetries(): number {
+    return this.config.maxRetries ?? 3;
+  }
+
+  private get initialRetryDelayMs(): number {
+    return this.config.initialRetryDelayMs ?? 1000;
+  }
+
+  private get authHeader(): string {
     // Basic auth: PAT as password, empty username
-    const credentials = Buffer.from(`:${this.pat}`).toString('base64');
-    this.authHeader = `Basic ${credentials}`;
+    return `Basic ${Buffer.from(`:${this.pat}`).toString('base64')}`;
   }
 
   /**

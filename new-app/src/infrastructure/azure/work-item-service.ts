@@ -10,7 +10,8 @@ import {
   DiscoveredTask, 
   Person, 
   CreatedTask,
-  parseTitleDate
+  parseTitleDate,
+  addDays
 } from '../../domain/index.js';
 
 interface WiqlQueryResult {
@@ -210,15 +211,18 @@ export class AzureWorkItemService implements WorkItemRepository {
     personIdentity: string,
     startDate: string,
     endDate: string
-  ): Promise<Map<string, { id: number; title: string; isoDate: string }>> {
+  ): Promise<Map<string, { id: number; title: string; isoDate: string; count?: number }>> {
+    // StartDate is stored as the UTC instant of 09:30 local; in timezones ahead
+    // of UTC that instant lands on the previous UTC day. Filter one day wider
+    // than the window and key the result by the title date so nothing is missed.
     const wiql = `
       SELECT [System.Id], [System.Title], [Microsoft.VSTS.Scheduling.StartDate]
       FROM WorkItems
       WHERE [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
         AND [System.Title] LIKE '${this.escapeWiql(titlePrefix)}%'
         AND [System.AssignedTo] = '${this.escapeWiql(personIdentity)}'
-        AND [Microsoft.VSTS.Scheduling.StartDate] >= '${startDate}'
-        AND [Microsoft.VSTS.Scheduling.StartDate] <= '${endDate}'
+        AND [Microsoft.VSTS.Scheduling.StartDate] >= '${addDays(startDate, -1)}'
+        AND [Microsoft.VSTS.Scheduling.StartDate] < '${addDays(endDate, 1)}'
         AND [System.State] <> 'Removed'
       ORDER BY [Microsoft.VSTS.Scheduling.StartDate] ASC
     `;
@@ -228,7 +232,7 @@ export class AzureWorkItemService implements WorkItemRepository {
       { query: wiql }
     );
 
-    const existingMap = new Map<string, { id: number; title: string; isoDate: string }>();
+    const existingMap = new Map<string, { id: number; title: string; isoDate: string; count?: number }>();
     
     if (result.workItems && result.workItems.length > 0) {
       const ids = result.workItems.map(w => w.id).join(',');
@@ -237,11 +241,17 @@ export class AzureWorkItemService implements WorkItemRepository {
       );
 
       for (const workItem of batchResult.value || []) {
-        const startDate = workItem.fields['Microsoft.VSTS.Scheduling.StartDate'];
         const title = workItem.fields['System.Title'];
-        if (startDate && title) {
-          const isoDate = startDate.split('T')[0];
-          existingMap.set(isoDate, { id: workItem.id, title, isoDate });
+        if (!title) continue;
+        // Derive the date from the title, not the UTC StartDate instant, so the
+        // map key matches the planned local date regardless of timezone offset.
+        const parsed = parseTitleDate(title, titlePrefix);
+        if (!parsed.isValid) continue;
+        const existing = existingMap.get(parsed.isoDate);
+        if (existing) {
+          existing.count = (existing.count ?? 1) + 1;
+        } else {
+          existingMap.set(parsed.isoDate, { id: workItem.id, title, isoDate: parsed.isoDate, count: 1 });
         }
       }
     }

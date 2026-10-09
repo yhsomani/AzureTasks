@@ -3,7 +3,7 @@
  * Manages background scheduled execution at 09:30 in the configured timezone.
  */
 
-import { SchedulerRepository, SchedulerStatus } from '../../domain/ports/repositories.js';
+import { SchedulerRepository, SchedulerStatus, AppConfig } from '../../domain/ports/repositories.js';
 import { addDays, getDayOfWeek, zonedTimeToUtcIso } from '../../domain/value-objects/date-window.js';
 import { logger } from '../logging/logger.js';
 
@@ -11,18 +11,21 @@ export class NodeSchedulerRepository implements SchedulerRepository {
   private timer: NodeJS.Timeout | null = null;
   private status: SchedulerStatus;
   private scheduleFn: (() => Promise<void>) | null = null;
-  private readonly runTime: string;
+  private timezoneOverride?: string;
 
   constructor(
-    private readonly defaultTimezone: string = 'Asia/Kolkata',
-    runTime: string = '09:30'
+    private readonly config: Pick<AppConfig, 'timezone' | 'startTime'> = { timezone: 'Asia/Kolkata', startTime: '09:30' }
   ) {
-    this.runTime = runTime;
-    this.status = { running: false, timezone: defaultTimezone };
+    this.status = { running: false, timezone: config.timezone };
+  }
+
+  /** Live timezone: an explicit setSchedule() call wins over the current config. */
+  private get timezone(): string {
+    return this.timezoneOverride ?? this.config.timezone;
   }
 
   getStatus(): SchedulerStatus {
-    return { ...this.status };
+    return { ...this.status, timezone: this.timezone };
   }
 
   start(): void {
@@ -30,7 +33,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
 
     this.status.running = true;
     this.scheduleDaily();
-    logger.info(`Scheduler started. Next run: ${this.status.nextRun} (${this.status.timezone}).`);
+    logger.info(`Scheduler started. Next run: ${this.status.nextRun} (${this.timezone}).`);
   }
 
   stop(): void {
@@ -39,12 +42,13 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       this.timer = null;
     }
     this.status.running = false;
+    this.status.nextRun = undefined;
     logger.info('Scheduler stopped.');
   }
 
-  setSchedule(cron: string, timezone: string): void {
-    // ponytail: fixed 09:30 daily schedule; parse cron only if multiple schedules are ever needed.
-    this.status.timezone = timezone;
+  setSchedule(_cron: string, timezone: string): void {
+    // ponytail: fixed daily schedule; parse cron only if multiple schedules are ever needed.
+    this.timezoneOverride = timezone;
     this.restartIfRunning();
   }
 
@@ -77,7 +81,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
    * Next weekday 09:30 wall-clock instant in the configured timezone.
    */
   private getNextRunTime(from: Date): Date {
-    const tz = this.status.timezone;
+    const tz = this.timezone;
     let dateIso = new Intl.DateTimeFormat('en-CA', {
       timeZone: tz,
       year: 'numeric',
@@ -86,7 +90,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     }).format(from);
 
     for (let i = 0; i < 8; i++) {
-      const target = new Date(zonedTimeToUtcIso(dateIso, this.runTime, tz));
+      const target = new Date(zonedTimeToUtcIso(dateIso, this.config.startTime, tz));
       const dow = getDayOfWeek(dateIso); // 0=Sun, 6=Sat
       const isWeekend = dow === 0 || dow === 6;
       if (target.getTime() > from.getTime() && !isWeekend) return target;

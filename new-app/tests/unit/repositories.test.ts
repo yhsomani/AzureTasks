@@ -5,6 +5,7 @@ import * as path from 'path';
 import { FileLockRepository } from '../../src/infrastructure/lock/file-lock-repo';
 import { FileJournalRepository } from '../../src/infrastructure/journal/file-journal-repo';
 import { FileConfigRepository } from '../../src/infrastructure/config/file-config-repo';
+import { NodeSchedulerRepository } from '../../src/infrastructure/scheduler/node-scheduler-repo';
 import { JournalEntry } from '../../src/domain/ports/repositories';
 
 let dir: string;
@@ -74,13 +75,19 @@ describe('FileJournalRepository', () => {
       });
   });
 
-  it('finds unfinished relation copies', async () => {
+  it('finds unfinished relation copies that have a created work item', async () => {
     const journal = new FileJournalRepository(path.join(dir, '.journal.json'));
-    await journal.record(entry({ relationCopyStatus: 'SUCCESS' }));
-    await journal.record(entry({ relationCopyStatus: 'PARTIAL' }));
-    await journal.record(entry({ relationCopyStatus: 'FAILED' }));
+    await journal.record(entry({ relationCopyStatus: 'SUCCESS', createdWorkItemId: 1 }));
+    await journal.record(entry({ relationCopyStatus: 'PARTIAL', createdWorkItemId: 2 }));
+    await journal.record(entry({ relationCopyStatus: 'FAILED', createdWorkItemId: 3 }));
     const unfinished = await journal.getUnfinishedRelations();
     expect(unfinished).toHaveLength(2);
+  });
+
+  it('does not treat a task-creation failure (no work item) as repairable', async () => {
+    const journal = new FileJournalRepository(path.join(dir, '.journal.json'));
+    await journal.record(entry({ relationCopyStatus: 'FAILED', createdWorkItemId: undefined }));
+    expect(await journal.getUnfinishedRelations()).toHaveLength(0);
   });
 
   it('amends an entry after a repair and clears it from the unfinished list', async () => {
@@ -156,5 +163,22 @@ describe('FileConfigRepository', () => {
     await repo.savePeople([{ key: 'p1', name: 'A', assignedTo: 'a@b.com' }]);
     const reloaded = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
     expect(reloaded.people).toHaveLength(1);
+  });
+});
+
+describe('NodeSchedulerRepository', () => {
+  it('reflects timezone changes from the live config', () => {
+    const config = { timezone: 'UTC', startTime: '09:30' };
+    const scheduler = new NodeSchedulerRepository(config);
+    expect(scheduler.getStatus().timezone).toBe('UTC');
+
+    config.timezone = 'Asia/Kolkata';
+    expect(scheduler.getStatus().timezone).toBe('Asia/Kolkata');
+  });
+
+  it('lets an explicit setSchedule timezone override the config', () => {
+    const scheduler = new NodeSchedulerRepository({ timezone: 'UTC', startTime: '09:30' });
+    scheduler.setSchedule('0 9 * * 1-5', 'Europe/London');
+    expect(scheduler.getStatus().timezone).toBe('Europe/London');
   });
 });

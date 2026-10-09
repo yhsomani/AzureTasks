@@ -52,6 +52,15 @@ describe('date-window: getNextThursdayIso', () => {
     // 2026-10-09 is Friday -> 2026-10-15
     expect(getNextThursdayIso('2026-10-09', 'CURRENT')).toBe('2026-10-15');
   });
+
+  it('honors a configured stop day other than Thursday', () => {
+    // 2026-10-05 is Monday; stop on Monday
+    expect(getNextThursdayIso('2026-10-05', 'CURRENT', 1)).toBe('2026-10-05');
+    // Tuesday 2026-10-06 -> next Monday 2026-10-12
+    expect(getNextThursdayIso('2026-10-06', 'CURRENT', 1)).toBe('2026-10-12');
+    // On the stop day, FOLLOWING advances a full week
+    expect(getNextThursdayIso('2026-10-05', 'FOLLOWING', 1)).toBe('2026-10-12');
+  });
 });
 
 describe('date-window: validateNotPastDate', () => {
@@ -123,6 +132,23 @@ describe('date-window: planCreationDates', () => {
     expect(planned).toEqual(['2026-10-06', '2026-10-08']);
   });
 
+  it('marks dates with more than one existing task as MULTIPLE_EXISTING_TASKS', () => {
+    const existing = new Map([
+      ['2026-10-07', { id: 1, title: 'a', isoDate: '2026-10-07', count: 2 }],
+    ]);
+    const plan = planCreationDates({
+      ...base,
+      todayIso: '2026-10-05',
+      latestExistingTaskIso: '2026-10-05',
+      latestExistingTaskId: 1,
+      existingTasksMap: existing,
+    });
+
+    const entry = plan.plannedDates.find(d => d.isoDate === '2026-10-07');
+    expect(entry?.status).toBe('MULTIPLE_EXISTING_TASKS');
+    expect(entry?.skipReason).toMatch(/2 tasks/);
+  });
+
   it('warns when latest task is beyond the window', () => {
     const plan = planCreationDates({
       ...base,
@@ -149,5 +175,20 @@ describe('date-window: planCreationDates', () => {
     });
     const planned = plan.plannedDates.filter(d => d.status === 'PLANNED');
     expect(planned).toHaveLength(0);
+  });
+
+  it('ends the window on the configured stop day, not always Thursday', () => {
+    // Monday 2026-10-05, stop on Wednesday (3) -> window ends 2026-10-07
+    const plan = planCreationDates({
+      ...base,
+      stopDayOfWeek: 3,
+      todayIso: '2026-10-05',
+      latestExistingTaskIso: '',
+      latestExistingTaskId: 0,
+      existingTasksMap: new Map(),
+    });
+    expect(plan.nextThursday).toBe('2026-10-07');
+    expect(plan.plannedDates.filter(d => d.status === 'PLANNED').map(d => d.isoDate))
+      .toEqual(['2026-10-05', '2026-10-06', '2026-10-07']);
   });
 });

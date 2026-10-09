@@ -148,6 +148,12 @@ export function parseTitleDate(title: string, titlePrefix: string): ParsedTaskDa
   const month = monthStrToNumber(monthStr);
   const day = parseInt(dayStr, 10);
   const currentYear = new Date().getFullYear();
+
+  // Reject unknown month abbreviations (e.g. "Foo 8") rather than silently
+  // treating them as January.
+  if (month < 0) {
+    return { isoDate: '', formattedTitleDate: '', year: 0, isValid: false };
+  }
   
   // Try current year first, then previous
   let isoDate = '';
@@ -172,5 +178,5 @@ function monthStrToNumber(month: string): number {
     Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
     Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
   };
-  return months[month] ?? 0;
+  return months[month] ?? -1;
 }

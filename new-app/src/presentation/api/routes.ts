@@ -69,6 +69,9 @@ export function createApiRouter(deps: ApiDependencies): Router {
   router.post('/config/pat', async (req, res) => {
     try {
       const data = await deps.config.savePat(req.body);
+      // Scrub the newly saved PAT from all future log output.
+      const savedPat = typeof req.body?.pat === 'string' ? req.body.pat.trim() : '';
+      if (savedPat) logger.registerSecret(savedPat);
       res.json({ success: true, data });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });

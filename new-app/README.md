@@ -9,7 +9,7 @@ log. Ships as a CLI + web dashboard + weekday scheduler.
   dependencies: `express`, `cors`, `dotenv`.
 - **Architecture:** hexagonal (ports & adapters) — pure domain, application use
   cases, infrastructure adapters, presentation.
-- **Tests:** 76 passing (9 files) — unit + integration with in-memory fakes.
+- **Tests:** 104 passing (12 files) — unit + integration with in-memory fakes.
 
 > Legacy implementation is preserved untouched in [`../Legacy`](../Legacy).
 > See [`docs/LEGACY_RECOVERY.md`](docs/LEGACY_RECOVERY.md).

@@ -9,7 +9,7 @@ import {
   AppConfig,
 } from '../../src/domain/ports/repositories';
 import { WorkItem, DiscoveredTask, CreatedTask, Person } from '../../src/domain/index';
-import { getTodayIso, addDays } from '../../src/domain/value-objects/date-window';
+import { getTodayIso, addDays, getNextThursdayIso } from '../../src/domain/value-objects/date-window';
 
 /** Clock-independent "today" used to build deterministic-but-current fixtures. */
 const TODAY = getTodayIso('UTC');
@@ -19,6 +19,7 @@ const SOURCE_DATE = addDays(TODAY, -1);
 class FakeWorkItemRepo implements WorkItemRepository {
   public created: Array<{ title: string; assignedTo: string }> = [];
   public failTitles = new Set<string>();
+  public lastQueryRange: { startDate: string; endDate: string } | null = null;
   private nextId = 1000;
 
   constructor(
@@ -54,7 +55,10 @@ class FakeWorkItemRepo implements WorkItemRepository {
     return map;
   }
 
-  async getExistingTasksForPerson(): Promise<Map<string, { id: number; title: string; isoDate: string }>> {
+  async getExistingTasksForPerson(
+    _proj: string, _type: string, _t: string, _person: string, startDate: string, endDate: string
+  ): Promise<Map<string, { id: number; title: string; isoDate: string }>> {
+    this.lastQueryRange = { startDate, endDate };
     return this.existingByDate;
   }
 
@@ -177,6 +181,33 @@ describe('CreateTasksUseCase (integration, fake repo)', () => {
     expect(repo.created).toHaveLength(0);
   });
 
+  it('honours the thursdayMode override over persisted config', async () => {
+    // Pick a Thursday strictly in the future so FOLLOWING differs from CURRENT.
+    const thursday = getNextThursdayIso(addDays(TODAY, 7), 'CURRENT');
+    const expected = getNextThursdayIso(thursday, 'FOLLOWING');
+
+    const repo = new FakeWorkItemRepo(true);
+    const out = await new PlanTasksUseCase(repo, config).execute({
+      all: true,
+      asOf: thursday,
+      thursdayMode: 'FOLLOWING',
+    });
+
+    expect(out.nextThursdayIso).toBe(expected);
+    for (const p of out.personPlans) {
+      expect(p.nextThursday).toBe(expected);
+    }
+  });
+
+  it('queries existing tasks up to the configured stop day, not always Thursday', async () => {
+    const fridayConfig: AppConfig = { ...config, stopDay: 'FRIDAY', stopDayOfWeek: 5 };
+    const repo = new FakeWorkItemRepo(true);
+    await new CreateTasksUseCase(repo, journal, lock, fridayConfig)
+      .execute({ all: true, asOf: TODAY, dryRun: true });
+
+    expect(repo.lastQueryRange?.endDate).toBe(getNextThursdayIso(TODAY, 'CURRENT', 5));
+  });
+
   it('isolates failures to a single date and continues', async () => {
     const repo = new FakeWorkItemRepo(true);
     const plan = await new PlanTasksUseCase(repo, config).execute({ all: true, asOf: TODAY });
@@ -192,6 +223,8 @@ describe('CreateTasksUseCase (integration, fake repo)', () => {
     expect(result.totalCreatedCount).toBe(expectedTotal - 2);
     const alice = result.personResults.find(p => p.person.key === 'p1')!;
     expect(['PARTIAL', 'FAILED']).toContain(alice.status);
+    // A failed create processed no relations; only successful creates count.
+    expect(alice.relationsProcessed).toBe(alice.createdTasks.length);
   });
 
   it('reports source failures when a person has no source task', async () => {

@@ -56,7 +56,7 @@ export class TaskDiscoveryService {
     person: Person,
     startDate: string,
     endDate: string
-  ): Promise<Map<string, { id: number; title: string; isoDate: string }>> {
+  ): Promise<Map<string, { id: number; title: string; isoDate: string; count?: number }>> {
     return this.repo.getExistingTasksForPerson(
       project,
       workItemType,
@@ -73,13 +73,13 @@ export class TaskDiscoveryService {
  * Determines if a task already exists for a person on a given date
  */
 export class DuplicateDetector {
-  private personDateMaps: Map<string, Map<string, { id: number; title: string; isoDate: string }>> = new Map();
+  private personDateMaps: Map<string, Map<string, { id: number; title: string; isoDate: string; count?: number }>> = new Map();
 
-  setPersonDateMap(personKey: string, dateMap: Map<string, { id: number; title: string; isoDate: string }>): void {
+  setPersonDateMap(personKey: string, dateMap: Map<string, { id: number; title: string; isoDate: string; count?: number }>): void {
     this.personDateMaps.set(personKey, dateMap);
   }
 
-  getPersonDateMap(person: Person): Map<string, { id: number; title: string; isoDate: string }> {
+  getPersonDateMap(person: Person): Map<string, { id: number; title: string; isoDate: string; count?: number }> {
     return this.personDateMaps.get(person.getRunKey()) ?? new Map();
   }
 
@@ -92,7 +92,7 @@ export class DuplicateDetector {
     return dateMap.has(isoDate);
   }
 
-  getExistingTask(person: Person, isoDate: string): { id: number; title: string; isoDate: string } | undefined {
+  getExistingTask(person: Person, isoDate: string): { id: number; title: string; isoDate: string; count?: number } | undefined {
     const dateMap = this.getPersonDateMap(person);
     return dateMap.get(isoDate);
   }
@@ -164,21 +164,36 @@ export class FieldCopyService {
       ops.push({ op: 'add', path: '/fields/System.IterationPath', value: iterationPath });
     }
 
-    // Copy custom fields (exclude system-managed)
+    // Copy custom fields (exclude system-managed and read-only fields).
+    // Mirrors the legacy SYSTEM_EXCLUDED_FIELDS list: copying read-only fields
+    // such as System.Watermark / System.TeamProject / System.AreaId causes Azure
+    // to reject the create payload.
     const excludedFields = new Set([
-      'System.Id', 'System.Rev', 'System.AuthorizedDate', 'System.CreatedDate', 'System.ChangedDate',
-      'System.AuthorizedAs', 'System.ChangedBy', 'System.CreatedBy', 'System.Title', 'System.State',
-      'System.AssignedTo', 'System.WorkItemType', 'System.AreaPath', 'System.IterationPath',
-      'System.Tags', 'System.History', 'System.CommentCount', 'System.AttachedFileCount',
-      'System.ExternalLinkCount', 'System.HyperLinkCount', 'System.RelatedLinkCount',
+      // Identity, versioning and structural (read-only / derived)
+      'System.Id', 'System.Rev', 'System.Watermark', 'System.TeamProject',
+      'System.WorkItemType', 'System.NodeName', 'System.AreaId', 'System.IterationId',
+      'System.PersonId', 'System.Reason',
+      // Audit / lifecycle timestamps and authors
+      'System.AuthorizedDate', 'System.RevisedDate', 'System.AuthorizedAs',
+      'System.CreatedDate', 'System.CreatedBy', 'System.ChangedDate', 'System.ChangedBy',
+      // Overridden or managed explicitly
+      'System.Title', 'System.State', 'System.AssignedTo',
+      'System.AreaPath', 'System.IterationPath', 'System.Tags', 'System.History',
+      // Board / state metadata
+      'System.BoardColumn', 'System.BoardColumnDone', 'System.BoardLane',
+      // Link and attachment counters
+      'System.CommentCount', 'System.AttachedFileCount', 'System.ExternalLinkCount',
+      'System.HyperLinkCount', 'System.RelatedLinkCount',
+      // Lifecycle tracking
       'Microsoft.VSTS.Common.ActivatedDate', 'Microsoft.VSTS.Common.ActivatedBy',
       'Microsoft.VSTS.Common.ClosedDate', 'Microsoft.VSTS.Common.ClosedBy',
       'Microsoft.VSTS.Common.ResolvedDate', 'Microsoft.VSTS.Common.ResolvedBy',
       'Microsoft.VSTS.Common.ResolvedReason', 'Microsoft.VSTS.Common.StateChangeDate',
+      // Scheduling (handled explicitly or intentionally not carried over)
       'Microsoft.VSTS.Scheduling.StartDate', 'Microsoft.VSTS.Scheduling.FinishDate',
+      'Microsoft.VSTS.Scheduling.TargetDate',
       'Microsoft.VSTS.Scheduling.OriginalEstimate', 'Microsoft.VSTS.Scheduling.RemainingWork',
       'Microsoft.VSTS.Scheduling.CompletedWork', 'Microsoft.VSTS.Scheduling.Effort',
-      'WEF_', 'Custom.' // Custom field prefixes - be careful
     ]);
 
     for (const [key, value] of Object.entries(sourceWorkItem.fields)) {
@@ -253,7 +268,6 @@ export class DatePlanningService {
     person: Person,
     sourceTask: DiscoveredTask,
     todayIso: string,
-    nextThursdayIso: string,
     titlePrefix: string,
     thursdayMode: 'CURRENT' | 'FOLLOWING',
     skipWeekends: boolean,
@@ -278,8 +292,8 @@ export class DatePlanningService {
     return getTodayIso(timezone);
   }
 
-  getNextThursdayIso(todayIso: string, thursdayMode: 'CURRENT' | 'FOLLOWING'): string {
-    return getNextThursdayIso(todayIso, thursdayMode);
+  getNextThursdayIso(todayIso: string, thursdayMode: 'CURRENT' | 'FOLLOWING', stopDayOfWeek: number = 4): string {
+    return getNextThursdayIso(todayIso, thursdayMode, stopDayOfWeek);
   }
 
   validateNotPastDate(requestedIso: string, actualTodayIso: string): void {

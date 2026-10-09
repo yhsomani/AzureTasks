@@ -39,18 +39,15 @@ export async function buildApp(configFilePath?: string): Promise<App> {
   const pat = process.env.AZURE_DEVOPS_PAT?.trim() || '';
   if (pat) logger.registerSecret(pat);
 
-  const client = new AzureDevOpsClient({
-    organization: config.organization,
-    pat,
-    baseUrl: config.baseUrl,
-    maxRetries: config.maxRetries,
-    initialRetryDelayMs: config.initialRetryDelayMs,
-  });
+  // Pass the live config object (not a snapshot) so organization/baseUrl edits
+  // take effect without a restart; the PAT is resolved from the environment at
+  // request time for the same reason.
+  const client = new AzureDevOpsClient(config);
 
   const workItemRepo = new AzureWorkItemService(client);
   const journalRepo = new FileJournalRepository();
   const lockRepo = new FileLockRepository();
-  const schedulerRepo = new NodeSchedulerRepository(config.timezone, config.startTime);
+  const schedulerRepo = new NodeSchedulerRepository(config);
 
   const createTasks = new CreateTasksUseCase(workItemRepo, journalRepo, lockRepo, config);
   const planTasks = new PlanTasksUseCase(workItemRepo, config);

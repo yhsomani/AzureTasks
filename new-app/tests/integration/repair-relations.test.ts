@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { RepairRelationsUseCase } from '../../src/application/use-cases/repair-relations';
 import { FileJournalRepository } from '../../src/infrastructure/journal/file-journal-repo';
-import { JournalEntry, WorkItemRepository } from '../../src/domain/ports/repositories';
+import { JournalEntry, JournalRepository, WorkItemRepository } from '../../src/domain/ports/repositories';
 import { WorkItem } from '../../src/domain/entities/task';
 
 let dir: string;
@@ -80,8 +80,16 @@ describe('RepairRelationsUseCase', () => {
   });
 
   it('skips entries with no created work item id', async () => {
-    const journal = new FileJournalRepository(path.join(dir, '.journal.json'));
-    await journal.record(entry({ createdWorkItemId: undefined }));
+    // Defensive: the file journal already filters these out, but any repository
+    // implementation that surfaces one must not be treated as repairable.
+    const journal = {
+      async getUnfinishedRelations() {
+        return [entry({ createdWorkItemId: undefined })];
+      },
+      async markRepaired() {
+        return false;
+      },
+    } as unknown as JournalRepository;
 
     const useCase = new RepairRelationsUseCase(fakeRepo(), journal);
     const report = await useCase.execute();

@@ -38,10 +38,17 @@ export class ConfigUseCases {
     }
 
     const seenIdentities = new Set<string>();
+    const seenKeys = new Set<string>();
     for (const p of input.people) {
-      if (!p.name?.trim() || !p.assignedTo?.trim()) {
-        throw new Error('Each person must have non-empty name and assignedTo fields.');
+      if (!p.key?.trim() || !p.name?.trim() || !p.assignedTo?.trim()) {
+        throw new Error('Each person must have non-empty key, name and assignedTo fields.');
       }
+      const key = p.key.trim();
+      if (seenKeys.has(key)) {
+        throw new Error(`Duplicate person key "${p.key}". Keys must be unique.`);
+      }
+      seenKeys.add(key);
+
       const lower = p.assignedTo.trim().toLowerCase();
       if (seenIdentities.has(lower)) {
         throw new Error(`Duplicate identity "${p.assignedTo}". Multiple people cannot map to the same identity.`);
@@ -56,6 +63,17 @@ export class ConfigUseCases {
   }
 
   async saveSettings(input: SaveSettingsInput): Promise<{ message: string; config: AppConfig }> {
+    if (input.timezone !== undefined) {
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: input.timezone });
+      } catch {
+        throw new Error(`Invalid timezone "${input.timezone}". Use an IANA name such as Asia/Kolkata.`);
+      }
+    }
+    if (input.startTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.startTime)) {
+      throw new Error(`Invalid startTime "${input.startTime}". Expected HH:MM (24-hour).`);
+    }
+
     await this.configRepo.saveSettings(input);
 
     if (input.timezone) this.config.timezone = input.timezone;

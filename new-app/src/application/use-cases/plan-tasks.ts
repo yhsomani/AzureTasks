@@ -48,7 +48,9 @@ export class PlanTasksUseCase {
     validateNotPastDate(configuredTodayIso, actualTodayIso);
     
     const todayIso = configuredTodayIso;
-    const nextThursdayIso = this.datePlanning.getNextThursdayIso(todayIso, input.thursdayMode ?? this.config.thursdayMode);
+    // Effective window mode: request override wins over persisted config.
+    const thursdayMode = input.thursdayMode ?? this.config.thursdayMode;
+    const nextThursdayIso = this.datePlanning.getNextThursdayIso(todayIso, thursdayMode, this.config.stopDayOfWeek);
 
     // Discover source tasks
     const discoveredTasks = await this.discovery.discoverForPeople(
@@ -74,7 +76,7 @@ export class PlanTasksUseCase {
     }
 
     // Build plans
-    const personPlans = this.buildPlans(people, discoveredTasks, todayIso, nextThursdayIso);
+    const personPlans = this.buildPlans(people, discoveredTasks, todayIso, thursdayMode);
 
     return { todayIso, nextThursdayIso, personPlans };
   }
@@ -99,8 +101,9 @@ export class PlanTasksUseCase {
     people: Person[],
     discoveredTasks: Map<string, DiscoveredTask>,
     todayIso: string,
-    nextThursdayIso: string
+    thursdayMode: 'CURRENT' | 'FOLLOWING'
   ): PersonExecutionPlan[] {
+    const nextThursdayIso = this.datePlanning.getNextThursdayIso(todayIso, thursdayMode, this.config.stopDayOfWeek);
     return people.map(person => {
       const discovered = discoveredTasks.get(person.key);
       
@@ -120,9 +123,8 @@ export class PlanTasksUseCase {
         person,
         discovered,
         todayIso,
-        nextThursdayIso,
         this.config.titlePrefix,
-        this.config.thursdayMode,
+        thursdayMode,
         this.config.skipWeekends,
         this.config.stopDayOfWeek,
         this.duplicateDetector

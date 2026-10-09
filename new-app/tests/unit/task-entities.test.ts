@@ -30,6 +30,12 @@ describe('task: parseTitleDate', () => {
     expect(result.isValid).toBe(true);
     expect(result.formattedTitleDate).toBe('Jan 5');
   });
+
+  it('rejects an unknown month abbreviation instead of assuming January', () => {
+    const result = parseTitleDate('3in1_PWA_MyAccount | Foo 15', '3in1_PWA_MyAccount |');
+    expect(result.isValid).toBe(false);
+    expect(result.isoDate).toBe('');
+  });
 });
 
 describe('task: relation filtering', () => {
