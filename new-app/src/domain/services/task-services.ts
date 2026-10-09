@@ -45,7 +45,8 @@ export class TaskDiscoveryService {
       workItemType,
       titlePrefix,
       people,
-      sourceTaskIdOverride ?? defaultSourceTaskId
+      sourceTaskIdOverride,
+      defaultSourceTaskId
     );
   }
 

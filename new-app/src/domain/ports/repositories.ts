@@ -43,7 +43,8 @@ export interface WorkItemRepository {
     workItemType: string,
     titlePrefix: string,
     people: Person[],
-    sourceTaskIdOverride?: number
+    sourceTaskIdOverride?: number,
+    defaultSourceTaskId?: number
   ): Promise<Map<string, DiscoveredTask>>;
 
   /**

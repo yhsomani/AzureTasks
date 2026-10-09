@@ -105,24 +105,37 @@ export class AzureWorkItemService implements WorkItemRepository {
   ): Promise<Map<string, DiscoveredTask>> {
     const results = new Map<string, DiscoveredTask>();
 
-    // If global override, use it for everyone without existing task
-    if (sourceTaskIdOverride) {
-      const workItem = await this.getWorkItem(sourceTaskIdOverride);
-      const parsedDate = parseTitleDate(workItem.fields['System.Title'] || '', titlePrefix);
-      if (parsedDate.isValid) {
-        for (const person of people) {
-          results.set(person.key, {
-            workItem,
-            parsedDate,
-            key: person.key,
-          });
-        }
+    // Resolve explicit source overrides first. A per-person sourceTaskId wins
+    // over the global override; everyone else is discovered via WIQL. Work
+    // items shared by several people (e.g. a global override) are fetched once.
+    const discoveryPeople: Person[] = [];
+    const overrideCache = new Map<number, { workItem: WorkItem; parsedDate: ReturnType<typeof parseTitleDate> } | null>();
+
+    for (const person of people) {
+      const overrideId = person.sourceTaskId ?? sourceTaskIdOverride;
+      if (!overrideId) {
+        discoveryPeople.push(person);
+        continue;
       }
+
+      let resolved = overrideCache.get(overrideId);
+      if (resolved === undefined) {
+        const workItem = await this.getWorkItem(overrideId);
+        const parsedDate = parseTitleDate(workItem.fields['System.Title'] || '', titlePrefix);
+        resolved = parsedDate.isValid ? { workItem, parsedDate } : null;
+        overrideCache.set(overrideId, resolved);
+      }
+      if (resolved) {
+        results.set(person.key, { ...resolved, key: person.key });
+      }
+    }
+
+    if (discoveryPeople.length === 0) {
       return results;
     }
 
-    // Build a query for all people at once
-    const identities = people.map(p => `'${this.escapeWiql(p.assignedTo)}'`).join(',');
+    // Build a query for the remaining people at once
+    const identities = discoveryPeople.map(p => `'${this.escapeWiql(p.assignedTo)}'`).join(',');
     
     const wiql = `
       SELECT [System.Id], [System.AssignedTo], [System.Title], [Microsoft.VSTS.Scheduling.StartDate]
@@ -139,35 +152,13 @@ export class AzureWorkItemService implements WorkItemRepository {
       { query: wiql }
     );
 
-    if (!result.workItems || result.workItems.length === 0) {
-      // Try default source task if configured
-      if (defaultSourceTaskId) {
-        const workItem = await this.getWorkItem(defaultSourceTaskId);
-        const parsedDate = parseTitleDate(workItem.fields['System.Title'] || '', titlePrefix);
-        if (parsedDate.isValid) {
-          for (const person of people) {
-            if (!results.has(person.key)) {
-              results.set(person.key, { workItem, parsedDate, key: person.key });
-            }
-          }
-        }
-      }
-      return results;
-    }
-
-    // Get full work items for the found IDs (batch)
-    const ids = result.workItems.map(w => w.id).join(',');
-    const batchResult = await this.client.get<WorkItemBatchResult>(
-      `/${project}/_apis/wit/workitems?ids=${ids}&$expand=relations&api-version=7.0`
-    );
-
     // Group by person and take the latest for each
     const personTasks = new Map<string, DiscoveredTask>();
 
     const resolvePersonKey = (assignedTo: any): string | null => {
       const unique = (assignedTo?.uniqueName || '').trim().toLowerCase();
       const display = (assignedTo?.displayName || '').trim().toLowerCase();
-      for (const person of people) {
+      for (const person of discoveryPeople) {
         const id = person.assignedTo.trim().toLowerCase();
         if (id === unique || id === display || person.name.trim().toLowerCase() === display) {
           return person.key;
@@ -176,24 +167,32 @@ export class AzureWorkItemService implements WorkItemRepository {
       return null;
     };
 
-    for (const workItem of batchResult.value || []) {
-      const personKey = resolvePersonKey(workItem.fields['System.AssignedTo']);
-      if (!personKey) continue;
-      if (!personTasks.has(personKey)) {
-        const title = workItem.fields['System.Title'] || '';
-        const parsedDate = parseTitleDate(title, titlePrefix);
-        if (parsedDate.isValid) {
-          personTasks.set(personKey, { workItem, parsedDate, key: personKey });
+    if (result.workItems && result.workItems.length > 0) {
+      // Get full work items for the found IDs (batch)
+      const ids = result.workItems.map(w => w.id).join(',');
+      const batchResult = await this.client.get<WorkItemBatchResult>(
+        `/${project}/_apis/wit/workitems?ids=${ids}&$expand=relations&api-version=7.0`
+      );
+
+      for (const workItem of batchResult.value || []) {
+        const personKey = resolvePersonKey(workItem.fields['System.AssignedTo']);
+        if (!personKey) continue;
+        if (!personTasks.has(personKey)) {
+          const title = workItem.fields['System.Title'] || '';
+          const parsedDate = parseTitleDate(title, titlePrefix);
+          if (parsedDate.isValid) {
+            personTasks.set(personKey, { workItem, parsedDate, key: personKey });
+          }
         }
       }
     }
 
-    // Apply default source task for people without tasks
+    // Apply default source task for people without a discovered task
     if (defaultSourceTaskId) {
       const workItem = await this.getWorkItem(defaultSourceTaskId);
       const parsedDate = parseTitleDate(workItem.fields['System.Title'] || '', titlePrefix);
       if (parsedDate.isValid) {
-        for (const person of people) {
+        for (const person of discoveryPeople) {
           if (!personTasks.has(person.key)) {
             personTasks.set(person.key, { workItem, parsedDate, key: person.key });
           }
@@ -201,7 +200,10 @@ export class AzureWorkItemService implements WorkItemRepository {
       }
     }
 
-    return personTasks;
+    for (const [key, task] of personTasks) {
+      results.set(key, task);
+    }
+    return results;
   }
 
   async getExistingTasksForPerson(

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { FieldCopyService, DuplicateDetector, RelationCopyService } from '../../src/domain/services/task-services';
+import { FieldCopyService, DuplicateDetector, RelationCopyService, TaskDiscoveryService } from '../../src/domain/services/task-services';
 import { Person } from '../../src/domain/entities/person';
 import { WorkItem } from '../../src/domain/entities/task';
+import { WorkItemRepository } from '../../src/domain/ports/repositories';
 
 const sourceItem: WorkItem = {
   id: 42,
@@ -197,5 +198,24 @@ describe('RelationCopyService.repairRelations', () => {
     const svc = new RelationCopyService(repo);
     const result = await svc.repairRelations(source, target);
     expect(result).toEqual({ copiedCount: 0, failedCount: 0, totalRelations: 0 });
+  });
+});
+
+describe('TaskDiscoveryService.discoverForPeople', () => {
+  it('forwards the global override and default source as distinct arguments', async () => {
+    const calls: any[][] = [];
+    const repo = {
+      async discoverLatestTasksForPeople(...args: any[]) {
+        calls.push(args);
+        return new Map();
+      },
+    } as unknown as WorkItemRepository;
+
+    const svc = new TaskDiscoveryService(repo);
+    const people = [new Person({ key: 'p1', name: 'A', assignedTo: 'a@b.com' })];
+    await svc.discoverForPeople('Proj', 'Task', 'PFX', people, undefined, 99);
+
+    expect(calls[0][4]).toBeUndefined(); // sourceTaskIdOverride
+    expect(calls[0][5]).toBe(99);        // defaultSourceTaskId
   });
 });
