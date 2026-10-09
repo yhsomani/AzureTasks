@@ -13,6 +13,7 @@ import { CreateTasksUseCase, CreateTasksInput, CreateTasksOutput, ProgressEvent 
 import { PlanTasksUseCase, PlanTasksInput, PlanTasksOutput } from './application/use-cases/plan-tasks.js';
 import { GetSystemStatusUseCase, SystemStatusOutput } from './application/use-cases/get-status.js';
 import { ConfigUseCases } from './application/use-cases/config.js';
+import { RepairRelationsUseCase } from './application/use-cases/repair-relations.js';
 import { AppConfig } from './domain/ports/repositories.js';
 import { logger } from './infrastructure/logging/logger.js';
 
@@ -22,6 +23,7 @@ export interface App {
   planTasks: PlanTasksUseCase;
   getStatus: GetSystemStatusUseCase;
   configUseCases: ConfigUseCases;
+  repairRelations: RepairRelationsUseCase;
   journal: FileJournalRepository;
   scheduler: NodeSchedulerRepository;
 }
@@ -54,6 +56,7 @@ export async function buildApp(configFilePath?: string): Promise<App> {
   const planTasks = new PlanTasksUseCase(workItemRepo, config);
   const getStatus = new GetSystemStatusUseCase(workItemRepo, journalRepo, schedulerRepo, config);
   const configUseCases = new ConfigUseCases(configRepo, config);
+  const repairRelations = new RepairRelationsUseCase(workItemRepo, journalRepo);
 
   // Wire scheduler to run task creation
   schedulerRepo.setScheduleFunction(async () => {
@@ -69,6 +72,7 @@ export async function buildApp(configFilePath?: string): Promise<App> {
     planTasks,
     getStatus,
     configUseCases,
+    repairRelations,
     journal: journalRepo,
     scheduler: schedulerRepo,
   };

@@ -9,7 +9,7 @@ log. Ships as a CLI + web dashboard + weekday scheduler.
   dependencies: `express`, `cors`, `dotenv`.
 - **Architecture:** hexagonal (ports & adapters) — pure domain, application use
   cases, infrastructure adapters, presentation.
-- **Tests:** 70 passing (8 files) — unit + integration with in-memory fakes.
+- **Tests:** 76 passing (9 files) — unit + integration with in-memory fakes.
 
 > Legacy implementation is preserved untouched in [`../Legacy`](../Legacy).
 > See [`docs/LEGACY_RECOVERY.md`](docs/LEGACY_RECOVERY.md).
@@ -45,7 +45,7 @@ The server reads `AZURE_DEVOPS_PAT` from the environment. Required PAT scope:
 | `plan` | Preview what would be created (dry-run) |
 | `run` | Create tasks now |
 | `daemon` | Start the weekday 09:30 scheduler |
-| `repair` | Report journal entries with incomplete relation copies |
+| `repair` | Re-copy missing relations on partially created tasks (idempotent) |
 | `help` | Usage |
 
 Common options: `--all`, `--person <key,key>`, `--dry-run`, `--yes`,

@@ -1,20 +1,21 @@
 # Test results
 
 **Command:** `npm test` (`vitest run`)
-**Result:** ✅ **8 files, 70 tests passed** · ~1 s
+**Result:** ✅ **9 files, 76 tests passed** · ~1 s
 
 ```
  ✓ tests/unit/date-window.test.ts      (15 tests)
  ✓ tests/unit/person.test.ts           (10 tests)
- ✓ tests/unit/task-services.test.ts    (12 tests)
+ ✓ tests/unit/task-services.test.ts    (14 tests)
  ✓ tests/unit/task-entities.test.ts    ( 8 tests)
- ✓ tests/unit/repositories.test.ts     (11 tests)
+ ✓ tests/unit/repositories.test.ts     (12 tests)
  ✓ tests/unit/azure-client.test.ts     ( 4 tests)
- ✓ tests/integration/create-tasks.test.ts ( 8 tests)
- ✓ tests/integration/discovery.test.ts    ( 2 tests)
+ ✓ tests/integration/create-tasks.test.ts   ( 8 tests)
+ ✓ tests/integration/repair-relations.test.ts (3 tests)
+ ✓ tests/integration/discovery.test.ts      ( 2 tests)
 
- Test Files  8 passed (8)
-      Tests  70 passed (70)
+ Test Files  9 passed (9)
+      Tests  76 passed (76)
 ```
 
 ## What is covered
@@ -29,6 +30,7 @@
 | Azure client | Fail-fast on missing PAT, no retry on 401/403, retry on 5xx, network-error normalization |
 | Create flow | Full `CreateTasksUseCase` with in-memory fakes: multi-person, duplicate skip, failure isolation, dry-run, output aggregation |
 | Discovery mapping | Regression: Azure identity → `person.key` mapping + default-source fallback |
+| Repair | `RelationCopyService.repairRelations` (idempotent missing-only copy), `FileJournalRepository.markRepaired`, `RepairRelationsUseCase` (isolation, skip, journal update) |
 
 ## Regression tests that lock in real bug fixes
 

@@ -21,7 +21,7 @@ points: **interactive creation** (CLI/UI) and **scheduled creation** (daemon).
 | **State change** | `TaskExecutionService.executeTask`: create work item, then copy relations. |
 | **Result** | `CreateTasksOutput` aggregates counts + per-person results; UI renders `stat-chips` and per-person blocks. |
 | **Error handling** | Per-item `try/catch`: a failed task/relation does not abort the run; counts recorded in `failedTasks` / `failedCount`. |
-| **Recovery** | Lock is released in `finally`; stale locks reclaimed after 5 min; journal keeps partial/complete rows for review; `repair` CLI reports incomplete relation copies. |
+| **Recovery** | Lock is released in `finally`; stale locks reclaimed after 5 min; journal keeps partial/complete rows; `repair` re-copies only the relations missing on partially-created tasks (idempotent) and updates the journal. |
 | **Audit** | `JournalRepository.record` writes one row per created task (person, date, title, ids, field/relation status, verified flag). |
 
 ## 2. Scheduled creation

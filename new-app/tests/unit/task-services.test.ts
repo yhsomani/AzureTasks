@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FieldCopyService, DuplicateDetector } from '../../src/domain/services/task-services';
+import { FieldCopyService, DuplicateDetector, RelationCopyService } from '../../src/domain/services/task-services';
 import { Person } from '../../src/domain/entities/person';
 import { WorkItem } from '../../src/domain/entities/task';
 
@@ -117,5 +117,65 @@ describe('DuplicateDetector', () => {
   it('isolates people from each other', () => {
     const other = new Person({ key: 'p2', name: 'B', assignedTo: 'b@b.com' });
     expect(detector.isDuplicate(other, '2026-10-08')).toBe(false);
+  });
+});
+
+describe('RelationCopyService.repairRelations', () => {
+  const source: WorkItem = {
+    id: 10,
+    rev: 1,
+    fields: {},
+    relations: [
+      { rel: 'System.LinkTypes.Related', url: 'vstfs:///x/1' },
+      { rel: 'System.LinkTypes.Hierarchy-Reverse', url: 'vstfs:///x/parent' },
+      { rel: 'System.LinkTypes.Hierarchy-Forward', url: 'vstfs:///x/child' }, // excluded
+      { rel: 'AttachedFile', url: 'att' }, // excluded
+    ],
+  };
+
+  it('copies only the missing copyable relations (idempotent)', async () => {
+    const target: WorkItem = {
+      id: 20,
+      rev: 1,
+      fields: {},
+      relations: [{ rel: 'System.LinkTypes.Related', url: 'vstfs:///x/1' }], // already there
+    };
+    const calls: Array<{ targetId: number; urls: string[] }> = [];
+    const repo = {
+      async copyRelations(src: WorkItem, targetId: number) {
+        calls.push({ targetId, urls: (src.relations ?? []).map(r => r.url) });
+        return { copiedCount: (src.relations ?? []).length, failedCount: 0, totalRelations: 1 };
+      },
+    } as any;
+
+    const svc = new RelationCopyService(repo);
+    const result = await svc.repairRelations(source, target);
+
+    expect(result.copiedCount).toBe(1);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].targetId).toBe(20);
+    // only the missing Parent link: Related is present, Child/AttachedFile excluded
+    expect(calls[0].urls).toEqual(['vstfs:///x/parent']);
+  });
+
+  it('does nothing when everything copyable is already present', async () => {
+    const target: WorkItem = {
+      id: 20,
+      rev: 1,
+      fields: {},
+      relations: [
+        { rel: 'System.LinkTypes.Related', url: 'vstfs:///x/1' },
+        { rel: 'System.LinkTypes.Hierarchy-Reverse', url: 'vstfs:///x/parent' },
+      ],
+    };
+    const repo = {
+      async copyRelations() {
+        throw new Error('should not be called');
+      },
+    } as any;
+
+    const svc = new RelationCopyService(repo);
+    const result = await svc.repairRelations(source, target);
+    expect(result).toEqual({ copiedCount: 0, failedCount: 0, totalRelations: 0 });
   });
 });

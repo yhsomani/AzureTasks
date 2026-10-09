@@ -84,5 +84,6 @@ Legend: ✅ implemented · 🔁 implemented differently (equivalent capability) 
 3. **Explorer is window-scoped**, not an unbounded historical browser. Re-add
    historical listing only if a reporting need appears.
 4. **Dependency-free SPA** instead of React — no build step, no bundled deps.
-5. **`repair` CLI** reports incomplete relation copies (read-only). Automatic
-   repair is deferred until a real need is demonstrated.
+5. **`repair` re-copies missing relations** for partially-created tasks
+   (idempotent, updates the journal). It does not re-create work items or
+   re-run field copy.

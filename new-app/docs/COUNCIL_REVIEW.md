@@ -7,7 +7,7 @@
 > screen-reader audit, load test at scale), that is called out as a limit rather
 > than asserted as passed.
 
-Reviewed artifact: `new-app/` at the time of writing (70 tests green, build
+Reviewed artifact: `new-app/` at the time of writing (76 tests green, build
 clean, UI smoke-tested). Each role gives findings and a verdict.
 
 ## 1. Principal Architect
@@ -70,7 +70,7 @@ clean, UI smoke-tested). Each role gives findings and a verdict.
 
 ## 6. QA / Test Engineer
 
-- **Sees:** 70 tests across unit + integration, including four regression tests
+- **Sees:** 76 tests across unit + integration, including four regression tests
   for real bugs. Domain + value objects ~100% covered.
 - **Concern:** No automated test drives the HTTP layer or the SPA; those were
   smoke-tested manually. Recommend a `supertest`-style route test if the API

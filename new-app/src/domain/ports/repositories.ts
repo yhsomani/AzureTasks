@@ -126,6 +126,15 @@ export interface JournalRepository {
   record(entry: JournalEntry): Promise<void>;
   getEntries(limit?: number): Promise<JournalEntry[]>;
   getUnfinishedRelations(): Promise<JournalEntry[]>;
+  /**
+   * Amend a previously recorded entry after a repair attempt.
+   * Returns true when the entry was found and updated.
+   */
+  markRepaired(
+    entry: JournalEntry,
+    status: JournalEntry['relationCopyStatus'],
+    note: string
+  ): Promise<boolean>;
   exportCsv(): Promise<string>;
   exportJson(): Promise<string>;
 }

@@ -216,6 +216,32 @@ export class RelationCopyService {
 
     return this.repo.copyRelations(sourceWorkItem, targetId, [...COPYABLE_RELATION_TYPES]);
   }
+
+  /**
+   * Re-copy only the copyable relations that are missing on the target.
+   * Idempotent: relations already present on the target are skipped, so
+   * repairing a partially-copied task does not create duplicate links.
+   */
+  async repairRelations(
+    source: WorkItem,
+    target: WorkItem
+  ): Promise<{ copiedCount: number; failedCount: number; totalRelations: number }> {
+    const targetKeys = new Set(
+      (target.relations ?? []).map(r => `${r.rel}:::${r.url}`)
+    );
+    const missing = filterCopyableRelations(source.relations ?? [])
+      .filter(r => !targetKeys.has(`${r.rel}:::${r.url}`));
+
+    if (missing.length === 0) {
+      return { copiedCount: 0, failedCount: 0, totalRelations: 0 };
+    }
+
+    return this.repo.copyRelations(
+      { ...source, relations: missing },
+      target.id,
+      [...COPYABLE_RELATION_TYPES]
+    );
+  }
 }
 
 /**

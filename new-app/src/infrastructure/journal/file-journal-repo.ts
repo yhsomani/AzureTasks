@@ -77,6 +77,39 @@ export class FileJournalRepository implements JournalRepository {
     );
   }
 
+  async markRepaired(
+    entry: JournalEntry,
+    status: JournalEntry['relationCopyStatus'],
+    note: string
+  ): Promise<boolean> {
+    if (!fs.existsSync(this.journalPath)) return false;
+
+    let entries: JournalEntry[];
+    try {
+      const parsed = JSON.parse(fs.readFileSync(this.journalPath, 'utf-8'));
+      if (!Array.isArray(parsed)) return false;
+      entries = parsed;
+    } catch {
+      return false;
+    }
+
+    // A recorded entry is uniquely identified by its run + timestamp.
+    const index = entries.findIndex(
+      e => e.runId === entry.runId && e.timestamp === entry.timestamp &&
+           e.createdWorkItemId === entry.createdWorkItemId
+    );
+    if (index === -1) return false;
+
+    entries[index] = {
+      ...entries[index],
+      relationCopyStatus: status,
+      verified: status === 'SUCCESS',
+      error: note || entries[index].error,
+    };
+    fs.writeFileSync(this.journalPath, JSON.stringify(entries, null, 2), 'utf-8');
+    return true;
+  }
+
   async exportCsv(): Promise<string> {
     const entries = await this.getEntries();
     

@@ -203,13 +203,35 @@ async function main(): Promise<void> {
     }
 
     case 'repair': {
-      logger.info('Repair mode: checking journal for incomplete relations...');
-      const unfinished = await app.journal.getUnfinishedRelations();
-      if (unfinished.length === 0) {
+      logger.info('Repair mode: re-copying missing relations...');
+      const report = await app.repairRelations.execute();
+
+      if (report.total === 0) {
         logger.info('No incomplete relations found.');
+        console.log('Nothing to repair.');
         return;
       }
-      logger.info(`Found ${unfinished.length} entries needing repair. Manual re-run advised with --all.`);
+
+      console.log('\n===================================================');
+      console.log('RELATION REPAIR SUMMARY');
+      console.log('===================================================');
+      console.log(`Entries examined : ${report.total}`);
+      console.log(`Repaired         : ${report.repaired}`);
+      console.log(`Still partial    : ${report.partial}`);
+      console.log(`Failed           : ${report.failed}`);
+      console.log(`Skipped          : ${report.skipped}`);
+      console.log('---------------------------------------------------');
+      for (const row of report.rows) {
+        console.log(
+          `[${row.status}] ${row.entry.personName} ${row.entry.targetIsoDate} ` +
+          `#${row.entry.createdWorkItemId ?? '-'} — ${row.message}`
+        );
+      }
+      console.log('===================================================\n');
+
+      if (report.failed > 0 || report.partial > 0) {
+        process.exitCode = 1;
+      }
       return;
     }
   }

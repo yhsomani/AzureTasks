@@ -83,6 +83,22 @@ describe('FileJournalRepository', () => {
     expect(unfinished).toHaveLength(2);
   });
 
+  it('amends an entry after a repair and clears it from the unfinished list', async () => {
+    const journal = new FileJournalRepository(path.join(dir, '.journal.json'));
+    const e = entry({ relationCopyStatus: 'PARTIAL', verified: false, createdWorkItemId: 7 });
+    await journal.record(e);
+    expect(await journal.getUnfinishedRelations()).toHaveLength(1);
+
+    const updated = await journal.markRepaired(e, 'SUCCESS', 'Repaired: +1 relation(s) copied.');
+    expect(updated).toBe(true);
+    expect(await journal.getUnfinishedRelations()).toHaveLength(0);
+
+    const [row] = await journal.getEntries();
+    expect(row.relationCopyStatus).toBe('SUCCESS');
+    expect(row.verified).toBe(true);
+    expect(row.error).toContain('Repaired');
+  });
+
   it('exports CSV with escaped values', async () => {
     const journal = new FileJournalRepository(path.join(dir, '.journal.json'));
     await journal.record(entry({ title: 'has "quotes"' }));

@@ -9,7 +9,7 @@ DevOps 3in1 task automation.
 |---|---|---|
 | Build | ✅ | `npm run build` → `dist/` clean |
 | Type safety | ✅ | `npx tsc --noEmit` clean (strict) |
-| Tests | ✅ | 70 passing; domain ~100% covered |
+| Tests | ✅ | 76 passing; domain ~100% covered |
 | Business-rule correctness | ✅ | Pure, tested; 3 regression tests for real bugs |
 | Error isolation | ✅ | Per-item failures don't abort a run |
 | Concurrency safety | ✅ | File lock + stale reclamation |
@@ -77,7 +77,7 @@ Post-deploy verification:
 |---|---|
 | `connected: false` | Check `AZURE_DEVOPS_PAT` scope (Work Items: R/W) and org/project |
 | Run aborted "another execution in progress" | Wait for the other run; a stale lock (>5 min, dead PID) self-reclaims |
-| Task created but relations failed | Check journal `relationCopyStatus`; use `repair` to list incomplete entries |
+| Task created but relations failed | Check journal `relationCopyStatus`; run `repair` to re-copy the missing relations (idempotent) |
 | Journal grows | Auto-rotates at 10 MB; archives in `.journal-archives/` |
 | Unexpected timezone | Set `timezone`/`startTime`; scheduler uses the IANA zone |
 
@@ -97,4 +97,4 @@ Post-deploy verification:
 | Plaintext PAT in `.env` | Move to OS keychain / secret manager | Medium |
 | No automated HTTP/a11y tests | Add route smoke tests + axe in CI | Medium |
 | Per-host lock | Shared lock if multi-host scheduling | Low (only if needed) |
-| `repair` is read-only | Implement auto-repair if relation failures become common | Low |
+| Runtime source (`src/`) shells out to real Azure on `repair` | Dry-run via `plan` first; `repair` only touches already-created tasks | Low |
