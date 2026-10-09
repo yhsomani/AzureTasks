@@ -1,24 +1,24 @@
 # Test results
 
 **Command:** `npm test` (`vitest run`)
-**Result:** ✅ **12 files, 104 tests passed** · ~5 s
+**Result:** ✅ **12 files, 112 tests passed** · ~5 s
 
 ```
  ✓ tests/unit/date-window.test.ts            (18 tests)
  ✓ tests/unit/person.test.ts                 (10 tests)
- ✓ tests/unit/task-services.test.ts          (15 tests)
+ ✓ tests/unit/task-services.test.ts          (16 tests)
  ✓ tests/unit/task-entities.test.ts          ( 9 tests)
- ✓ tests/unit/repositories.test.ts           (13 tests)
+ ✓ tests/unit/repositories.test.ts           (15 tests)
  ✓ tests/unit/azure-client.test.ts           ( 6 tests)
  ✓ tests/unit/config-use-cases.test.ts       ( 6 tests)
  ✓ tests/unit/work-item-service.test.ts      ( 2 tests)
  ✓ tests/integration/create-tasks.test.ts    (10 tests)
  ✓ tests/integration/repair-relations.test.ts (3 tests)
- ✓ tests/integration/discovery.test.ts        ( 2 tests)
- ✓ tests/integration/api-routes.test.ts      (10 tests)
+ ✓ tests/integration/discovery.test.ts        ( 3 tests)
+ ✓ tests/integration/api-routes.test.ts      (14 tests)
 
  Test Files  12 passed (12)
-      Tests  104 passed (104)
+      Tests  112 passed (112)
 ```
 
 ## What is covered
@@ -32,8 +32,9 @@
 | Adapters | File journal (append/rotation/export/repair), file lock (acquire/release/stale-PID reclaim), config load |
 | Config use-cases | Roster validation (required key, duplicate key/identity), settings validation (IANA timezone, `HH:MM`), live config update |
 | Azure client | Fail-fast on missing PAT, no retry on 401/403, retry on 5xx, network-error normalization, live org/PAT read |
-| Work-item discovery | `getExistingTasksForPerson`: multiple tasks per date counted, timezone-widened StartDate bound |
+| Work-item discovery | `getExistingTasksForPerson`: multiple tasks per date counted, timezone-widened StartDate bound; per-person `sourceTaskId` override beats discovery and the global override |
 | API routes | Real ephemeral HTTP server: health/status, plan (default-all + 400 path), execute (progress + `yes`), journal list/export, scheduler toggle, SSE headers, SPA served |
+| Auth | HTTP Basic gate: 401 + `WWW-Authenticate` when enabled, correct creds pass, wrong creds rejected, `/api/health` stays public |
 | Create flow | Full `CreateTasksUseCase` with in-memory fakes: multi-person, duplicate skip, failure isolation, dry-run, output aggregation |
 | Discovery mapping | Regression: Azure identity → `person.key` mapping + default-source fallback |
 | Repair | `RelationCopyService.repairRelations` (idempotent missing-only copy), `FileJournalRepository.markRepaired`, `RepairRelationsUseCase` (isolation, skip, journal update) |
@@ -64,6 +65,10 @@
 7. **Silent January bug** — `parseTitleDate` mapped an unknown month
    abbreviation to January (`?? 0`). It now returns invalid, so a malformed
    title is skipped rather than dated wrongly.
+8. **Per-person source override bug** — a person's configured `sourceTaskId` was
+   ignored and the default source was applied as a global override for
+   everyone. Overrides now resolve per person first (fetched once when shared),
+   with discovery and the default fallback applied only to the rest.
 
 ## Coverage
 
@@ -71,11 +76,11 @@
 
 | Layer | % Stmts | % Branch | % Funcs |
 |---|---|---|---|
-| **All files** | 72.5 | 72.6 | 79.9 |
+| **All files** | 74.4 | 73.7 | 81.3 |
 | `domain` (incl. value-objects) | 100 | 97–100 | 100 |
 | `domain/services` | 97.7 | 85.4 | 90.9 |
 | `application/use-cases` | 74.0 | 68.9 | 80.8 |
-| `presentation/api` | 71.6 | 57.1 | 100 |
+| `presentation/api` | 74.7 | 66.7 | 100 |
 | `infrastructure` | 34–88 | 53–88 | 46–100 |
 
 **Interpretation:** the pure business logic — where correctness matters most —

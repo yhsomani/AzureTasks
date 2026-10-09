@@ -143,3 +143,51 @@ describe('API routes', () => {
     expect(await res.text()).toContain('3in1 Task Studio');
   });
 });
+
+describe('API auth (HTTP Basic, opt-in via API_AUTH_TOKEN)', () => {
+  let authServer: AppServer;
+  let authBase: string;
+  const prev = { token: process.env.API_AUTH_TOKEN, user: process.env.API_AUTH_USER };
+
+  beforeAll(async () => {
+    process.env.API_AUTH_TOKEN = 'sekret';
+    process.env.API_AUTH_USER = 'admin';
+    authServer = new AppServer(makeDeps(), 0);
+    const port = await authServer.start();
+    authBase = `http://127.0.0.1:${port}`;
+  });
+
+  afterAll(async () => {
+    await authServer.stop();
+    if (prev.token === undefined) delete process.env.API_AUTH_TOKEN;
+    else process.env.API_AUTH_TOKEN = prev.token;
+    if (prev.user === undefined) delete process.env.API_AUTH_USER;
+    else process.env.API_AUTH_USER = prev.user;
+  });
+
+  const basic = (creds: string) => ({
+    Authorization: `Basic ${Buffer.from(creds).toString('base64')}`,
+  });
+
+  it('rejects unauthenticated API calls with a Basic challenge', async () => {
+    const res = await fetch(authBase + '/api/status');
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate')).toContain('Basic');
+  });
+
+  it('accepts the correct credentials', async () => {
+    const res = await fetch(authBase + '/api/status', { headers: basic('admin:sekret') });
+    expect(res.status).toBe(200);
+    expect((await res.json()).success).toBe(true);
+  });
+
+  it('rejects wrong credentials', async () => {
+    const res = await fetch(authBase + '/api/status', { headers: basic('admin:wrong') });
+    expect(res.status).toBe(401);
+  });
+
+  it('keeps the health probe public', async () => {
+    const res = await fetch(authBase + '/api/health');
+    expect(res.status).toBe(200);
+  });
+});

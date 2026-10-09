@@ -9,13 +9,13 @@ DevOps 3in1 task automation.
 |---|---|---|
 | Build | ✅ | `npm run build` → `dist/` clean |
 | Type safety | ✅ | `npx tsc --noEmit` clean (strict) |
-| Tests | ✅ | 104 passing; domain ~100% covered |
-| Business-rule correctness | ✅ | Pure, tested; 3 regression tests for real bugs |
+| Tests | ✅ | 112 passing; domain ~100% covered |
+| Business-rule correctness | ✅ | Pure, tested; 8 regression tests for real bugs |
 | Error isolation | ✅ | Per-item failures don't abort a run |
 | Concurrency safety | ✅ | File lock + stale reclamation |
 | Audit trail | ✅ | Journal, exportable, rotating |
 | Observability | ✅ | Structured logs + SSE + `/api/health` |
-| Security | ⚠️ | PAT scrubbed, TLS on; **no built-in API auth**, plaintext `.env` |
+| Security | ⚠️ | PAT scrubbed, TLS on; opt-in HTTP Basic auth (`API_AUTH_TOKEN`); plaintext `.env` |
 | Deployment docs | ✅ | README + architecture + this doc |
 | Rollback | ✅ | Stateless; previous `dist/` or commit |
 | Accessibility | ⚠️ | Good basics; no automated a11y audit yet |
@@ -93,7 +93,7 @@ Post-deploy verification:
 
 | Risk | Mitigation | Priority |
 |---|---|---|
-| Unauthenticated API | Add auth (reverse proxy or token) before broader exposure | High |
+| Unauthenticated API when `API_AUTH_TOKEN` is unset | Set `API_AUTH_TOKEN` (HTTP Basic) and/or run behind an authenticating proxy | High (config) |
 | Plaintext PAT in `.env` | Move to OS keychain / secret manager | Medium |
 | No automated HTTP/a11y tests | Add route smoke tests + axe in CI | Medium |
 | Per-host lock | Shared lock if multi-host scheduling | Low (only if needed) |

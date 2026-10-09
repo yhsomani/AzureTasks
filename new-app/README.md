@@ -9,7 +9,7 @@ log. Ships as a CLI + web dashboard + weekday scheduler.
   dependencies: `express`, `cors`, `dotenv`.
 - **Architecture:** hexagonal (ports & adapters) — pure domain, application use
   cases, infrastructure adapters, presentation.
-- **Tests:** 104 passing (12 files) — unit + integration with in-memory fakes.
+- **Tests:** 112 passing (12 files) — unit + integration with in-memory fakes.
 
 > Legacy implementation is preserved untouched in [`../Legacy`](../Legacy).
 > See [`docs/LEGACY_RECOVERY.md`](docs/LEGACY_RECOVERY.md).
@@ -143,8 +143,13 @@ stateless except `people.json`, `.env`, `.task-journal.json`.
 - The client does **not** disable TLS verification. (The legacy app set
   `NODE_TLS_REJECT_UNAUTHORIZED=0`; that was deliberately dropped. For corporate
   interception, install the corporate root CA instead.)
-- Bind the server to a trusted network or put it behind an authenticating proxy;
-  the API has no built-in auth and can create work items.
+- **HTTP Basic auth** protects the web UI and API when `API_AUTH_TOKEN` is set
+  (the browser prompts once and reuses the session credentials; the PAT is never
+  involved). Without TLS the credentials are only base64-encoded, so run behind
+  HTTPS or on a trusted network. `/api/health` stays public for probes.
+- Without `API_AUTH_TOKEN` the server is unauthenticated and can create work
+  items — bind it to localhost/trusted network or put an authenticating proxy in
+  front.
 
 ## Repository layout
 
