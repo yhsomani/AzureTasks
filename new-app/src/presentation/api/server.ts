@@ -94,17 +94,19 @@ export class AppServer {
         resolve(actualPort);
       };
 
+      this.server.once('listening', onListening);
+
       this.server.on('error', (err: any) => {
         if (err.code === 'EADDRINUSE') {
           logger.warn(`Port ${this.port} in use, trying ${this.port + 1}...`);
           this.port++;
-          this.server.listen(this.port, onListening);
+          this.server.listen(this.port);
         } else {
           reject(err);
         }
       });
 
-      this.server.listen(this.port, onListening);
+      this.server.listen(this.port);
     });
   }
 
