@@ -1,7 +1,7 @@
 # Test results
 
 **Command:** `npm test` (`vitest run`)
-**Result:** ✅ **12 files, 112 tests passed** · ~5 s
+**Result:** ✅ **13 files, 116 tests passed** · ~5 s
 
 ```
  ✓ tests/unit/date-window.test.ts            (18 tests)
@@ -11,14 +11,15 @@
  ✓ tests/unit/repositories.test.ts           (15 tests)
  ✓ tests/unit/azure-client.test.ts           ( 6 tests)
  ✓ tests/unit/config-use-cases.test.ts       ( 6 tests)
+ ✓ tests/unit/explore-tasks.test.ts          ( 2 tests)
  ✓ tests/unit/work-item-service.test.ts      ( 2 tests)
  ✓ tests/integration/create-tasks.test.ts    (10 tests)
  ✓ tests/integration/repair-relations.test.ts (3 tests)
  ✓ tests/integration/discovery.test.ts        ( 3 tests)
- ✓ tests/integration/api-routes.test.ts      (14 tests)
+ ✓ tests/integration/api-routes.test.ts      (16 tests)
 
- Test Files  12 passed (12)
-      Tests  112 passed (112)
+ Test Files  13 passed (13)
+      Tests  116 passed (116)
 ```
 
 ## What is covered

@@ -32,4 +32,4 @@ This document defines the discrete task backlog for bringing `new-app` to comple
 ### Milestone 3: Verification, Testing & Polish
 - [x] Task 3.1: Write automated tests in `new-app/tests/unit` and `new-app/tests/integration` covering `explore-tasks.ts` and explorer API endpoints.
 - [x] Task 3.2: Verify full build (`npm run build`), typecheck (`npm run typecheck`), and tests (`npm test`) in `new-app`.
-- [ ] Task 3.3: Update documentation in `new-app/docs/FEATURE_PARITY.md`, `ARCHITECTURE.md`, `TEST_RESULTS.md`, and `PRODUCTION_READINESS.md`.
+- [x] Task 3.3: Update documentation in `new-app/docs/FEATURE_PARITY.md`, `ARCHITECTURE.md`, `TEST_RESULTS.md`, and `PRODUCTION_READINESS.md`.

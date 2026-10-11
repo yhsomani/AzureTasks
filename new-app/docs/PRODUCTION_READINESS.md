@@ -9,7 +9,7 @@ DevOps 3in1 task automation.
 |---|---|---|
 | Build | ✅ | `npm run build` → `dist/` clean |
 | Type safety | ✅ | `npx tsc --noEmit` clean (strict) |
-| Tests | ✅ | 112 passing; domain ~100% covered |
+| Tests | ✅ | 116 passing; domain ~100% covered |
 | Business-rule correctness | ✅ | Pure, tested; 8 regression tests for real bugs |
 | Error isolation | ✅ | Per-item failures don't abort a run |
 | Concurrency safety | ✅ | File lock + stale reclamation |
