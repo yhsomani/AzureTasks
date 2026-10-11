@@ -10,6 +10,16 @@ function makeDeps(): ApiDependencies {
     planTasks: {
       execute: vi.fn(async () => ({ todayIso: '2026-10-08', nextThursdayIso: '2026-10-08', personPlans: [] })),
     },
+    exploreTasks: {
+      execute: vi.fn(async () => ({
+        dateRange: { startDate: '2026-10-08', endDate: '2026-10-15', totalDays: 8, workingDays: 6, todayIso: '2026-10-08', nextThursdayIso: '2026-10-15' },
+        summary: { totalSelectedUsers: 1, totalWorkingDates: 6, expectedCombinations: 6, existingCombinations: 4, missingCombinations: 2, duplicateCombinations: 0, overallCoveragePercent: 67, stateCounts: { New: 1, Active: 2, Closed: 1, Resolved: 0, Other: 0 }, totalCompletedWork: 16, totalRemainingWork: 8 },
+        users: [{ key: 'p1', name: 'Person 1', assignedTo: 'p1@org.com' }],
+        dates: [],
+        matrix: [],
+        detailedTasks: [],
+      })),
+    },
     createTasks: {
       execute: vi.fn(async () => ({
         totalCreatedCount: 1,
@@ -104,6 +114,30 @@ describe('API routes', () => {
     const [input, onProgress] = (deps.createTasks.execute as any).mock.calls[0];
     expect(input.yes).toBe(true);
     expect(typeof onProgress).toBe('function');
+  });
+
+  it('GET /api/explorer delegates to exploreTasks use case with query params', async () => {
+    const res = await json('/api/explorer?preset=current_month&users=p1,p2');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.summary.overallCoveragePercent).toBe(67);
+    expect((deps.exploreTasks.execute as any).mock.calls[0][0]).toMatchObject({
+      preset: 'current_month',
+      personKeys: ['p1', 'p2'],
+    });
+  });
+
+  it('POST /api/explorer/create-missing calls createTasks and returns count summary', async () => {
+    const res = await json('/api/explorer/create-missing', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personKeys: ['p1'] }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.message).toContain('evaluated and created');
   });
 
   it('GET /api/journal reports counts', async () => {

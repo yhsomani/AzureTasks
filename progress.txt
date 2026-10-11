@@ -1,0 +1,13 @@
+# Ralph Loop Progress Tracking
+
+## Iteration 0: Reconnaissance & Planning
+- Completed exhaustive dual-codebase discovery of `Legacy` and `new-app`.
+- Identified key discrepancies: Missing Explorer API/service with date ranges and presets, missing Burndown intelligence & charts, missing My Work view, disabled/removed Audit Log view, missing inspection modals & live console drawer.
+- Created `PRD.md` with discrete tasks partitioned across Domain, UI, and Verification layers.
+
+## Iteration 1: Milestone 1 Completed (Domain & Application Layer Reconstitution)
+- Implemented `ExploreTasksUseCase` with date presets, arbitrary start/end range, team filtering, hours aggregation, and state counts.
+- Enhanced `WorkItemRepository` and `AzureWorkItemService` with `findCandidateTasks` via WIQL & batch fetching.
+- Added `matchesPerson` and `extractIdentity` to `Person` domain entity for robust identity resolution across Azure DevOps object/string formats.
+- Exposed `GET /api/explorer` and `POST /api/explorer/create-missing` in Express API routes.
+- Wrote unit tests in `explore-tasks.test.ts` and integration tests in `api-routes.test.ts`. All 116 tests passing, TypeScript typecheck clean.

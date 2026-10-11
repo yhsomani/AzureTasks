@@ -27,7 +27,7 @@ export class AzureWorkItemService implements WorkItemRepository {
   constructor(private readonly client: AzureDevOpsClient) {}
 
   async validateProject(project: string): Promise<void> {
-    await this.client.get<any>(`/${project}/_apis/projects/${project}?api-version=7.0`);
+    await this.client.get<any>(`/_apis/projects/${project}?api-version=7.0`);
   }
 
   async validateWorkItemType(project: string, workItemType: string): Promise<void> {
@@ -64,8 +64,8 @@ export class AzureWorkItemService implements WorkItemRepository {
       SELECT [System.Id]
       FROM WorkItems
       WHERE [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
-        AND [System.Title] LIKE '${this.escapeWiql(titlePrefix)}%'
-        AND [System.AssignedTo] = '${this.escapeWiql(personIdentity)}'
+        AND [System.Title] CONTAINS '${this.escapeWiql(titlePrefix)}'
+        AND [System.AssignedTo] CONTAINS '${this.escapeWiql(personIdentity)}'
         AND [System.State] <> 'Removed'
       ORDER BY [Microsoft.VSTS.Scheduling.StartDate] DESC, [System.Id] DESC
     `;
@@ -79,20 +79,20 @@ export class AzureWorkItemService implements WorkItemRepository {
       return null;
     }
 
-    // Get the latest task
-    const latestId = result.workItems[0].id;
-    const workItem = await this.getWorkItem(latestId);
-    const parsedDate = parseTitleDate(workItem.fields['System.Title'] || '', titlePrefix);
-    
-    if (!parsedDate.isValid) {
-      return null;
+    for (const item of result.workItems.slice(0, 20)) {
+      const workItem = await this.getWorkItem(item.id);
+      const parsedDate = parseTitleDate(workItem.fields['System.Title'] || '', titlePrefix);
+      
+      if (parsedDate.isValid) {
+        return {
+          workItem,
+          parsedDate,
+          key: personIdentity.toLowerCase().trim(),
+        };
+      }
     }
 
-    return {
-      workItem,
-      parsedDate,
-      key: personIdentity.toLowerCase().trim(),
-    };
+    return null;
   }
 
   async discoverLatestTasksForPeople(
@@ -141,7 +141,7 @@ export class AzureWorkItemService implements WorkItemRepository {
       SELECT [System.Id], [System.AssignedTo], [System.Title], [Microsoft.VSTS.Scheduling.StartDate]
       FROM WorkItems
       WHERE [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
-        AND [System.Title] LIKE '${this.escapeWiql(titlePrefix)}%'
+        AND [System.Title] CONTAINS '${this.escapeWiql(titlePrefix)}'
         AND [System.AssignedTo] IN (${identities})
         AND [System.State] <> 'Removed'
       ORDER BY [System.AssignedTo], [Microsoft.VSTS.Scheduling.StartDate] DESC, [System.Id] DESC
@@ -221,8 +221,8 @@ export class AzureWorkItemService implements WorkItemRepository {
       SELECT [System.Id], [System.Title], [Microsoft.VSTS.Scheduling.StartDate]
       FROM WorkItems
       WHERE [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
-        AND [System.Title] LIKE '${this.escapeWiql(titlePrefix)}%'
-        AND [System.AssignedTo] = '${this.escapeWiql(personIdentity)}'
+        AND [System.Title] CONTAINS '${this.escapeWiql(titlePrefix)}'
+        AND [System.AssignedTo] CONTAINS '${this.escapeWiql(personIdentity)}'
         AND [Microsoft.VSTS.Scheduling.StartDate] >= '${addDays(startDate, -1)}'
         AND [Microsoft.VSTS.Scheduling.StartDate] < '${addDays(endDate, 1)}'
         AND [System.State] <> 'Removed'
@@ -259,6 +259,72 @@ export class AzureWorkItemService implements WorkItemRepository {
     }
 
     return existingMap;
+  }
+
+  async findCandidateTasks(
+    project: string,
+    workItemType: string,
+    titlePrefix: string,
+    startDate?: string,
+    endDate?: string,
+    personIdentities?: string[]
+  ): Promise<WorkItem[]> {
+    let whereClause = `[System.WorkItemType] = '${this.escapeWiql(workItemType)}'
+      AND [System.Title] CONTAINS '${this.escapeWiql(titlePrefix)}'
+      AND [System.State] <> 'Removed'`;
+
+    if (personIdentities && personIdentities.length > 0) {
+      const identities = personIdentities.map(id => `'${this.escapeWiql(id)}'`).join(',');
+      whereClause += ` AND [System.AssignedTo] IN (${identities})`;
+    }
+
+    if (startDate) {
+      whereClause += ` AND [Microsoft.VSTS.Scheduling.StartDate] >= '${addDays(startDate, -1)}'`;
+    }
+    if (endDate) {
+      whereClause += ` AND [Microsoft.VSTS.Scheduling.StartDate] < '${addDays(endDate, 1)}'`;
+    }
+
+    const query = `
+      SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo],
+             [System.CreatedDate], [System.ChangedDate],
+             [Microsoft.VSTS.Scheduling.StartDate],
+             [Microsoft.VSTS.Scheduling.CompletedWork],
+             [Microsoft.VSTS.Scheduling.RemainingWork],
+             [Microsoft.VSTS.Scheduling.OriginalEstimate]
+      FROM WorkItems
+      WHERE ${whereClause}
+      ORDER BY [System.CreatedDate] DESC
+    `;
+
+    try {
+      const result = await this.client.post<WiqlQueryResult>(
+        `/${project}/_apis/wit/wiql?api-version=7.0`,
+        { query }
+      );
+
+      if (!result.workItems || result.workItems.length === 0) {
+        return [];
+      }
+
+      const ids = result.workItems.map(w => w.id);
+      const CHUNK_SIZE = 100;
+      const workItems: WorkItem[] = [];
+
+      for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+        const chunk = ids.slice(i, i + CHUNK_SIZE).join(',');
+        const batchResult = await this.client.get<WorkItemBatchResult>(
+          `/${project}/_apis/wit/workitems?ids=${chunk}&fields=System.Id,System.Title,System.State,System.AssignedTo,System.CreatedDate,System.ChangedDate,Microsoft.VSTS.Scheduling.StartDate,Microsoft.VSTS.Scheduling.CompletedWork,Microsoft.VSTS.Scheduling.RemainingWork,Microsoft.VSTS.Scheduling.OriginalEstimate&api-version=7.0`
+        );
+        if (batchResult.value) {
+          workItems.push(...batchResult.value);
+        }
+      }
+
+      return workItems;
+    } catch {
+      return [];
+    }
   }
 
   async getWorkItem(id: number): Promise<WorkItem> {
@@ -353,7 +419,7 @@ export class AzureWorkItemService implements WorkItemRepository {
       FROM WorkItems
       WHERE [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
         AND [System.Title] = '${this.escapeWiql(data.title)}'
-        AND [System.AssignedTo] = '${this.escapeWiql(data.assignedTo)}'
+        AND [System.AssignedTo] CONTAINS '${this.escapeWiql(data.assignedTo)}'
         AND [System.State] <> 'Removed'
     `;
 

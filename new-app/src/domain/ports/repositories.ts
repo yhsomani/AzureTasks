@@ -60,6 +60,18 @@ export interface WorkItemRepository {
   ): Promise<Map<string, { id: number; title: string; isoDate: string; count?: number }>>;
 
   /**
+   * Find candidate work items for explorer / burndown by date range or title prefix
+   */
+  findCandidateTasks(
+    project: string,
+    workItemType: string,
+    titlePrefix: string,
+    startDate?: string,
+    endDate?: string,
+    personIdentities?: string[]
+  ): Promise<WorkItem[]>;
+
+  /**
    * Get a work item by ID
    */
   getWorkItem(id: number): Promise<WorkItem>;

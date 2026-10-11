@@ -33,6 +33,55 @@ export function normalizeIdentity(identity: string): string {
 }
 
 /**
+ * Extracts normalized identity details from an Azure DevOps AssignedTo field value
+ */
+export function extractIdentity(assignedToVal: unknown): { displayName: string; uniqueName?: string } | null {
+  if (!assignedToVal) return null;
+  if (typeof assignedToVal === 'object' && assignedToVal !== null) {
+    const obj = assignedToVal as Record<string, unknown>;
+    const displayName = String(obj.displayName || obj.name || '').trim();
+    const uniqueName = obj.uniqueName ? String(obj.uniqueName).trim() : undefined;
+    return { displayName, uniqueName };
+  }
+  if (typeof assignedToVal === 'string') {
+    const raw = assignedToVal.trim();
+    const emailMatch = raw.match(/<([^>]+)>/);
+    if (emailMatch) {
+      return { displayName: raw.replace(/<[^>]+>/, '').trim(), uniqueName: emailMatch[1].trim() };
+    }
+    if (raw.includes('@')) {
+      return { displayName: raw, uniqueName: raw };
+    }
+    return { displayName: raw };
+  }
+  return null;
+}
+
+/**
+ * Checks if a work item's AssignedTo field matches a specific person configuration
+ */
+export function matchesPerson(assignedToVal: unknown, person: PersonConfig | Person): boolean {
+  const identity = extractIdentity(assignedToVal);
+  if (!identity) return false;
+
+  const targetEmail = person.assignedTo.toLowerCase().trim();
+  const targetName = person.name.toLowerCase().trim();
+
+  if (identity.uniqueName) {
+    const identityEmail = identity.uniqueName.toLowerCase().trim();
+    if (identityEmail === targetEmail) return true;
+  }
+
+  if (identity.displayName) {
+    const identityDisplay = identity.displayName.toLowerCase().trim();
+    if (identityDisplay === targetName || identityDisplay === targetEmail) return true;
+    if (identityDisplay.includes(targetName) && targetName.length >= 3) return true;
+  }
+
+  return false;
+}
+
+/**
  * Check if two identities match
  */
 export function identitiesMatch(a: string, b: string): boolean {
@@ -91,8 +140,8 @@ export class Person {
   /**
    * Check if this person matches a given identity
    */
-  matchesIdentity(identity: string): boolean {
-    return identitiesMatch(this.assignedTo, identity);
+  matchesIdentity(identity: unknown): boolean {
+    return matchesPerson(identity, this) || (typeof identity === 'string' && identitiesMatch(this.assignedTo, identity));
   }
 
   /**

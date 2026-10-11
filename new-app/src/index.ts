@@ -160,6 +160,7 @@ async function main(): Promise<void> {
       const server = new AppServer({
         createTasks: app.createTasks,
         planTasks: app.planTasks,
+        exploreTasks: app.exploreTasks,
         getStatus: app.getStatus,
         config: app.configUseCases,
         journal: app.journal,

@@ -14,6 +14,7 @@ import { PlanTasksUseCase, PlanTasksInput, PlanTasksOutput } from './application
 import { GetSystemStatusUseCase, SystemStatusOutput } from './application/use-cases/get-status.js';
 import { ConfigUseCases } from './application/use-cases/config.js';
 import { RepairRelationsUseCase } from './application/use-cases/repair-relations.js';
+import { ExploreTasksUseCase, ExploreTasksInput, ExploreTasksOutput } from './application/use-cases/explore-tasks.js';
 import { AppConfig } from './domain/ports/repositories.js';
 import { logger } from './infrastructure/logging/logger.js';
 
@@ -21,6 +22,7 @@ export interface App {
   config: AppConfig;
   createTasks: CreateTasksUseCase;
   planTasks: PlanTasksUseCase;
+  exploreTasks: ExploreTasksUseCase;
   getStatus: GetSystemStatusUseCase;
   configUseCases: ConfigUseCases;
   repairRelations: RepairRelationsUseCase;
@@ -51,6 +53,7 @@ export async function buildApp(configFilePath?: string): Promise<App> {
 
   const createTasks = new CreateTasksUseCase(workItemRepo, journalRepo, lockRepo, config);
   const planTasks = new PlanTasksUseCase(workItemRepo, config);
+  const exploreTasks = new ExploreTasksUseCase(workItemRepo, config);
   const getStatus = new GetSystemStatusUseCase(workItemRepo, journalRepo, schedulerRepo, config);
   const configUseCases = new ConfigUseCases(configRepo, config);
   const repairRelations = new RepairRelationsUseCase(workItemRepo, journalRepo);
@@ -67,6 +70,7 @@ export async function buildApp(configFilePath?: string): Promise<App> {
     config,
     createTasks,
     planTasks,
+    exploreTasks,
     getStatus,
     configUseCases,
     repairRelations,
@@ -75,4 +79,13 @@ export async function buildApp(configFilePath?: string): Promise<App> {
   };
 }
 
-export type { CreateTasksInput, CreateTasksOutput, ProgressEvent, PlanTasksInput, PlanTasksOutput, SystemStatusOutput };
+export type {
+  CreateTasksInput,
+  CreateTasksOutput,
+  ProgressEvent,
+  PlanTasksInput,
+  PlanTasksOutput,
+  ExploreTasksInput,
+  ExploreTasksOutput,
+  SystemStatusOutput,
+};

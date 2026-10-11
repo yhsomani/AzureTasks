@@ -8,12 +8,14 @@ import { CreateTasksUseCase } from '../../application/use-cases/create-tasks.js'
 import { PlanTasksUseCase } from '../../application/use-cases/plan-tasks.js';
 import { GetSystemStatusUseCase } from '../../application/use-cases/get-status.js';
 import { ConfigUseCases } from '../../application/use-cases/config.js';
+import { ExploreTasksUseCase } from '../../application/use-cases/explore-tasks.js';
 import { JournalRepository, SchedulerRepository } from '../../domain/ports/repositories.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 
 export interface ApiDependencies {
   createTasks: CreateTasksUseCase;
   planTasks: PlanTasksUseCase;
+  exploreTasks: ExploreTasksUseCase;
   getStatus: GetSystemStatusUseCase;
   config: ConfigUseCases;
   journal: JournalRepository;
@@ -111,6 +113,58 @@ export function createApiRouter(deps: ApiDependencies): Router {
       res.json({ success: true, data });
     } catch (err: any) {
       logger.error(`Task execution failed: ${err.message}`);
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Explorer
+  router.get('/explorer', async (req, res) => {
+    try {
+      const preset = typeof req.query.preset === 'string' ? req.query.preset : undefined;
+      const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : undefined;
+      const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : undefined;
+      const asOf = typeof req.query.asOf === 'string' ? req.query.asOf : undefined;
+      const usersParam = typeof req.query.users === 'string' ? req.query.users : undefined;
+      const personKeys = usersParam ? usersParam.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+
+      const data = await deps.exploreTasks.execute({
+        preset,
+        startDate,
+        endDate,
+        asOf,
+        personKeys,
+      });
+      res.json({ success: true, data });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/explorer/create-missing', async (req, res) => {
+    try {
+      const { personKeys, asOf, thursdayMode } = req.body || {};
+      const data = await deps.createTasks.execute(
+        {
+          personKeys,
+          all: !personKeys || personKeys.length === 0,
+          asOf,
+          thursdayMode,
+          dryRun: false,
+          yes: true,
+        },
+        (event) => logger.info(event.message)
+      );
+      res.json({
+        success: true,
+        data: {
+          message: 'Missing eligible tasks evaluated and created.',
+          createdCount: data.totalCreatedCount,
+          skippedCount: data.totalDuplicateCount,
+          result: data,
+        },
+      });
+    } catch (err: any) {
+      logger.error(`Explorer create-missing failed: ${err.message}`);
       res.status(400).json({ success: false, error: err.message });
     }
   });
