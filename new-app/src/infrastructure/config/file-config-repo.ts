@@ -75,8 +75,8 @@ export class FileConfigRepository implements ConfigRepository {
 
       return {
         ...defaultConfig,
-        ...overrides,
         ...envOverrides,
+        ...overrides,
         stopDayOfWeek,
         thursdayMode,
         people,

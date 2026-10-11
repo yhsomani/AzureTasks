@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "start": "PORT=3001 NODE_TLS_REJECT_UNAUTHORIZED=0 node dist/index.js",
+    "start": "NODE_TLS_REJECT_UNAUTHORIZED=0 node dist/index.js",
     "build": "tsc && node -e \"import('fs').then(fs => fs.cpSync('src/presentation/web/public', 'dist/presentation/web/public', { recursive: true }))\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

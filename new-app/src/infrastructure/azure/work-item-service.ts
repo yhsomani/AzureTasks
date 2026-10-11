@@ -11,7 +11,8 @@ import {
   Person, 
   CreatedTask,
   parseTitleDate,
-  addDays
+  addDays,
+  matchesPerson
 } from '../../domain/index.js';
 
 interface WiqlQueryResult {
@@ -59,15 +60,15 @@ export class AzureWorkItemService implements WorkItemRepository {
       };
     }
 
-    // Query for latest task matching prefix for this person
+    // Query candidate work items matching prefix
     const wiql = `
-      SELECT [System.Id]
+      SELECT [System.Id], [System.Title], [System.AssignedTo], [System.CreatedDate]
       FROM WorkItems
-      WHERE [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
+      WHERE [System.TeamProject] = '${this.escapeWiql(project)}'
+        AND [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
         AND [System.Title] CONTAINS '${this.escapeWiql(titlePrefix)}'
-        AND [System.AssignedTo] CONTAINS '${this.escapeWiql(personIdentity)}'
         AND [System.State] <> 'Removed'
-      ORDER BY [Microsoft.VSTS.Scheduling.StartDate] DESC, [System.Id] DESC
+      ORDER BY [System.CreatedDate] DESC, [System.Id] DESC
     `;
 
     const result = await this.client.post<WiqlQueryResult>(
@@ -79,20 +80,39 @@ export class AzureWorkItemService implements WorkItemRepository {
       return null;
     }
 
-    for (const item of result.workItems.slice(0, 20)) {
-      const workItem = await this.getWorkItem(item.id);
-      const parsedDate = parseTitleDate(workItem.fields['System.Title'] || '', titlePrefix);
-      
+    const targetPerson = {
+      assignedTo: personIdentity,
+      name: personIdentity,
+      key: personIdentity.toLowerCase().trim(),
+    };
+
+    const ids = result.workItems.slice(0, 100).map(w => w.id).join(',');
+    const batchResult = await this.client.get<WorkItemBatchResult>(
+      `/${project}/_apis/wit/workitems?ids=${ids}&$expand=relations&api-version=7.0`
+    );
+
+    const candidateTasks: DiscoveredTask[] = [];
+    for (const workItem of batchResult.value || []) {
+      if (!matchesPerson(workItem.fields['System.AssignedTo'], targetPerson)) {
+        continue;
+      }
+      const title = workItem.fields['System.Title'] || '';
+      const parsedDate = parseTitleDate(title, titlePrefix);
       if (parsedDate.isValid) {
-        return {
+        candidateTasks.push({
           workItem,
           parsedDate,
           key: personIdentity.toLowerCase().trim(),
-        };
+        });
       }
     }
 
-    return null;
+    if (candidateTasks.length === 0) {
+      return null;
+    }
+
+    candidateTasks.sort((a, b) => b.parsedDate.isoDate.localeCompare(a.parsedDate.isoDate));
+    return candidateTasks[0];
   }
 
   async discoverLatestTasksForPeople(
@@ -105,9 +125,7 @@ export class AzureWorkItemService implements WorkItemRepository {
   ): Promise<Map<string, DiscoveredTask>> {
     const results = new Map<string, DiscoveredTask>();
 
-    // Resolve explicit source overrides first. A per-person sourceTaskId wins
-    // over the global override; everyone else is discovered via WIQL. Work
-    // items shared by several people (e.g. a global override) are fetched once.
+    // Resolve explicit source overrides first.
     const discoveryPeople: Person[] = [];
     const overrideCache = new Map<number, { workItem: WorkItem; parsedDate: ReturnType<typeof parseTitleDate> } | null>();
 
@@ -134,17 +152,15 @@ export class AzureWorkItemService implements WorkItemRepository {
       return results;
     }
 
-    // Build a query for the remaining people at once
-    const identities = discoveryPeople.map(p => `'${this.escapeWiql(p.assignedTo)}'`).join(',');
-    
+    // Query candidate work items matching title prefix for the project
     const wiql = `
-      SELECT [System.Id], [System.AssignedTo], [System.Title], [Microsoft.VSTS.Scheduling.StartDate]
+      SELECT [System.Id], [System.Title], [System.AssignedTo], [System.CreatedDate]
       FROM WorkItems
-      WHERE [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
+      WHERE [System.TeamProject] = '${this.escapeWiql(project)}'
+        AND [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
         AND [System.Title] CONTAINS '${this.escapeWiql(titlePrefix)}'
-        AND [System.AssignedTo] IN (${identities})
         AND [System.State] <> 'Removed'
-      ORDER BY [System.AssignedTo], [Microsoft.VSTS.Scheduling.StartDate] DESC, [System.Id] DESC
+      ORDER BY [System.CreatedDate] DESC, [System.Id] DESC
     `;
 
     const result = await this.client.post<WiqlQueryResult>(
@@ -152,39 +168,44 @@ export class AzureWorkItemService implements WorkItemRepository {
       { query: wiql }
     );
 
-    // Group by person and take the latest for each
-    const personTasks = new Map<string, DiscoveredTask>();
-
-    const resolvePersonKey = (assignedTo: any): string | null => {
-      const unique = (assignedTo?.uniqueName || '').trim().toLowerCase();
-      const display = (assignedTo?.displayName || '').trim().toLowerCase();
-      for (const person of discoveryPeople) {
-        const id = person.assignedTo.trim().toLowerCase();
-        if (id === unique || id === display || person.name.trim().toLowerCase() === display) {
-          return person.key;
-        }
-      }
-      return null;
-    };
+    const personCandidateTasks = new Map<string, DiscoveredTask[]>();
 
     if (result.workItems && result.workItems.length > 0) {
-      // Get full work items for the found IDs (batch)
-      const ids = result.workItems.map(w => w.id).join(',');
-      const batchResult = await this.client.get<WorkItemBatchResult>(
-        `/${project}/_apis/wit/workitems?ids=${ids}&$expand=relations&api-version=7.0`
-      );
+      const ids = result.workItems.slice(0, 150).map(w => w.id);
+      const CHUNK_SIZE = 100;
+      const allFetched: WorkItem[] = [];
 
-      for (const workItem of batchResult.value || []) {
-        const personKey = resolvePersonKey(workItem.fields['System.AssignedTo']);
-        if (!personKey) continue;
-        if (!personTasks.has(personKey)) {
-          const title = workItem.fields['System.Title'] || '';
-          const parsedDate = parseTitleDate(title, titlePrefix);
-          if (parsedDate.isValid) {
-            personTasks.set(personKey, { workItem, parsedDate, key: personKey });
+      for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+        const chunk = ids.slice(i, i + CHUNK_SIZE).join(',');
+        const batchResult = await this.client.get<WorkItemBatchResult>(
+          `/${project}/_apis/wit/workitems?ids=${chunk}&$expand=relations&api-version=7.0`
+        );
+        if (batchResult.value) {
+          allFetched.push(...batchResult.value);
+        }
+      }
+
+      for (const workItem of allFetched) {
+        const assignedToVal = workItem.fields['System.AssignedTo'];
+        for (const person of discoveryPeople) {
+          if (matchesPerson(assignedToVal, person)) {
+            const title = workItem.fields['System.Title'] || '';
+            const parsedDate = parseTitleDate(title, titlePrefix);
+            if (parsedDate.isValid) {
+              const list = personCandidateTasks.get(person.key) || [];
+              list.push({ workItem, parsedDate, key: person.key });
+              personCandidateTasks.set(person.key, list);
+            }
           }
         }
       }
+    }
+
+    // For each person, take the task with latest date
+    const personTasks = new Map<string, DiscoveredTask>();
+    for (const [key, tasks] of personCandidateTasks) {
+      tasks.sort((a, b) => b.parsedDate.isoDate.localeCompare(a.parsedDate.isoDate));
+      personTasks.set(key, tasks[0]);
     }
 
     // Apply default source task for people without a discovered task
@@ -214,19 +235,14 @@ export class AzureWorkItemService implements WorkItemRepository {
     startDate: string,
     endDate: string
   ): Promise<Map<string, { id: number; title: string; isoDate: string; count?: number }>> {
-    // StartDate is stored as the UTC instant of 09:30 local; in timezones ahead
-    // of UTC that instant lands on the previous UTC day. Filter one day wider
-    // than the window and key the result by the title date so nothing is missed.
     const wiql = `
-      SELECT [System.Id], [System.Title], [Microsoft.VSTS.Scheduling.StartDate]
+      SELECT [System.Id], [System.Title], [System.AssignedTo], [System.CreatedDate]
       FROM WorkItems
-      WHERE [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
+      WHERE [System.TeamProject] = '${this.escapeWiql(project)}'
+        AND [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
         AND [System.Title] CONTAINS '${this.escapeWiql(titlePrefix)}'
-        AND [System.AssignedTo] CONTAINS '${this.escapeWiql(personIdentity)}'
-        AND [Microsoft.VSTS.Scheduling.StartDate] >= '${addDays(startDate, -1)}'
-        AND [Microsoft.VSTS.Scheduling.StartDate] < '${addDays(endDate, 1)}'
         AND [System.State] <> 'Removed'
-      ORDER BY [Microsoft.VSTS.Scheduling.StartDate] ASC
+      ORDER BY [System.CreatedDate] DESC, [System.Id] DESC
     `;
 
     const result = await this.client.post<WiqlQueryResult>(
@@ -237,18 +253,36 @@ export class AzureWorkItemService implements WorkItemRepository {
     const existingMap = new Map<string, { id: number; title: string; isoDate: string; count?: number }>();
     
     if (result.workItems && result.workItems.length > 0) {
-      const ids = result.workItems.map(w => w.id).join(',');
-      const batchResult = await this.client.get<WorkItemBatchResult>(
-        `/${project}/_apis/wit/workitems?ids=${ids}&fields=System.Title,Microsoft.VSTS.Scheduling.StartDate&api-version=7.0`
-      );
+      const targetPerson = {
+        assignedTo: personIdentity,
+        name: personIdentity,
+        key: personIdentity.toLowerCase().trim(),
+      };
 
-      for (const workItem of batchResult.value || []) {
+      const ids = result.workItems.slice(0, 150).map(w => w.id);
+      const CHUNK_SIZE = 100;
+      const allFetched: WorkItem[] = [];
+
+      for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+        const chunk = ids.slice(i, i + CHUNK_SIZE).join(',');
+        const batchResult = await this.client.get<WorkItemBatchResult>(
+          `/${project}/_apis/wit/workitems?ids=${chunk}&fields=System.Id,System.Title,System.AssignedTo&api-version=7.0`
+        );
+        if (batchResult.value) {
+          allFetched.push(...batchResult.value);
+        }
+      }
+
+      for (const workItem of allFetched) {
+        if (workItem.fields['System.AssignedTo'] && !matchesPerson(workItem.fields['System.AssignedTo'], targetPerson)) {
+          continue;
+        }
         const title = workItem.fields['System.Title'];
         if (!title) continue;
-        // Derive the date from the title, not the UTC StartDate instant, so the
-        // map key matches the planned local date regardless of timezone offset.
         const parsed = parseTitleDate(title, titlePrefix);
         if (!parsed.isValid) continue;
+        if (parsed.isoDate < startDate || parsed.isoDate > endDate) continue;
+
         const existing = existingMap.get(parsed.isoDate);
         if (existing) {
           existing.count = (existing.count ?? 1) + 1;
@@ -269,21 +303,10 @@ export class AzureWorkItemService implements WorkItemRepository {
     endDate?: string,
     personIdentities?: string[]
   ): Promise<WorkItem[]> {
-    let whereClause = `[System.WorkItemType] = '${this.escapeWiql(workItemType)}'
+    const whereClause = `[System.TeamProject] = '${this.escapeWiql(project)}'
+      AND [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
       AND [System.Title] CONTAINS '${this.escapeWiql(titlePrefix)}'
       AND [System.State] <> 'Removed'`;
-
-    if (personIdentities && personIdentities.length > 0) {
-      const identities = personIdentities.map(id => `'${this.escapeWiql(id)}'`).join(',');
-      whereClause += ` AND [System.AssignedTo] IN (${identities})`;
-    }
-
-    if (startDate) {
-      whereClause += ` AND [Microsoft.VSTS.Scheduling.StartDate] >= '${addDays(startDate, -1)}'`;
-    }
-    if (endDate) {
-      whereClause += ` AND [Microsoft.VSTS.Scheduling.StartDate] < '${addDays(endDate, 1)}'`;
-    }
 
     const query = `
       SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo],
@@ -294,7 +317,7 @@ export class AzureWorkItemService implements WorkItemRepository {
              [Microsoft.VSTS.Scheduling.OriginalEstimate]
       FROM WorkItems
       WHERE ${whereClause}
-      ORDER BY [System.CreatedDate] DESC
+      ORDER BY [System.CreatedDate] DESC, [System.Id] DESC
     `;
 
     try {
@@ -307,7 +330,7 @@ export class AzureWorkItemService implements WorkItemRepository {
         return [];
       }
 
-      const ids = result.workItems.map(w => w.id);
+      const ids = result.workItems.slice(0, 250).map(w => w.id);
       const CHUNK_SIZE = 100;
       const workItems: WorkItem[] = [];
 
@@ -417,7 +440,8 @@ export class AzureWorkItemService implements WorkItemRepository {
     const wiql = `
       SELECT [System.Id]
       FROM WorkItems
-      WHERE [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
+      WHERE [System.TeamProject] = '${this.escapeWiql(project)}'
+        AND [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
         AND [System.Title] = '${this.escapeWiql(data.title)}'
         AND [System.AssignedTo] CONTAINS '${this.escapeWiql(data.assignedTo)}'
         AND [System.State] <> 'Removed'
@@ -435,6 +459,6 @@ export class AzureWorkItemService implements WorkItemRepository {
   }
 
   private escapeWiql(value: string): string {
-    return value.replace(/'/g, "''").replace(/\[/g, '[[]').replace(/\]/g, '[]]');
+    return value.replace(/'/g, "''");
   }
 }

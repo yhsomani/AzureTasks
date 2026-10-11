@@ -137,7 +137,7 @@ export function parseTitleDate(title: string, titlePrefix: string): ParsedTaskDa
   // Prefix may or may not include the trailing "|" separator; normalize it away.
   const rawPrefix = titlePrefix.trim().replace(/\s*\|+\s*$/, '');
   const prefixPattern = rawPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape regex
-  const regex = new RegExp(`^${prefixPattern}\\s*\\|\\s*(?:([A-Za-z]{3})\\s+(\\d{1,2})|(\\d{1,2})\\s+([A-Za-z]{3}))$`);
+  const regex = new RegExp(`^${prefixPattern}\\s*\\|\\s*(?:([A-Za-z]{3,9})\\s+(\\d{1,2})|(\\d{1,2})\\s+([A-Za-z]{3,9}))$`, 'i');
   
   const match = title.match(regex);
   if (!match) {
@@ -152,7 +152,7 @@ export function parseTitleDate(title: string, titlePrefix: string): ParsedTaskDa
 
   // Reject unknown month abbreviations (e.g. "Foo 8") rather than silently
   // treating them as January.
-  if (month < 0) {
+  if (month < 0 || day < 1 || day > 31) {
     return { isoDate: '', formattedTitleDate: '', year: 0, isValid: false };
   }
   
@@ -175,9 +175,10 @@ export function parseTitleDate(title: string, titlePrefix: string): ParsedTaskDa
 }
 
 function monthStrToNumber(month: string): number {
+  const norm = month.toLowerCase().slice(0, 3);
   const months: Record<string, number> = {
-    Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
-    Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
+    jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+    jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
   };
-  return months[month] ?? -1;
+  return months[norm] ?? -1;
 }

@@ -38,13 +38,13 @@ describe('AzureWorkItemService.getExistingTasksForPerson', () => {
     expect(map.get(date)?.id).toBe(1);
   });
 
-  it('widens the StartDate lower bound to survive timezone offsets', async () => {
+  it('scopes the query to the team project and work item type', async () => {
     const client = new FakeClient([]);
     const svc = new AzureWorkItemService(client as any);
     const end = addDays(date, 3);
     await svc.getExistingTasksForPerson('P', 'Task', prefix, 'a@b.com', date, end);
 
-    expect(client.wiql).toContain(`>= '${addDays(date, -1)}'`);
-    expect(client.wiql).toContain(`< '${addDays(end, 1)}'`);
+    expect(client.wiql).toContain("[System.TeamProject] = 'P'");
+    expect(client.wiql).toContain("[System.WorkItemType] = 'Task'");
   });
 });
