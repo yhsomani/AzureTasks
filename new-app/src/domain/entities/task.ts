@@ -137,14 +137,15 @@ export function parseTitleDate(title: string, titlePrefix: string): ParsedTaskDa
   // Prefix may or may not include the trailing "|" separator; normalize it away.
   const rawPrefix = titlePrefix.trim().replace(/\s*\|+\s*$/, '');
   const prefixPattern = rawPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape regex
-  const regex = new RegExp(`^${prefixPattern}\\s*\\|\\s*([A-Za-z]{3})\\s+(\\d{1,2})$`);
+  const regex = new RegExp(`^${prefixPattern}\\s*\\|\\s*(?:([A-Za-z]{3})\\s+(\\d{1,2})|(\\d{1,2})\\s+([A-Za-z]{3}))$`);
   
   const match = title.match(regex);
   if (!match) {
     return { isoDate: '', formattedTitleDate: '', year: 0, isValid: false };
   }
   
-  const [, monthStr, dayStr] = match;
+  const monthStr = match[1] || match[4];
+  const dayStr = match[2] || match[3];
   const month = monthStrToNumber(monthStr);
   const day = parseInt(dayStr, 10);
   const currentYear = new Date().getFullYear();
