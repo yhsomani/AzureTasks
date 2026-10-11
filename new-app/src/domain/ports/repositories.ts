@@ -128,6 +128,9 @@ export interface AppConfig {
   maxRetries: number;
   initialRetryDelayMs: number;
   defaultSourceTaskId?: number;
+  schedulerEnabled?: boolean;
+  schedulerAutoStart?: boolean;
+  scheduleTime?: string;
   people: PersonConfig[];
 }
 
@@ -174,15 +177,19 @@ export interface JournalEntry {
  */
 export interface SchedulerRepository {
   getStatus(): SchedulerStatus;
-  start(): void;
-  stop(): void;
+  start(persist?: boolean): void | Promise<void>;
+  stop(persist?: boolean): void | Promise<void>;
   setSchedule(cron: string, timezone: string): void;
+  configure?(options: { startTime?: string; timezone?: string; autoStart?: boolean }): Promise<void>;
+  triggerRunNow?(): Promise<{ success: boolean; message: string }>;
 }
 
 export interface SchedulerStatus {
   running: boolean;
   nextRun?: string;
   timezone: string;
+  startTime?: string;
+  autoStart?: boolean;
   lastRun?: string;
   lastRunResult?: 'success' | 'failure' | 'partial';
 }

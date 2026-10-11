@@ -1,0 +1,29 @@
+# Ralph Loop Progress Log
+# Master Mission: Autonomous Task Creation Audit, Persistent Automation & End-to-End Verification
+
+## Project Overview
+Target codebase: new-app (azure-3in1-task-creator@2.0.0, TypeScript, Node.js 22, Express 5)
+Legacy reference: Legacy (Read-only)
+
+---
+
+## Iteration 1 - Phase 1 Complete: Comprehensive Audit Report
+## Iteration 2 - Phase 2 Complete: Persistent & Unattended Automation Scheduler
+- Upgraded `NodeSchedulerRepository` with persistent state, configurable schedule time, auto-start on boot, and manual trigger (`triggerRunNow`).
+- Wired `buildApp` and `FileConfigRepository` to persist scheduler state into `people.json`.
+- Added REST endpoints: `POST /api/scheduler/toggle` (with persist), `POST /api/scheduler/config`, `POST /api/scheduler/run-now`.
+- Enhanced Web UI Scheduler View with auto-start checkbox, run time input, status pills, and manual execution button.
+- Verified with unit & integration tests (`repositories.test.ts` and `api-routes.test.ts`).
+## Iteration 3 - Phase 3 & 4 Complete: Multi-User Rules, Ad-Hoc Task Creator & Safety Guarantees
+- Implemented `CreateAdHocTaskInput`, `CreateAdHocTaskOutput`, and `CreateTasksUseCase.executeAdHocTask()` for arbitrary single-task creation with field/relation overrides.
+- Added API endpoint `POST /api/tasks/adhoc` with full input validation and concurrency locking.
+- Created `#adHocModal` in UI with full control over assignee, target date, custom title, source task reference, estimate, activity, and duplicate bypass.
+- Added "➕ Create Ad-Hoc Task" button in Task Planner and wired all event listeners and live updates.
+## Iteration 4 - Phase 5 & 6 Complete: Full End-to-End Delivery & Verification
+- Enhanced UI with Scheduler Dashboard cards, auto-resume checkboxes, run time inputs, status indicators, and Ad-Hoc Task Creator modal.
+- Expanded automated test suite from 116 to 122 tests (100% pass across 13 test files).
+- Production build clean (`npm run build`).
+- Live verification in Chrome DevTools MCP & server reboot persistence test: verified scheduler preserves state across reboots and automatically re-arms the timer on boot.
+- Universal Azure DevOps links intact across all views.
+- Updated `docs/TEST_RESULTS.md` and `docs/audit/AUTOMATION_AUDIT_REPORT.md`.
+- Goal achieved with verified enterprise-grade reliability.

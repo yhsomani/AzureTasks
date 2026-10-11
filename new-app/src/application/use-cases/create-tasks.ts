@@ -9,7 +9,8 @@ import { Person, PersonConfig } from '../../domain/entities/person.js';
 import { 
   DiscoveredTask, 
   WorkItem, 
-  CreatedTask 
+  CreatedTask,
+  parseTitleDate
 } from '../../domain/entities/task.js';
 import { 
   TaskDiscoveryService, 
@@ -27,7 +28,8 @@ import {
   PlannedDate,
   getTodayIso,
   getNextThursdayIso,
-  validateNotPastDate
+  validateNotPastDate,
+  formatTitleDate
 } from '../../domain/value-objects/date-window.js';
 
 export interface CreateTasksInput {
@@ -37,6 +39,25 @@ export interface CreateTasksInput {
   asOf?: string;              // Simulate as specific date
   thursdayMode?: 'CURRENT' | 'FOLLOWING';
   yes?: boolean;              // Skip confirmation
+}
+
+export interface CreateAdHocTaskInput {
+  personKey: string;
+  targetIsoDate: string;      // YYYY-MM-DD
+  customTitle?: string;
+  sourceTaskId?: number;
+  originalEstimate?: number;
+  activity?: string;
+  description?: string;
+  bypassDuplicateCheck?: boolean;
+}
+
+export interface CreateAdHocTaskOutput {
+  success: boolean;
+  task?: CreatedTask;
+  sourceTaskId?: number;
+  relationResult?: { copiedCount: number; failedCount: number; totalRelations: number };
+  error?: string;
 }
 
 export interface PersonExecutionPlan {
@@ -208,6 +229,140 @@ export class CreateTasksUseCase {
       if (!input.dryRun) {
         this.lockRepo.release();
       }
+    }
+  }
+
+  /**
+   * Execute an ad-hoc single task creation for a specific person, date, or custom parameters.
+   */
+  async executeAdHocTask(input: CreateAdHocTaskInput): Promise<CreateAdHocTaskOutput> {
+    if (!input.personKey || !input.targetIsoDate) {
+      throw new Error('Both personKey and targetIsoDate (YYYY-MM-DD) are required.');
+    }
+
+    const personConfig = this.config.people.find(p => 
+      p.key === input.personKey || p.assignedTo.toLowerCase() === input.personKey.toLowerCase()
+    );
+    if (!personConfig) {
+      throw new Error(`Person "${input.personKey}" not found in configured team.`);
+    }
+    const person = new Person(personConfig);
+
+    // Concurrency lock
+    if (!this.lockRepo.acquire()) {
+      const lock = this.lockRepo.getLockInfo();
+      throw new Error(`Cannot run task creation: another process (PID ${lock?.pid}) is executing.`);
+    }
+
+    const runId = `adhoc-${Date.now()}`;
+    try {
+      // 1. Resolve source task
+      let sourceTask: DiscoveredTask | null = null;
+      if (input.sourceTaskId) {
+        const item = await this.workItemRepo.getWorkItem(input.sourceTaskId);
+        const parsedDate = parseTitleDate(item.fields['System.Title'] || '', this.config.titlePrefix);
+        sourceTask = {
+          workItem: item,
+          parsedDate,
+          key: person.key,
+        };
+      } else {
+        sourceTask = await this.workItemRepo.findLatestTaskForPerson(
+          this.config.project,
+          this.config.workItemType,
+          this.config.titlePrefix,
+          person.assignedTo,
+          personConfig.sourceTaskId ?? this.config.defaultSourceTaskId
+        );
+      }
+
+      if (!sourceTask) {
+        throw new Error(`Could not locate a reference source task for ${person.name} to copy fields & relations from.`);
+      }
+
+      // 2. Determine Title
+      const fullTitle = input.customTitle?.trim() 
+        || `${this.config.titlePrefix} ${formatTitleDate(input.targetIsoDate)}`;
+
+      // 3. Duplicate check unless bypassed
+      if (!input.bypassDuplicateCheck) {
+        const existingMap = await this.discovery.getExistingTasksMap(
+          this.config.project,
+          this.config.workItemType,
+          this.config.titlePrefix,
+          person,
+          input.targetIsoDate,
+          input.targetIsoDate
+        );
+        if (existingMap.has(input.targetIsoDate)) {
+          const ex = existingMap.get(input.targetIsoDate)!;
+          throw new Error(`Duplicate task already exists for ${person.name} on ${input.targetIsoDate} (#${ex.id}: "${ex.title}").`);
+        }
+      }
+
+      // 4. Build field operations
+      const plannedDate: PlannedDate = {
+        isoDate: input.targetIsoDate,
+        formattedTitleDate: formatTitleDate(input.targetIsoDate),
+        fullTitle,
+        status: 'PLANNED',
+      };
+
+      // Custom fields overrides on cloned source task
+      const clonedSourceItem: WorkItem = JSON.parse(JSON.stringify(sourceTask.workItem));
+      if (input.originalEstimate !== undefined) {
+        clonedSourceItem.fields['Microsoft.VSTS.Scheduling.OriginalEstimate'] = input.originalEstimate;
+        clonedSourceItem.fields['Microsoft.VSTS.Scheduling.RemainingWork'] = input.originalEstimate;
+      }
+      if (input.activity) {
+        clonedSourceItem.fields['Microsoft.VSTS.Common.Activity'] = input.activity;
+      }
+      if (input.description) {
+        clonedSourceItem.fields['System.Description'] = input.description;
+      }
+
+      const execContext: TaskExecutionContext = {
+        project: this.config.project,
+        workItemType: this.config.workItemType,
+        titlePrefix: this.config.titlePrefix,
+        startTime: this.config.startTime,
+        timezone: this.config.timezone,
+        copyEstimates: this.config.copyEstimates,
+        resetActualWork: this.config.resetActualWork,
+        defaultState: this.config.defaultState,
+      };
+
+      const { task, relationResult } = await this.execution.executeTask(
+        execContext,
+        { ...sourceTask, workItem: clonedSourceItem },
+        plannedDate,
+        person
+      );
+
+      // 5. Record in audit journal
+      await this.journalRepo.record({
+        runId,
+        timestamp: new Date().toISOString(),
+        personKey: person.key,
+        personName: person.name,
+        assignedTo: person.assignedTo,
+        targetIsoDate: input.targetIsoDate,
+        title: fullTitle,
+        sourceTaskId: sourceTask.workItem.id,
+        createdWorkItemId: task.id,
+        fieldCopyStatus: 'SUCCESS',
+        relationCopyStatus: relationResult.failedCount === 0 ? 'SUCCESS' : 'PARTIAL',
+        verified: true,
+      });
+
+      return {
+        success: true,
+        task,
+        sourceTaskId: sourceTask.workItem.id,
+        relationResult,
+      };
+    } finally {
+      this.lockRepo.release();
     }
   }
 

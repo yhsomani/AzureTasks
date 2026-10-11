@@ -273,6 +273,7 @@
               <p class="muted small">Plan, preview, and safely execute rolling daily task creation with concurrency guards and duplicate prevention</p>
             </div>
             <div class="row gap" style="margin: 0;">
+              <button class="btn primary small" id="openAdHocModalBtn">➕ Create Ad-Hoc Task</button>
               <button class="btn ghost small" id="btnSimulateWindow" title="Advance to following Thursday window">🔮 Simulate Following Week</button>
               <button class="btn ghost small" id="btnResetPlannerWindow" title="Reset to today">↺ Reset to Today</button>
             </div>
@@ -384,19 +385,58 @@
       <!-- 8. SCHEDULER VIEW -->
       <section class="view" id="view-scheduler">
         <article class="card">
-          <header class="card-head"><h2>Scheduler</h2>
-            <label class="switch">
-              <input type="checkbox" id="schedToggle" />
-              <span class="slider"></span>
-              <span class="switch-label" id="schedState">Stopped</span>
-            </label>
+          <header class="card-head">
+            <div>
+              <h2 style="margin:0;">Automated Task Scheduler</h2>
+              <p class="muted small" style="margin:4px 0 0 0;">Persistent background daemon for unattended daily 3in1 task creation across server reboots.</p>
+            </div>
+            <div class="row gap" style="margin:0; align-items:center;">
+              <button class="btn primary small" id="schedRunNowBtn">⚡ Run Scheduler Now</button>
+              <label class="switch">
+                <input type="checkbox" id="schedToggle" />
+                <span class="slider"></span>
+                <span class="switch-label" id="schedState">Stopped</span>
+              </label>
+            </div>
           </header>
-          <div class="grid cols-3">
-            <div class="mini"><span>Timezone</span><strong id="schedTz">—</strong></div>
-            <div class="mini"><span>Next run</span><strong id="schedNext">—</strong></div>
-            <div class="mini"><span>Last result</span><strong id="schedLast">—</strong></div>
+
+          <div class="grid cols-4" style="margin-top: 16px;">
+            <div class="mini"><span>Status</span><strong id="schedStatusPill" style="color:var(--text);">Stopped</strong></div>
+            <div class="mini"><span>Scheduled Time</span><strong id="schedTimeDisplay">09:30</strong></div>
+            <div class="mini"><span>Timezone</span><strong id="schedTz">Asia/Kolkata</strong></div>
+            <div class="mini"><span>Next Scheduled Run</span><strong id="schedNext" style="color:var(--brand-glow);">—</strong></div>
           </div>
-          <p class="muted small">When enabled, the server runs task creation automatically on weekdays at 09:30 in the configured timezone.</p>
+
+          <div class="grid cols-2" style="margin-top: 12px;">
+            <div class="mini"><span>Auto-Start On Server Boot</span><strong id="schedAutoStartLabel">Disabled</strong></div>
+            <div class="mini"><span>Last Execution Result</span><strong id="schedLast">No runs yet</strong></div>
+          </div>
+        </article>
+
+        <article class="card">
+          <header class="card-head">
+            <h2 style="margin:0;">Scheduler Configuration</h2>
+          </header>
+          <div class="grid cols-3" style="align-items:flex-end;">
+            <label class="field">
+              <span>Daily Run Time (HH:mm)</span>
+              <input type="time" id="schedTimeInput" value="09:30" />
+            </label>
+            <label class="field">
+              <span>Timezone</span>
+              <input type="text" id="schedTzInput" placeholder="Asia/Kolkata" />
+            </label>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                <input type="checkbox" id="schedAutoStartCheck" />
+                <span>Auto-resume scheduler on server restart</span>
+              </label>
+              <button class="btn primary" id="schedSaveConfigBtn">💾 Save Schedule Settings</button>
+            </div>
+          </div>
+          <p class="muted small" style="margin-top:12px;">
+            ℹ️ The scheduler evaluates working weekdays (Mon-Fri) and creates upcoming tasks up to the Thursday stop day. Execution is guarded by file lock concurrency protection and recorded in the audit journal.
+          </p>
         </article>
       </section>
 
@@ -544,6 +584,70 @@
       <div class="modal-footer">
         <button class="btn ghost" id="btnCancelPersonModal">Cancel</button>
         <button class="btn primary" id="btnSavePersonModal">Save Member</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AD-HOC TASK CREATION MODAL -->
+  <div id="adHocModal" class="modal-overlay">
+    <div class="modal-card" style="max-width: 540px;">
+      <div class="modal-header">
+        <h3 id="adHocModalTitle">Create Ad-Hoc Task in Azure DevOps</h3>
+        <button class="icon-btn" id="btnCloseAdHocModal" style="width:28px; height:28px;">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="adHocForm" onsubmit="return false;">
+          <div class="grid cols-2">
+            <label class="field">
+              <span>Assignee *</span>
+              <select id="adHocPersonSelect" required></select>
+            </label>
+            <label class="field">
+              <span>Target Date *</span>
+              <input type="date" id="adHocTargetDate" required />
+            </label>
+          </div>
+
+          <label class="field">
+            <span>Custom Title (Optional)</span>
+            <input type="text" id="adHocTitleInput" placeholder="Auto-generated: [Prefix] [Date]" />
+            <span class="muted small">Leave blank to use standard series prefix + date format.</span>
+          </label>
+
+          <div class="grid cols-2">
+            <label class="field">
+              <span>Reference Task ID (Optional)</span>
+              <input type="number" id="adHocSourceTaskId" placeholder="Auto-discover latest" />
+              <span class="muted small">Source work item to copy parent stories and relations from.</span>
+            </label>
+            <label class="field">
+              <span>Original Estimate (Hours)</span>
+              <input type="number" step="0.5" id="adHocEstimateInput" placeholder="Copy from source" />
+            </label>
+          </div>
+
+          <div class="grid cols-2">
+            <label class="field">
+              <span>Activity</span>
+              <input type="text" id="adHocActivityInput" placeholder="e.g. Development" />
+            </label>
+            <div style="display:flex; align-items:flex-end; padding-bottom:8px;">
+              <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; cursor:pointer;">
+                <input type="checkbox" id="adHocBypassDuplicate" />
+                <span>Bypass duplicate check</span>
+              </label>
+            </div>
+          </div>
+
+          <label class="field">
+            <span>Description (Optional)</span>
+            <textarea id="adHocDescriptionInput" rows="2" placeholder="Leave blank to clone source task description"></textarea>
+          </label>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn ghost" id="btnCancelAdHocModal">Cancel</button>
+        <button class="btn primary" id="btnSubmitAdHocTask">🚀 Create Task Now</button>
       </div>
     </div>
   </div>

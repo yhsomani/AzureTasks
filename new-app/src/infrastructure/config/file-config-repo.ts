@@ -111,6 +111,9 @@ export class FileConfigRepository implements ConfigRepository {
       maxRetries: config.maxRetries,
       initialRetryDelayMs: config.initialRetryDelayMs,
       defaultSourceTaskId: config.defaultSourceTaskId,
+      schedulerEnabled: config.schedulerEnabled ?? false,
+      schedulerAutoStart: config.schedulerAutoStart ?? false,
+      scheduleTime: config.scheduleTime ?? config.startTime ?? '09:30',
       people: config.people,
     };
 
@@ -140,13 +143,16 @@ export class FileConfigRepository implements ConfigRepository {
       }
     }
 
-    if (settings.timezone) currentData.timezone = settings.timezone;
-    if (settings.thursdayMode) currentData.thursdayMode = settings.thursdayMode;
-    if (settings.startTime) currentData.startTime = settings.startTime;
-    if (settings.organization) currentData.organization = settings.organization;
-    if (settings.project) currentData.project = settings.project;
-    if (settings.workItemType) currentData.workItemType = settings.workItemType;
-    if (settings.titlePrefix) currentData.titlePrefix = settings.titlePrefix;
+    if (settings.timezone !== undefined) currentData.timezone = settings.timezone;
+    if (settings.thursdayMode !== undefined) currentData.thursdayMode = settings.thursdayMode;
+    if (settings.startTime !== undefined) currentData.startTime = settings.startTime;
+    if (settings.organization !== undefined) currentData.organization = settings.organization;
+    if (settings.project !== undefined) currentData.project = settings.project;
+    if (settings.workItemType !== undefined) currentData.workItemType = settings.workItemType;
+    if (settings.titlePrefix !== undefined) currentData.titlePrefix = settings.titlePrefix;
+    if (settings.schedulerEnabled !== undefined) currentData.schedulerEnabled = settings.schedulerEnabled;
+    if (settings.schedulerAutoStart !== undefined) currentData.schedulerAutoStart = settings.schedulerAutoStart;
+    if (settings.scheduleTime !== undefined) currentData.scheduleTime = settings.scheduleTime;
 
     fs.writeFileSync(this.configPath, JSON.stringify(currentData, null, 2), 'utf-8');
   }
@@ -229,6 +235,9 @@ export class FileConfigRepository implements ConfigRepository {
       resetActualWork: true,
       maxRetries: 3,
       initialRetryDelayMs: 1000,
+      schedulerEnabled: false,
+      schedulerAutoStart: false,
+      scheduleTime: '09:30',
       people: [
         { key: 'person1', name: 'Person 1', assignedTo: 'person1@company.com', enabled: true },
         { key: 'person2', name: 'Person 2', assignedTo: 'person2@company.com', enabled: true },

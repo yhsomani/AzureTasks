@@ -1,14 +1,14 @@
 # Test results
 
 **Command:** `npm test` (`vitest run`)
-**Result:** ✅ **13 files, 116 tests passed** · ~5 s
+**Result:** ✅ **13 files, 122 tests passed** · ~5 s
 
 ```
  ✓ tests/unit/date-window.test.ts            (18 tests)
  ✓ tests/unit/person.test.ts                 (10 tests)
  ✓ tests/unit/task-services.test.ts          (16 tests)
  ✓ tests/unit/task-entities.test.ts          ( 9 tests)
- ✓ tests/unit/repositories.test.ts           (15 tests)
+ ✓ tests/unit/repositories.test.ts           (18 tests)
  ✓ tests/unit/azure-client.test.ts           ( 6 tests)
  ✓ tests/unit/config-use-cases.test.ts       ( 6 tests)
  ✓ tests/unit/explore-tasks.test.ts          ( 2 tests)
@@ -16,10 +16,10 @@
  ✓ tests/integration/create-tasks.test.ts    (10 tests)
  ✓ tests/integration/repair-relations.test.ts (3 tests)
  ✓ tests/integration/discovery.test.ts        ( 3 tests)
- ✓ tests/integration/api-routes.test.ts      (16 tests)
+ ✓ tests/integration/api-routes.test.ts      (19 tests)
 
  Test Files  13 passed (13)
-      Tests  116 passed (116)
+      Tests  122 passed (122)
 ```
 
 ## What is covered
@@ -30,11 +30,11 @@
 | Person entity | `createPersonKey`, `normalizeIdentity`, identity matching, enable/disable |
 | Task entities | `parseTitleDate` (incl. trailing-pipe prefix), relation whitelist/blacklist, dedupe |
 | Domain services | `DuplicateDetector` (person+date scoping), `FieldCopyService` overrides/exclusions, `DatePlanningService` |
-| Adapters | File journal (append/rotation/export/repair), file lock (acquire/release/stale-PID reclaim), config load |
+| Adapters | File journal (append/rotation/export/repair), file lock (acquire/release/stale-PID reclaim), config load/save, persistent Node scheduler (autoStart, restart persistence, dynamic start time, triggerRunNow) |
 | Config use-cases | Roster validation (required key, duplicate key/identity), settings validation (IANA timezone, `HH:MM`), live config update |
 | Azure client | Fail-fast on missing PAT, no retry on 401/403, retry on 5xx, network-error normalization, live org/PAT read |
 | Work-item discovery | `getExistingTasksForPerson`: multiple tasks per date counted, timezone-widened StartDate bound; per-person `sourceTaskId` override beats discovery and the global override |
-| API routes | Real ephemeral HTTP server: health/status, plan (default-all + 400 path), execute (progress + `yes`), journal list/export, scheduler toggle, SSE headers, SPA served |
+| API routes | Real ephemeral HTTP server: health/status, plan (default-all + 400 path), execute (progress + `yes`), ad-hoc single task creation (`/api/tasks/adhoc`), journal list/export, scheduler toggle/config/run-now, SSE headers, SPA served |
 | Auth | HTTP Basic gate: 401 + `WWW-Authenticate` when enabled, correct creds pass, wrong creds rejected, `/api/health` stays public |
 | Create flow | Full `CreateTasksUseCase` with in-memory fakes: multi-person, duplicate skip, failure isolation, dry-run, output aggregation |
 | Discovery mapping | Regression: Azure identity → `person.key` mapping + default-source fallback |

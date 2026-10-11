@@ -1372,9 +1372,36 @@ async function refreshScheduler() {
     if (toggle) toggle.checked = s.running;
     const stateLabel = $('#schedState');
     if (stateLabel) stateLabel.textContent = s.running ? 'Running' : 'Stopped';
+
+    if ($('#schedStatusPill')) {
+      $('#schedStatusPill').textContent = s.running ? '🟢 Active Daemon' : '⚪ Stopped';
+      $('#schedStatusPill').style.color = s.running ? 'var(--ok)' : 'var(--muted)';
+    }
+
+    if ($('#schedTimeDisplay')) $('#schedTimeDisplay').textContent = s.startTime || '09:30';
     if ($('#schedTz')) $('#schedTz').textContent = s.timezone || 'Asia/Kolkata';
     if ($('#schedNext')) $('#schedNext').textContent = s.nextRun ? new Date(s.nextRun).toLocaleString() : '—';
-    if ($('#schedLast')) $('#schedLast').textContent = s.lastResult?.status || 'No runs yet';
+    if ($('#schedAutoStartLabel')) $('#schedAutoStartLabel').textContent = s.autoStart ? '✅ Enabled' : '❌ Disabled';
+    
+    if ($('#schedLast')) {
+      if (s.lastRun) {
+        const res = s.lastRunResult ? s.lastRunResult.toUpperCase() : 'DONE';
+        $('#schedLast').textContent = `${res} (${new Date(s.lastRun).toLocaleTimeString()})`;
+      } else {
+        $('#schedLast').textContent = 'No runs yet';
+      }
+    }
+
+    // Populate inputs if not actively focused
+    if ($('#schedTimeInput') && document.activeElement !== $('#schedTimeInput')) {
+      $('#schedTimeInput').value = s.startTime || '09:30';
+    }
+    if ($('#schedTzInput') && document.activeElement !== $('#schedTzInput')) {
+      $('#schedTzInput').value = s.timezone || 'Asia/Kolkata';
+    }
+    if ($('#schedAutoStartCheck')) {
+      $('#schedAutoStartCheck').checked = Boolean(s.autoStart);
+    }
   } catch (err) {
     toast(err.message, 'err');
   }
@@ -1382,9 +1409,38 @@ async function refreshScheduler() {
 
 async function toggleScheduler(enable) {
   try {
-    const s = await api.post('/scheduler/toggle', { enable });
-    toast(s.running ? 'Scheduler started' : 'Scheduler stopped');
+    const s = await api.post('/scheduler/toggle', { enable, persist: true });
+    toast(s.running ? 'Scheduler started (persisted)' : 'Scheduler stopped (persisted)');
     refreshScheduler();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function saveSchedulerConfig() {
+  try {
+    const startTime = $('#schedTimeInput')?.value?.trim() || '09:30';
+    const timezone = $('#schedTzInput')?.value?.trim() || 'Asia/Kolkata';
+    const autoStart = Boolean($('#schedAutoStartCheck')?.checked);
+
+    const s = await api.post('/scheduler/config', { startTime, timezone, autoStart });
+    toast('Scheduler configuration saved successfully', 'ok');
+    refreshScheduler();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function runSchedulerNow() {
+  try {
+    toast('Triggering immediate scheduler execution...');
+    const res = await api.post('/scheduler/run-now');
+    if (res.success) {
+      toast(res.message || 'Scheduler executed', 'ok');
+    } else {
+      toast(res.message || 'Could not run scheduler', 'warn');
+    }
+    setTimeout(refreshScheduler, 1500);
   } catch (err) {
     toast(err.message, 'err');
   }
@@ -1439,6 +1495,92 @@ async function testConnection() {
     toast('Connection successful!', 'ok');
   } else {
     toast('Connection failed. Check PAT and permissions.', 'err');
+  }
+}
+
+/* ----------------------------------------------------------- ad-hoc task modal */
+function openAdHocModal(defaultPersonKey, defaultDate) {
+  const modal = $('#adHocModal');
+  if (!modal) return;
+
+  const select = $('#adHocPersonSelect');
+  if (select) {
+    select.innerHTML = '';
+    (state.people || []).forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.key;
+      opt.textContent = `${p.name} (${p.assignedTo})`;
+      select.appendChild(opt);
+    });
+    if (defaultPersonKey) select.value = defaultPersonKey;
+  }
+
+  const dateInput = $('#adHocTargetDate');
+  if (dateInput) {
+    dateInput.value = defaultDate || new Date().toISOString().split('T')[0];
+  }
+
+  if ($('#adHocTitleInput')) $('#adHocTitleInput').value = '';
+  if ($('#adHocSourceTaskId')) $('#adHocSourceTaskId').value = '';
+  if ($('#adHocEstimateInput')) $('#adHocEstimateInput').value = '';
+  if ($('#adHocActivityInput')) $('#adHocActivityInput').value = '';
+  if ($('#adHocDescriptionInput')) $('#adHocDescriptionInput').value = '';
+  if ($('#adHocBypassDuplicate')) $('#adHocBypassDuplicate').checked = false;
+
+  modal.classList.add('open');
+}
+
+function closeAdHocModal() {
+  $('#adHocModal')?.classList.remove('open');
+}
+
+async function submitAdHocTask() {
+  const personKey = $('#adHocPersonSelect')?.value;
+  const targetIsoDate = $('#adHocTargetDate')?.value;
+  if (!personKey || !targetIsoDate) {
+    toast('Please select an assignee and target date', 'warn');
+    return;
+  }
+
+  const btn = $('#btnSubmitAdHocTask');
+  const origText = btn ? btn.textContent : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Creating...';
+  }
+
+  try {
+    const payload = {
+      personKey,
+      targetIsoDate,
+      customTitle: $('#adHocTitleInput')?.value?.trim() || undefined,
+      sourceTaskId: $('#adHocSourceTaskId')?.value ? parseInt($('#adHocSourceTaskId').value, 10) : undefined,
+      originalEstimate: $('#adHocEstimateInput')?.value ? parseFloat($('#adHocEstimateInput').value) : undefined,
+      activity: $('#adHocActivityInput')?.value?.trim() || undefined,
+      description: $('#adHocDescriptionInput')?.value?.trim() || undefined,
+      bypassDuplicateCheck: Boolean($('#adHocBypassDuplicate')?.checked),
+    };
+
+    toast('Creating task in Azure DevOps...');
+    const res = await api.post('/tasks/adhoc', payload);
+    const created = res.task;
+
+    toast(`Successfully created #${created.id} - ${created.title}`, 'ok');
+    closeAdHocModal();
+
+    // Trigger UI updates
+    refreshDashboard();
+    if (state.currentView === 'planner') refreshPlanner();
+    if (state.currentView === 'explorer') refreshExplorer();
+    if (state.currentView === 'journal') refreshJournal();
+    if (state.currentView === 'mywork') refreshMyWork();
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = origText;
+    }
   }
 }
 
@@ -1655,12 +1797,20 @@ function wire() {
   $('#btnSavePersonModal')?.addEventListener('click', savePersonFromModal);
   $('#savePeopleBtn')?.addEventListener('click', savePeople);
 
+  // Ad-hoc task creation modal
+  $('#openAdHocModalBtn')?.addEventListener('click', () => openAdHocModal());
+  $('#btnCloseAdHocModal')?.addEventListener('click', closeAdHocModal);
+  $('#btnCancelAdHocModal')?.addEventListener('click', closeAdHocModal);
+  $('#btnSubmitAdHocTask')?.addEventListener('click', submitAdHocTask);
+
   // Journal controls
   $('#exportCsv')?.addEventListener('click', () => window.open('/api/journal/export?format=csv', '_blank'));
   $('#exportJson')?.addEventListener('click', () => window.open('/api/journal/export?format=json', '_blank'));
 
   // Scheduler controls
   $('#schedToggle')?.addEventListener('change', e => toggleScheduler(e.target.checked));
+  $('#schedSaveConfigBtn')?.addEventListener('click', saveSchedulerConfig);
+  $('#schedRunNowBtn')?.addEventListener('click', runSchedulerNow);
 
   // Settings controls
   $('#saveSettingsBtn')?.addEventListener('click', saveSettings);

@@ -28,6 +28,10 @@ function makeDeps(): ApiDependencies {
         totalSourceFailureCount: 0,
         personResults: [],
       })),
+      executeAdHocTask: vi.fn(async () => ({
+        success: true,
+        task: { id: 999, title: 'Ad-Hoc Task', isoDate: '2026-10-15', url: 'https://dev.azure.com/_workitems/edit/999' },
+      })),
     },
     config: {
       getConfig: vi.fn(async () => ({ organization: 'Org', project: 'Proj' })),
@@ -44,10 +48,12 @@ function makeDeps(): ApiDependencies {
       exportJson: vi.fn(async () => '[]'),
     },
     scheduler: {
-      getStatus: vi.fn(() => ({ running: false, timezone: 'UTC' })),
+      getStatus: vi.fn(() => ({ running: false, timezone: 'UTC', startTime: '09:30', autoStart: false })),
       start: vi.fn(),
       stop: vi.fn(),
       setSchedule: vi.fn(),
+      configure: vi.fn(async () => {}),
+      triggerRunNow: vi.fn(async () => ({ success: true, message: 'Executed' })),
     },
   } as unknown as ApiDependencies;
 }
@@ -116,6 +122,27 @@ describe('API routes', () => {
     expect(typeof onProgress).toBe('function');
   });
 
+  it('POST /api/tasks/adhoc creates a custom single task', async () => {
+    const res = await json('/api/tasks/adhoc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        personKey: 'p1',
+        targetIsoDate: '2026-10-15',
+        customTitle: 'Custom Task Title',
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.task.id).toBe(999);
+    expect((deps.createTasks.executeAdHocTask as any)).toHaveBeenCalledWith(expect.objectContaining({
+      personKey: 'p1',
+      targetIsoDate: '2026-10-15',
+      customTitle: 'Custom Task Title',
+    }));
+  });
+
   it('GET /api/explorer delegates to exploreTasks use case with query params', async () => {
     const res = await json('/api/explorer?preset=current_month&users=p1,p2');
     expect(res.status).toBe(200);
@@ -158,10 +185,34 @@ describe('API routes', () => {
     const res = await json('/api/scheduler/toggle', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: true }),
+      body: JSON.stringify({ enabled: true, persist: true }),
     });
     expect(res.status).toBe(200);
-    expect((deps.scheduler.start as any)).toHaveBeenCalled();
+    expect((deps.scheduler.start as any)).toHaveBeenCalledWith(true);
+  });
+
+  it('POST /api/scheduler/config reconfigures schedule settings', async () => {
+    const res = await json('/api/scheduler/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startTime: '10:15', timezone: 'Asia/Kolkata', autoStart: true }),
+    });
+    expect(res.status).toBe(200);
+    expect((deps.scheduler.configure as any)).toHaveBeenCalledWith({
+      startTime: '10:15',
+      timezone: 'Asia/Kolkata',
+      autoStart: true,
+    });
+  });
+
+  it('POST /api/scheduler/run-now triggers immediate execution', async () => {
+    const res = await json('/api/scheduler/run-now', {
+      method: 'POST',
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect((deps.scheduler.triggerRunNow as any)).toHaveBeenCalled();
   });
 
   it('GET /api/logs/stream responds as an SSE stream', async () => {

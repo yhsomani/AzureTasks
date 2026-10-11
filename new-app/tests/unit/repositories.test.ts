@@ -181,4 +181,62 @@ describe('NodeSchedulerRepository', () => {
     scheduler.setSchedule('0 9 * * 1-5', 'Europe/London');
     expect(scheduler.getStatus().timezone).toBe('Europe/London');
   });
+
+  it('persists schedulerEnabled on start(true) and stop(true)', async () => {
+    const cfgPath = path.join(dir, 'people.json');
+    fs.writeFileSync(cfgPath, JSON.stringify({ people: [] }));
+    const configRepo = new FileConfigRepository(cfgPath);
+
+    const scheduler = new NodeSchedulerRepository(
+      { timezone: 'UTC', startTime: '10:00', scheduleTime: '10:00' },
+      configRepo
+    );
+
+    await scheduler.start(true);
+    expect(scheduler.getStatus().running).toBe(true);
+    let saved = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+    expect(saved.schedulerEnabled).toBe(true);
+
+    await scheduler.stop(true);
+    expect(scheduler.getStatus().running).toBe(false);
+    saved = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+    expect(saved.schedulerEnabled).toBe(false);
+  });
+
+  it('configures schedule time and auto-start persistently', async () => {
+    const cfgPath = path.join(dir, 'people.json');
+    fs.writeFileSync(cfgPath, JSON.stringify({ people: [] }));
+    const configRepo = new FileConfigRepository(cfgPath);
+
+    const scheduler = new NodeSchedulerRepository(
+      { timezone: 'Asia/Kolkata', startTime: '09:30', scheduleTime: '09:30' },
+      configRepo
+    );
+
+    await scheduler.configure({ startTime: '11:15', timezone: 'UTC', autoStart: true });
+    const status = scheduler.getStatus();
+    expect(status.startTime).toBe('11:15');
+    expect(status.timezone).toBe('UTC');
+    expect(status.autoStart).toBe(true);
+
+    const saved = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+    expect(saved.scheduleTime).toBe('11:15');
+    expect(saved.schedulerAutoStart).toBe(true);
+    expect(saved.timezone).toBe('UTC');
+  });
+
+  it('triggers immediate execution via triggerRunNow', async () => {
+    let executed = false;
+    const scheduler = new NodeSchedulerRepository({ timezone: 'UTC', startTime: '09:30' });
+    scheduler.setScheduleFunction(async () => {
+      executed = true;
+    });
+
+    const res = await scheduler.triggerRunNow();
+    expect(res.success).toBe(true);
+    // Allow promise tick for async execution
+    await new Promise(r => setTimeout(r, 50));
+    expect(executed).toBe(true);
+    expect(scheduler.getStatus().lastRunResult).toBe('success');
+  });
 });

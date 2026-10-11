@@ -49,7 +49,7 @@ export async function buildApp(configFilePath?: string): Promise<App> {
   const workItemRepo = new AzureWorkItemService(client);
   const journalRepo = new FileJournalRepository();
   const lockRepo = new FileLockRepository();
-  const schedulerRepo = new NodeSchedulerRepository(config);
+  const schedulerRepo = new NodeSchedulerRepository(config, configRepo);
 
   const createTasks = new CreateTasksUseCase(workItemRepo, journalRepo, lockRepo, config);
   const planTasks = new PlanTasksUseCase(workItemRepo, config);
@@ -65,6 +65,12 @@ export async function buildApp(configFilePath?: string): Promise<App> {
       throw new Error(`${result.totalTaskFailureCount} task(s) failed`);
     }
   });
+
+  // Auto-start scheduler if configured
+  if (config.schedulerEnabled || config.schedulerAutoStart) {
+    logger.info('Auto-starting persistent scheduler on boot...');
+    schedulerRepo.start();
+  }
 
   return {
     config,

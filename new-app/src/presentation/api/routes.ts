@@ -117,6 +117,41 @@ export function createApiRouter(deps: ApiDependencies): Router {
     }
   });
 
+  router.post('/tasks/adhoc', async (req, res) => {
+    try {
+      const {
+        personKey,
+        targetIsoDate,
+        customTitle,
+        sourceTaskId,
+        originalEstimate,
+        activity,
+        description,
+        bypassDuplicateCheck,
+      } = req.body || {};
+
+      if (!personKey || !targetIsoDate) {
+        return res.status(400).json({ success: false, error: 'personKey and targetIsoDate (YYYY-MM-DD) are required' });
+      }
+
+      const result = await deps.createTasks.executeAdHocTask({
+        personKey,
+        targetIsoDate,
+        customTitle,
+        sourceTaskId: sourceTaskId ? parseInt(sourceTaskId, 10) : undefined,
+        originalEstimate: originalEstimate !== undefined && originalEstimate !== '' ? parseFloat(originalEstimate) : undefined,
+        activity,
+        description,
+        bypassDuplicateCheck: Boolean(bypassDuplicateCheck),
+      });
+
+      res.json({ success: true, data: result });
+    } catch (err: any) {
+      logger.error(`Ad-hoc task creation failed: ${err.message}`);
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
   // Explorer
   router.get('/explorer', async (req, res) => {
     try {
@@ -208,13 +243,43 @@ export function createApiRouter(deps: ApiDependencies): Router {
     res.json({ success: true, data: deps.scheduler.getStatus() });
   });
 
-  router.post('/scheduler/toggle', (req, res) => {
-    const shouldEnable = req.body?.enabled !== undefined
-      ? Boolean(req.body.enabled)
-      : Boolean(req.body?.enable);
-    if (shouldEnable) deps.scheduler.start();
-    else deps.scheduler.stop();
-    res.json({ success: true, data: deps.scheduler.getStatus() });
+  router.post('/scheduler/toggle', async (req, res) => {
+    try {
+      const shouldEnable = req.body?.enabled !== undefined
+        ? Boolean(req.body.enabled)
+        : Boolean(req.body?.enable);
+      const persist = req.body?.persist !== undefined ? Boolean(req.body.persist) : true;
+      if (shouldEnable) await deps.scheduler.start(persist);
+      else await deps.scheduler.stop(persist);
+      res.json({ success: true, data: deps.scheduler.getStatus() });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/scheduler/config', async (req, res) => {
+    try {
+      const { startTime, timezone, autoStart } = req.body || {};
+      if (deps.scheduler.configure) {
+        await deps.scheduler.configure({ startTime, timezone, autoStart });
+      }
+      res.json({ success: true, data: deps.scheduler.getStatus() });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/scheduler/run-now', async (_req, res) => {
+    try {
+      if (deps.scheduler.triggerRunNow) {
+        const result = await deps.scheduler.triggerRunNow();
+        res.json({ success: result.success, message: result.message, data: deps.scheduler.getStatus() });
+      } else {
+        res.status(400).json({ success: false, error: 'Direct run trigger not supported' });
+      }
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   // Logs

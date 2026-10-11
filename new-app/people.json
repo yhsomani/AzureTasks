@@ -23,5 +23,8 @@
       "role": "SDM",
       "enabled": true
     }
-  ]
+  ],
+  "schedulerEnabled": true,
+  "scheduleTime": "09:45",
+  "schedulerAutoStart": true
 }
