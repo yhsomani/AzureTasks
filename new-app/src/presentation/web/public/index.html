@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Azure DevOps 3in1 Task Creator — automated multi-person daily task creation" />
-  <title>3in1 Task Studio</title>
+  <meta name="description" content="Azure DevOps 3in1 Task Creator — automated multi-person daily task creation and work intelligence studio" />
+  <title>Azure DevOps 3in1 Task Automation Studio</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230078d4'/%3E%3Cpath d='M9 16l4 4 10-10' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -27,11 +28,17 @@
         <button class="nav-item active" data-view="dashboard">
           <span class="ico" aria-hidden="true">◧</span> Dashboard
         </button>
-        <button class="nav-item" data-view="planner">
-          <span class="ico" aria-hidden="true">▶</span> Planner
+        <button class="nav-item" data-view="burndown">
+          <span class="ico" aria-hidden="true">📅</span> Daily Burndown
+        </button>
+        <button class="nav-item" data-view="mywork">
+          <span class="ico" aria-hidden="true">👨‍💻</span> My Work
         </button>
         <button class="nav-item" data-view="explorer">
-          <span class="ico" aria-hidden="true">▦</span> Explorer
+          <span class="ico" aria-hidden="true">▦</span> Task Explorer
+        </button>
+        <button class="nav-item" data-view="planner">
+          <span class="ico" aria-hidden="true">▶</span> Planner
         </button>
         <button class="nav-item" data-view="people">
           <span class="ico" aria-hidden="true">☰</span> Team
@@ -64,20 +71,39 @@
         <button class="icon-btn menu-btn" id="menuBtn" aria-label="Toggle navigation">☰</button>
         <div>
           <h1 id="viewTitle">Dashboard</h1>
-          <p class="subtitle" id="viewSubtitle">System health and today's picture</p>
+          <p class="subtitle" id="viewSubtitle">Track daily contributions, monitor team workloads, and automate tasks</p>
         </div>
         <div class="topbar-actions">
-          <button class="btn ghost" id="refreshBtn">Refresh</button>
-          <button class="btn primary" id="quickRunBtn">New run</button>
+          <span class="pill" id="orgProjectTag" style="display:flex; align-items:center; gap:6px;">—</span>
+          <button class="btn ghost small" id="consoleBtn" title="Toggle Live Console Drawer">💻 Console</button>
+          <button class="btn ghost small" id="refreshBtn">Refresh</button>
+          <button class="btn primary small" id="quickRunBtn">New run</button>
         </div>
       </header>
 
+      <!-- 1. DASHBOARD VIEW -->
       <section class="view active" id="view-dashboard">
+        <article class="card" style="margin-bottom: 16px;">
+          <header class="card-head"><h2>💡 Smart Insights</h2><span class="pill ok" id="insightsCountBadge">Real-time</span></header>
+          <div id="insightsContainer" style="color: var(--text-muted); font-size: 13.5px;"><p>Loading insights...</p></div>
+        </article>
+
         <div class="grid cols-4">
           <article class="card kpi"><span class="kpi-label">Connection</span><span class="kpi-value" id="kpiConn">—</span><span class="kpi-hint" id="kpiConnHint">Azure DevOps</span></article>
-          <article class="card kpi"><span class="kpi-label">Team members</span><span class="kpi-value" id="kpiPeople">—</span><span class="kpi-hint">enabled identities</span></article>
-          <article class="card kpi"><span class="kpi-label">Timezone</span><span class="kpi-value small" id="kpiTz">—</span><span class="kpi-hint" id="kpiMode">window: current week</span></article>
-          <article class="card kpi"><span class="kpi-label">Scheduler</span><span class="kpi-value" id="kpiSched">—</span><span class="kpi-hint" id="kpiSchedHint">weekdays 09:30</span></article>
+          <article class="card kpi"><span class="kpi-label">Team members</span><span class="kpi-value" id="kpiPeople">—</span><span class="kpi-hint" id="kpiPeopleHint">Configured in people.json</span></article>
+          <article class="card kpi"><span class="kpi-label">Rolling Window</span><span class="kpi-value small" id="kpiWindowRange">—</span><span class="kpi-hint" id="kpiMode">Today → Next Thursday</span></article>
+          <article class="card kpi"><span class="kpi-label">Daily Scheduler</span><span class="kpi-value" id="kpiSched">—</span><span class="kpi-hint" id="kpiSchedHint">weekdays 09:30</span></article>
+        </div>
+
+        <div class="chart-grid">
+          <article class="card">
+            <header class="card-head"><h2>📈 Daily Effort Trend</h2></header>
+            <div class="chart-box"><canvas id="effortTrendChart"></canvas></div>
+          </article>
+          <article class="card">
+            <header class="card-head"><h2>📊 Task Status Distribution</h2></header>
+            <div class="chart-box"><canvas id="statusDistributionChart"></canvas></div>
+          </article>
         </div>
 
         <div class="grid cols-2">
@@ -92,11 +118,157 @@
         </div>
       </section>
 
+      <!-- 2. DAILY BURNDOWN VIEW -->
+      <section class="view" id="view-burndown">
+        <article class="card">
+          <header class="card-head">
+            <div>
+              <h2>📅 Daily Work &amp; Burndown Matrix</h2>
+              <p class="muted small">Monthly work tracking, completed hours, and daily effort allocation</p>
+            </div>
+            <div class="row gap" style="margin: 0;">
+              <input type="month" id="burndownMonthSelector" style="width: auto;" />
+              <button class="btn primary small" id="loadBurndownBtn">Load Month</button>
+            </div>
+          </header>
+          <div id="burndownMatrixContainer">
+            <p class="muted">Select a month and click "Load Month" to inspect burndown.</p>
+          </div>
+        </article>
+      </section>
+
+      <!-- 3. MY WORK VIEW -->
+      <section class="view" id="view-mywork">
+        <article class="card">
+          <header class="card-head">
+            <div>
+              <h2>👨‍💻 My Work Dashboard</h2>
+              <p class="muted small">Personalized task assignment, completion status, and quick links</p>
+            </div>
+            <div class="row gap" style="margin: 0;">
+              <select id="myWorkPersonSelect" style="width: auto;"></select>
+              <button class="btn ghost small" id="myWorkRefreshBtn">Refresh</button>
+            </div>
+          </header>
+          <div id="myWorkContainer"><p class="muted">Loading personal tasks...</p></div>
+        </article>
+      </section>
+
+      <!-- 4. TASK EXPLORER VIEW -->
+      <section class="view" id="view-explorer">
+        <article class="card" style="margin-bottom: 16px;">
+          <header class="card-head">
+            <h2>🔍 Intelligent Date-Range Task Explorer</h2>
+            <div class="row gap" style="margin: 0;">
+              <span id="explorerLastRefresh" class="pill">Last updated: -</span>
+              <button id="exploreRefreshBtn" class="btn small ghost">🔄 Refresh</button>
+            </div>
+          </header>
+
+          <div class="grid cols-4" style="margin-bottom: 14px;">
+            <label class="field" style="margin: 0;">
+              <span>Date Range Preset</span>
+              <select id="explorerPreset">
+                <option value="today_to_next_thursday" selected>Today to Next Thursday (Creation Window)</option>
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="this_week">This Week</option>
+                <option value="last_week">Last Week</option>
+                <option value="current_month">Current Month</option>
+                <option value="previous_month">Previous Month</option>
+                <option value="last_7_days">Last 7 Days</option>
+                <option value="last_30_days">Last 30 Days</option>
+                <option value="custom">Custom Range</option>
+              </select>
+            </label>
+            <label class="field" style="margin: 0;">
+              <span>Start Date</span>
+              <input type="date" id="explorerStart" />
+            </label>
+            <label class="field" style="margin: 0;">
+              <span>End Date</span>
+              <input type="date" id="explorerEnd" />
+            </label>
+            <div style="display:flex; align-items:flex-end; gap:8px;">
+              <button class="btn primary" id="explorerApplyBtn" style="flex:1;">⚡ Apply Filters</button>
+              <button class="btn ghost" id="explorerResetBtn" title="Reset to window">↺</button>
+            </div>
+          </div>
+
+          <div style="padding-top: 12px; border-top: 1px solid var(--border);">
+            <div class="row" style="justify-content: space-between; flex-wrap: wrap; margin-bottom: 8px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <strong style="font-size: 13px;">👥 Team Members Filter:</strong>
+                <span id="explorerPillsTag" class="pill ok">All selected</span>
+              </div>
+              <div style="display:flex; gap:6px;">
+                <input type="text" id="explorerMemberSearch" placeholder="Search members..." style="padding: 4px 8px; font-size: 12px; width: 150px;" />
+                <button class="btn ghost small" id="explorerSelectAllBtn">Select All</button>
+                <button class="btn ghost small" id="explorerDeselectAllBtn">Deselect All</button>
+              </div>
+            </div>
+            <div id="explorerUserPills" class="row wrap" style="gap:6px; margin:0;"></div>
+          </div>
+        </article>
+
+        <!-- KPI SUMMARY BAR -->
+        <div class="grid cols-4" style="grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); margin-bottom: 16px;">
+          <article class="card kpi"><span class="kpi-label">Selected Users</span><span class="kpi-value" id="kpiExpUsers">—</span><span class="kpi-hint">team members</span></article>
+          <article class="card kpi"><span class="kpi-label">Working Dates</span><span class="kpi-value" id="kpiExpWorkingDays">—</span><span class="kpi-hint">excl. weekends</span></article>
+          <article class="card kpi"><span class="kpi-label">Expected Tasks</span><span class="kpi-value" id="kpiExpExpected">—</span><span class="kpi-hint">users × dates</span></article>
+          <article class="card kpi"><span class="kpi-label">Existing / Created</span><span class="kpi-value" id="kpiExpCreated" style="color:var(--ok);">—</span><span class="kpi-hint" id="kpiExpCoveragePct">0% coverage</span></article>
+          <article class="card kpi"><span class="kpi-label">Missing Tasks</span><span class="kpi-value" id="kpiExpMissing" style="color:var(--warn);">—</span><span class="kpi-hint">in range</span></article>
+          <article class="card kpi"><span class="kpi-label">Duplicates</span><span class="kpi-value" id="kpiExpDuplicates" style="color:var(--danger);">0</span><span class="kpi-hint">flagged</span></article>
+          <article class="card kpi">
+            <span class="kpi-label">ADO States</span>
+            <div id="kpiExpStates" style="display:flex; gap:4px; flex-wrap:wrap; margin-top:4px;">
+              <span class="state-tag state-new">New: 0</span>
+              <span class="state-tag state-active">Active: 0</span>
+              <span class="state-tag state-closed">Closed: 0</span>
+            </div>
+          </article>
+        </div>
+
+        <article class="card">
+          <header class="card-head">
+            <div class="row gap" style="margin: 0;">
+              <button class="btn ghost small" id="btnToggleMatrixView" style="font-weight:600;">📊 Coverage Matrix</button>
+              <button class="btn ghost small" id="btnToggleListView">📋 Detailed Task List</button>
+            </div>
+            <div class="row gap" style="margin: 0;">
+              <button class="btn primary small" id="explorerCreateMissingBtn">🚀 Create Missing Tasks</button>
+            </div>
+          </header>
+
+          <div id="explorerMatrixWrap" class="matrix-container">
+            <p class="muted" style="padding: 24px;">Loading coverage matrix…</p>
+          </div>
+
+          <div id="explorerListWrap" style="display: none;">
+            <div class="row" style="justify-content: space-between; margin-bottom: 12px;">
+              <input type="text" id="explorerListSearch" placeholder="🔍 Search by Title, Task ID, or Assignee..." style="max-width: 340px;" />
+              <span id="explorerListCount" class="muted small">Showing 0 items</span>
+            </div>
+            <div class="table-wrap">
+              <table class="table" id="explorerListTable">
+                <thead>
+                  <tr>
+                    <th>Date</th><th>Assignee</th><th>Task ID</th><th>Title</th><th>State</th><th>Work (h)</th><th>Status</th><th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- 5. PLANNER VIEW -->
       <section class="view" id="view-planner">
         <article class="card">
           <header class="card-head">
             <h2>Create tasks</h2>
-            <div class="row gap">
+            <div class="row gap" style="margin:0;">
               <label class="field inline"><span>As of</span><input type="date" id="asOf" /></label>
               <label class="field inline"><span>Thursday mode</span>
                 <select id="thursdayMode"><option value="CURRENT">Current week</option><option value="FOLLOWING">Following week</option></select>
@@ -109,27 +281,20 @@
             <button class="btn primary" id="executeBtn">Execute creation</button>
           </div>
           <p class="muted small">Preview never writes to Azure DevOps. Execution is guarded by a concurrency lock and recorded in the audit log.</p>
-          <div id="planResults"></div>
+          <div id="planResults" style="margin-top: 14px;"></div>
         </article>
       </section>
 
-      <section class="view" id="view-explorer">
-        <article class="card">
-          <header class="card-head">
-            <h2>Coverage explorer</h2>
-            <div class="row gap">
-              <button class="btn small ghost" id="exploreRefresh">Refresh</button>
-              <button class="btn small primary" id="exploreCreateMissing">Create missing</button>
-            </div>
-          </header>
-          <p class="muted small">Per-person coverage across the creation window (today → Thursday). A filled cell means a matching task already exists; an empty cell is missing and can be created.</p>
-          <div id="explorerGrid" class="explorer-grid"><p class="muted">Loading coverage…</p></div>
-        </article>
-      </section>
-
+      <!-- 6. TEAM MANAGEMENT VIEW -->
       <section class="view" id="view-people">
         <article class="card">
-          <header class="card-head"><h2>Team members</h2><button class="btn primary small" id="addPersonBtn">Add member</button></header>
+          <header class="card-head">
+            <div>
+              <h2>Team members (people.json)</h2>
+              <p class="muted small">Configured identities for multi-person daily task automation</p>
+            </div>
+            <button class="btn primary small" id="addPersonBtn">➕ Add member</button>
+          </header>
           <div id="peopleList" class="people-list"></div>
           <div class="row end">
             <button class="btn primary" id="savePeopleBtn">Save team</button>
@@ -137,11 +302,15 @@
         </article>
       </section>
 
+      <!-- 7. AUDIT LOG (JOURNAL) VIEW -->
       <section class="view" id="view-journal">
         <article class="card">
           <header class="card-head">
-            <h2>Audit log</h2>
-            <div class="row gap">
+            <div>
+              <h2>Audit log</h2>
+              <p class="muted small">Cryptographic execution record of all created tasks, fields, and relations</p>
+            </div>
+            <div class="row gap" style="margin:0;">
               <button class="btn small ghost" id="exportCsv">Export CSV</button>
               <button class="btn small ghost" id="exportJson">Export JSON</button>
             </div>
@@ -156,6 +325,7 @@
         </article>
       </section>
 
+      <!-- 8. SCHEDULER VIEW -->
       <section class="view" id="view-scheduler">
         <article class="card">
           <header class="card-head"><h2>Scheduler</h2>
@@ -174,6 +344,7 @@
         </article>
       </section>
 
+      <!-- 9. LOGS VIEW -->
       <section class="view" id="view-logs">
         <article class="card">
           <header class="card-head"><h2>Live logs</h2><span class="pill" id="logStatus">connecting…</span></header>
@@ -181,6 +352,7 @@
         </article>
       </section>
 
+      <!-- 10. SETTINGS VIEW -->
       <section class="view" id="view-settings">
         <article class="card">
           <header class="card-head"><h2>Connection settings</h2></header>
@@ -190,16 +362,134 @@
             <label class="field"><span>Timezone</span><input type="text" id="setTz" placeholder="Asia/Kolkata" /></label>
             <label class="field"><span>Start time (HH:mm)</span><input type="text" id="setStart" placeholder="09:30" /></label>
           </div>
-          <div class="row end"><button class="btn primary" id="saveSettingsBtn">Save settings</button></div>
+          <div class="row end" style="gap:8px;">
+            <button class="btn ghost" id="testConnBtn">🔌 Test Connection</button>
+            <button class="btn primary" id="saveSettingsBtn">Save settings</button>
+          </div>
         </article>
+
         <article class="card">
           <header class="card-head"><h2>Personal Access Token</h2></header>
-          <label class="field"><span>New PAT (stored to server .env)</span><input type="password" id="setPat" placeholder="••••••••••••••••" autocomplete="off" /></label>
-          <p class="muted small">Requires Work Items: Read &amp; Write. The token is never echoed back.</p>
-          <div class="row end"><button class="btn primary" id="savePatBtn">Save PAT</button></div>
+          <div style="display:flex; gap:8px;">
+            <input type="password" id="setPat" placeholder="••••••••••••••••" autocomplete="off" style="flex:1;" />
+            <button type="button" class="btn ghost" id="togglePatEye" title="Show/Hide">👁️</button>
+            <button class="btn primary" id="savePatBtn">Update PAT</button>
+          </div>
+          <p class="muted small" style="margin-top:6px;">Requires Work Items: Read &amp; Write. Token is stored securely in server .env and scrubbed from logs.</p>
+        </article>
+
+        <article class="card">
+          <header class="card-head"><h2>Maintenance &amp; Utilities</h2></header>
+          <div class="row gap">
+            <button class="btn primary" id="btnRunCreationAll">⚡ Run Task Creation (All People)</button>
+            <button class="btn ghost" id="btnRepairAll">🔧 Repair Relationships</button>
+          </div>
+          <p class="muted small">Repair re-copies missing parent/related links for tasks created with partial relation status.</p>
         </article>
       </section>
     </main>
+  </div>
+
+  <!-- LIVE EXECUTION CONSOLE DRAWER -->
+  <div id="executionDrawer" class="drawer" aria-label="Console Drawer">
+    <div class="drawer-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <strong>⚡ Execution Console</strong>
+        <span class="pill ok" id="drawerStatusPill">Live</span>
+      </div>
+      <button class="icon-btn" id="btnCloseDrawer" style="width:28px; height:28px;">✕</button>
+    </div>
+    <div id="drawerBody" class="drawer-body">
+      <p style="color:var(--text-muted);">Initializing execution stream...</p>
+    </div>
+  </div>
+
+  <!-- DATE INSPECTION MODAL -->
+  <div id="dateInspectModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="dateInspectTitle">Date Details</h3>
+        <button class="icon-btn" id="btnCloseDateInspectModal" style="width:28px; height:28px;">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="dateInspectSummary" style="margin-bottom: 12px; display:flex; gap:8px; flex-wrap:wrap;"></div>
+        <h4 style="font-size:12px; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px;">Created Tasks</h4>
+        <div id="dateInspectCreatedList" style="margin-bottom: 16px;"></div>
+        <h4 style="font-size:12px; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px;">Missing Tasks</h4>
+        <div id="dateInspectMissingList"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn ghost" id="btnCloseDateInspectBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- USER INSPECTION MODAL -->
+  <div id="userInspectModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="userInspectTitle">User Details</h3>
+        <button class="icon-btn" id="btnCloseUserInspectModal" style="width:28px; height:28px;">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="userInspectSummary" style="margin-bottom: 12px; display:flex; gap:8px; flex-wrap:wrap;"></div>
+        <h4 style="font-size:12px; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px;">Coverage Breakdown</h4>
+        <div id="userInspectTimeline" style="max-height:360px; overflow-y:auto;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn ghost" id="btnCloseUserInspectBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TASK CONFIRMATION MODAL -->
+  <div id="confirmModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Confirm Task Creation in Azure DevOps</h3>
+        <button class="icon-btn" id="btnCloseConfirmModal" style="width:28px; height:28px;">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom:12px;">You are about to create the following work items:</p>
+        <ul id="confirmTaskList" style="padding-left:20px; line-height:1.7; font-size:13.5px; color:var(--text);"></ul>
+        <div style="background:rgba(217,139,11,0.12); border:1px solid rgba(217,139,11,0.3); padding:10px 14px; border-radius:var(--radius-sm); margin-top:14px; font-size:12.5px; color:var(--warn);">
+          ⚠️ Work items will be created with State <strong>New</strong> and Start Time <strong>09:30 AM</strong> in the configured timezone. All existing parent stories and dependencies will be preserved.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn ghost" id="btnCancelConfirmModal">Cancel</button>
+        <button class="btn primary" id="btnConfirmExecute">🚀 Confirm &amp; Create Tasks</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADD / EDIT PERSON MODAL -->
+  <div id="personModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="personModalTitle">Add Team Member</h3>
+        <button class="icon-btn" id="btnClosePersonModal" style="width:28px; height:28px;">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="personModalForm" onsubmit="return false;">
+          <input type="hidden" id="editPersonIndex" />
+          <label class="field"><span>Key (Unique identifier) *</span><input type="text" id="personKeyInput" placeholder="e.g. rahul_sharma" required /></label>
+          <label class="field"><span>Display Name *</span><input type="text" id="personNameInput" placeholder="e.g. Rahul Sharma" required /></label>
+          <label class="field"><span>Assigned Identity (Email / UPN) *</span><input type="email" id="personEmailInput" placeholder="e.g. rahul.sharma@org.com" required /></label>
+          <label class="field"><span>POD / Team</span><input type="text" id="personPodInput" placeholder="e.g. 101_EMI Card Insurance" /></label>
+          <label class="field"><span>Role</span><input type="text" id="personRoleInput" placeholder="e.g. Software Engineer" /></label>
+          <label class="field">
+            <span>Source Task ID Override (Optional)</span>
+            <input type="number" id="personSourceIdInput" placeholder="e.g. 10647986" />
+            <span class="muted small">Leave empty to automatically discover latest dated task.</span>
+          </label>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn ghost" id="btnCancelPersonModal">Cancel</button>
+        <button class="btn primary" id="btnSavePersonModal">Save Member</button>
+      </div>
+    </div>
   </div>
 
   <div class="toast-stack" id="toasts" aria-live="polite"></div>

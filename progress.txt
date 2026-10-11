@@ -11,3 +11,19 @@
 - Added `matchesPerson` and `extractIdentity` to `Person` domain entity for robust identity resolution across Azure DevOps object/string formats.
 - Exposed `GET /api/explorer` and `POST /api/explorer/create-missing` in Express API routes.
 - Wrote unit tests in `explore-tasks.test.ts` and integration tests in `api-routes.test.ts`. All 116 tests passing, TypeScript typecheck clean.
+
+## Iteration 2: Milestone 2 Completed (UI Feature Parity & View Reconstitution)
+- Fully reconstructed `index.html`, `app.js`, and `styles.css` with 10 comprehensive views:
+  1. Dashboard: Smart Insights, real-time KPI tiles, status donut chart, daily effort bar chart, rolling window preview, recent activity timeline.
+  2. Daily Burndown: Month selector, load burndown, matrix table with member, hours, tasks, day-by-day effort.
+  3. My Work: Personalized developer view with direct ADO links, task state badges, work hours.
+  4. Task Explorer: Date presets (9 presets + custom range), member search and toggle pills, KPI summary bar (7 metrics), view switcher between Coverage Matrix and Detailed Tasks list, and "Create Missing Tasks" action.
+  5. Planner: Creation window planning, multi-person chip selector, interactive preview.
+  6. Team: Full CRUD team management (Add Member modal, edit/remove, source task overrides).
+  7. Audit Log: Cryptographic log entries table, incomplete relations counter, CSV and JSON export.
+  8. Scheduler: Daemon status, toggle switch, next run calculation.
+  9. Logs: Live terminal log stream with auto-scroll.
+  10. Settings: Connection settings, PAT update with eye toggle, test connection, repair relations.
+- Implemented Interactive Modals: Date Inspection Modal, User Inspection Modal, Execution Confirmation Modal, Add/Edit Person Modal.
+- Built Live Execution Console Drawer with slide-over animation and live streaming log subscription.
+- Static assets built and synced cleanly to `dist/presentation/web/public`.

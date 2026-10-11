@@ -22,14 +22,14 @@ This document defines the discrete task backlog for bringing `new-app` to comple
 - [x] Task 1.3: Expose `/api/explorer` and `/api/explorer/create-missing` in `new-app/src/presentation/api/routes.ts` with comprehensive unit and integration tests.
 
 ### Milestone 2: UI Feature Parity & View Reconstitution
-- [ ] Task 2.1: Reconstitute and polish the **Audit Log (Journal)** view in `new-app/src/presentation/web/public/index.html` and `app.js` with stats chips, filtering, pagination, and CSV/JSON export.
-- [ ] Task 2.2: Build the **Intelligent Task Explorer** view in `new-app` UI with preset dropdowns, date picker range, member search & filter pills, KPI summary bar, Coverage Matrix, and Detailed Tasks table with sorting and filtering.
-- [ ] Task 2.3: Build the **Daily Burndown & Work Intelligence** view in `new-app` UI with month selector, effort distribution charts, burndown matrix, and workload summaries.
-- [ ] Task 2.4: Build the **My Work** personal developer view in `new-app` UI with assigned tasks, states, dates, and quick ADO links.
-- [ ] Task 2.5: Implement interactive modal dialogs: **Date Inspection Modal**, **User Inspection Modal**, and **Execution Confirmation Modal** in `new-app/src/presentation/web/public`.
-- [ ] Task 2.6: Implement the **Live Execution Console Drawer** and topbar trigger in `new-app` for viewing streaming logs during background runs.
+- [x] Task 2.1: Reconstitute and polish the **Audit Log (Journal)** view in `new-app/src/presentation/web/public/index.html` and `app.js` with stats chips, filtering, pagination, and CSV/JSON export.
+- [x] Task 2.2: Build the **Intelligent Task Explorer** view in `new-app` UI with preset dropdowns, date picker range, member search & filter pills, KPI summary bar, Coverage Matrix, and Detailed Tasks table with sorting and filtering.
+- [x] Task 2.3: Build the **Daily Burndown & Work Intelligence** view in `new-app` UI with month selector, effort distribution charts, burndown matrix, and workload summaries.
+- [x] Task 2.4: Build the **My Work** personal developer view in `new-app` UI with assigned tasks, states, dates, and quick ADO links.
+- [x] Task 2.5: Implement interactive modal dialogs: **Date Inspection Modal**, **User Inspection Modal**, and **Execution Confirmation Modal** in `new-app/src/presentation/web/public`.
+- [x] Task 2.6: Implement the **Live Execution Console Drawer** and topbar trigger in `new-app` for viewing streaming logs during background runs.
 
 ### Milestone 3: Verification, Testing & Polish
-- [ ] Task 3.1: Write automated tests in `new-app/tests/unit` and `new-app/tests/integration` covering `explore-tasks.ts` and explorer API endpoints.
-- [ ] Task 3.2: Verify full build (`npm run build`), typecheck (`npm run typecheck`), and tests (`npm test`) in `new-app`.
+- [x] Task 3.1: Write automated tests in `new-app/tests/unit` and `new-app/tests/integration` covering `explore-tasks.ts` and explorer API endpoints.
+- [x] Task 3.2: Verify full build (`npm run build`), typecheck (`npm run typecheck`), and tests (`npm test`) in `new-app`.
 - [ ] Task 3.3: Update documentation in `new-app/docs/FEATURE_PARITY.md`, `ARCHITECTURE.md`, `TEST_RESULTS.md`, and `PRODUCTION_READINESS.md`.

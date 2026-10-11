@@ -1,168 +1,234 @@
-/* ==========================================================================
-   3in1 Task Studio — front-end controller
-   Vanilla ES module. Talks to /api. No build step.
-   ========================================================================== */
-
-const api = {
-  async req(method, path, body) {
-    const res = await fetch(`/api${path}`, {
-      method,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    let payload = null;
-    try { payload = await res.json(); } catch { /* non-json */ }
-    if (!res.ok || (payload && payload.success === false)) {
-      throw new Error(payload?.error || `Request failed (${res.status})`);
-    }
-    return payload?.data;
-  },
-  get: (p) => api.req('GET', p),
-  post: (p, b) => api.req('POST', p, b),
-};
+/**
+ * Azure DevOps 3in1 Task Automation Studio — Modern Frontend Controller
+ * Complete feature parity, reactive rendering, interactive charts, and live telemetry.
+ */
 
 /* ------------------------------------------------------------------ state */
 const state = {
-  config: null,
   status: null,
+  config: null,
   people: [],
   selectedKeys: new Set(),
-  scheduler: null,
+  explorerData: null,
+  selectedExplorerKeys: new Set(),
+  burndownData: null,
   journal: [],
+  scheduler: null,
+  charts: { effort: null, status: null },
+  pendingPlan: null,
 };
 
-/* ------------------------------------------------------------------ utils */
-const $ = (sel, root = document) => root.querySelector(sel);
-const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+/* ----------------------------------------------------------------- api */
+const api = {
+  async get(url) {
+    const res = await fetch(`/api${url}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const json = await res.json();
+    return json.data;
+  },
+
+  async post(url, body) {
+    const res = await fetch(`/api${url}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const json = await res.json();
+    return json.data;
+  },
+};
+
+/* ------------------------------------------------------------- toast & dom */
+function toast(msg, type = 'ok') {
+  const stack = $('#toasts');
+  if (!stack) return;
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  stack.append(t);
+  setTimeout(() => {
+    t.style.opacity = '0';
+    t.style.transform = 'translateY(8px)';
+    setTimeout(() => t.remove(), 200);
+  }, 4000);
+}
 
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (k === 'class') node.className = v;
-    else if (k === 'html') node.innerHTML = v;
-    else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2), v);
-    else if (v !== null && v !== undefined) node.setAttribute(k, v);
+    else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2).toLowerCase(), v);
+    else if (v !== undefined) node.setAttribute(k, v);
   }
-  for (const c of [].concat(children)) {
-    node.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  const kids = Array.isArray(children) ? children : [children];
+  for (const c of kids) {
+    if (c === null || c === undefined) continue;
+    if (typeof c === 'string' || typeof c === 'number') node.append(document.createTextNode(String(c)));
+    else node.append(c);
   }
   return node;
 }
 
+function badge(status) {
+  const cls = status ? status.replace(/[^A-Za-z0-9_-]/g, '_') : 'default';
+  return el('span', { class: `badge ${cls}` }, status || '—');
+}
+
 function timeAgo(iso) {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return '';
-  const s = Math.round((Date.now() - then) / 1000);
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-  return new Date(iso).toLocaleDateString();
+  if (!iso) return '—';
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return `${Math.max(1, Math.floor(diff))}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
 }
 
-function toast(message, kind = 'ok') {
-  const t = el('div', { class: `toast ${kind}` }, message);
-  $('#toasts').append(t);
-  setTimeout(() => t.remove(), 4200);
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/[&<>"']/g, m => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[m]));
 }
 
-const BADGE_LABELS = {
-  PLANNED: 'Planned',
-  CREATED: 'Created',
-  WEEKEND_SKIP: 'Weekend',
-  DUPLICATE: 'Duplicate',
-  DUPLICATE_ALREADY_EXISTS: 'Exists',
-  MULTIPLE_EXISTING_TASKS: 'Multiple exist',
-  FUTURE_TASK_WARN: 'Ahead',
-  NO_TASKS_NEEDED: 'Up to date',
-  FAILED: 'Failed',
-  SUCCESS: 'Success',
-  PARTIAL: 'Partial',
-  SOURCE_NOT_FOUND: 'No source',
-  READY: 'Ready',
-};
-
-const badge = (status) =>
-  el('span', { class: `badge ${status}` }, BADGE_LABELS[status] || status);
-
-/* ------------------------------------------------------------------ views */
-const VIEWS = {
-  dashboard: { title: 'Dashboard', subtitle: "System health and today's picture" },
-  planner: { title: 'Planner', subtitle: 'Preview and execute task creation' },
-  explorer: { title: 'Explorer', subtitle: 'Per-person coverage across the window' },
-  people: { title: 'Team', subtitle: 'Manage team members and identities' },
-  journal: { title: 'Audit Log', subtitle: 'Every creation recorded and verifiable' },
-  scheduler: { title: 'Scheduler', subtitle: 'Automated weekday runs' },
-  logs: { title: 'Logs', subtitle: 'Live structured output' },
-  settings: { title: 'Settings', subtitle: 'Connection and credentials' },
+/* -------------------------------------------------------------- navigation */
+const VIEW_META = {
+  dashboard: ['Dashboard', 'Track daily contributions, monitor team workloads, and automate tasks'],
+  burndown: ['Daily Burndown', 'Monthly work tracking, completed hours, and daily effort allocation'],
+  mywork: ['My Work', 'Personalized task assignment, completion status, and quick links'],
+  explorer: ['Task Explorer', 'Intelligent date-range coverage matrix and team work inspection'],
+  planner: ['Task Planner', 'Preview creation window and execute tasks with duplicate safeguards'],
+  people: ['Team Management', 'Configured team members, roles, PODs, and source task overrides'],
+  journal: ['Audit Log', 'Cryptographic execution record of created tasks, fields, and relations'],
+  scheduler: ['Scheduler', 'Automated weekday task generation daemon'],
+  logs: ['Live Logs', 'Real-time server logs and event stream'],
+  settings: ['Settings', 'Azure DevOps connection, Personal Access Token, and maintenance'],
 };
 
 function switchView(view) {
+  if (!VIEW_META[view]) view = 'dashboard';
   $$('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
-  $$('.view').forEach(s => s.classList.toggle('active', s.id === `view-${view}`));
-  $('#viewTitle').textContent = VIEWS[view].title;
-  $('#viewSubtitle').textContent = VIEWS[view].subtitle;
-  $('#sidebar').classList.remove('open');
+  $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
+
+  const [title, subtitle] = VIEW_META[view];
+  const vt = $('#viewTitle');
+  const vs = $('#viewSubtitle');
+  if (vt) vt.textContent = title;
+  if (vs) vs.textContent = subtitle;
+
   location.hash = view;
   if (view === 'dashboard') refreshDashboard();
+  if (view === 'burndown') refreshBurndown();
+  if (view === 'mywork') refreshMyWork();
   if (view === 'explorer') refreshExplorer();
+  if (view === 'planner') renderPlannerPeople();
+  if (view === 'people') loadPeople();
   if (view === 'journal') refreshJournal();
   if (view === 'scheduler') refreshScheduler();
-  if (view === 'people') renderPeople();
   if (view === 'settings') fillSettings();
 }
 
-/* ------------------------------------------------------------ connection */
+/* ------------------------------------------------------------- system status */
 async function refreshStatus() {
-  const badgeEl = $('#connBadge');
   try {
-    state.status = await api.get('/status');
-    const ok = state.status.connected;
-    badgeEl.className = `conn ${ok ? 'ok' : 'bad'}`;
-    $('#connText').textContent = ok ? 'Connected' : (state.status.patConfigured ? 'Error' : 'No PAT');
-    $('#kpiConn').textContent = ok ? 'Online' : 'Offline';
-    $('#kpiConnHint').textContent = ok
-      ? `${state.status.organization}/${state.status.project}`
-      : (state.status.errorMessage || 'Not configured');
-  } catch (err) {
-    badgeEl.className = 'conn bad';
-    $('#connText').textContent = 'Unreachable';
-    $('#kpiConn').textContent = 'Error';
-    $('#kpiConnHint').textContent = err.message;
+    const s = await api.get('/status');
+    state.status = s;
+    const badgeEl = $('#connBadge');
+    const textEl = $('#connText');
+    const kpiVal = $('#kpiConn');
+    const tagEl = $('#orgProjectTag');
+
+    if (s.connected) {
+      if (badgeEl) badgeEl.className = 'conn ok';
+      if (textEl) textEl.textContent = 'Connected';
+      if (kpiVal) kpiVal.textContent = 'Active';
+    } else {
+      if (badgeEl) badgeEl.className = 'conn bad';
+      if (textEl) textEl.textContent = 'Disconnected';
+      if (kpiVal) kpiVal.textContent = 'Disconnected';
+    }
+
+    if (tagEl && s.organization) {
+      tagEl.textContent = `${s.organization} / ${s.project || 'Agile'}`;
+    }
+  } catch {
+    const badgeEl = $('#connBadge');
+    const textEl = $('#connText');
+    const kpiVal = $('#kpiConn');
+    if (badgeEl) badgeEl.className = 'conn bad';
+    if (textEl) textEl.textContent = 'Unreachable';
+    if (kpiVal) kpiVal.textContent = 'Offline';
   }
+}
+
+async function ensureConfig() {
+  if (!state.config) state.config = await api.get('/config');
+  return state.config;
 }
 
 /* --------------------------------------------------------------- dashboard */
 async function refreshDashboard() {
-  await refreshStatus();
-  try {
-    const cfg = await ensureConfig();
-    $('#kpiPeople').textContent = cfg.people.filter(p => p.enabled !== false).length;
-    $('#kpiTz').textContent = cfg.timezone;
-    $('#kpiMode').textContent = `window: ${cfg.thursdayMode === 'FOLLOWING' ? 'following week' : 'current week'}`;
+  refreshStatus();
 
-    const sched = await api.get('/scheduler');
+  ensureConfig().then(cfg => {
+    const active = cfg.people.filter(p => p.enabled !== false);
+    const kpiP = $('#kpiPeople');
+    if (kpiP) kpiP.textContent = active.length;
+    const kpiTz = $('#kpiWindowRange');
+    if (kpiTz) kpiTz.textContent = `${cfg.timezone || 'Asia/Kolkata'}`;
+    const kpiMode = $('#kpiMode');
+    if (kpiMode) kpiMode.textContent = `Mode: ${cfg.thursdayMode === 'FOLLOWING' ? 'Following Thursday' : 'Current Week'}`;
+  }).catch(() => {});
+
+  api.get('/scheduler').then(sched => {
     state.scheduler = sched;
-    $('#kpiSched').textContent = sched.running ? 'Running' : 'Stopped';
-    $('#kpiSchedHint').textContent = sched.nextRun ? `next ${new Date(sched.nextRun).toLocaleString()}` : 'weekdays 09:30';
+    const ks = $('#kpiSched');
+    const kh = $('#kpiSchedHint');
+    if (ks) ks.textContent = sched.running ? 'Running' : 'Disabled';
+    if (kh) kh.textContent = sched.nextRun ? `Next: ${new Date(sched.nextRun).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'weekdays 09:30';
+  }).catch(() => {});
 
-    if (state.status?.connected) {
-      const plan = await api.post('/tasks/plan', { all: true });
-      renderPlanPreview(plan);
-    } else {
-      $('#dashboardPlan').innerHTML = '<p class="muted">Connect a PAT to see the plan.</p>';
-    }
+  // Load preview plan
+  api.post('/tasks/plan', { all: true }).then(plan => {
+    renderPlanPreview(plan);
+  }).catch(err => {
+    const dp = $('#dashboardPlan');
+    if (dp) dp.innerHTML = `<p class="muted">${escapeHtml(err.message)}</p>`;
+  });
 
-    const journal = await api.get('/journal?limit=6');
-    renderTimeline(journal.entries);
-  } catch (err) {
-    $('#dashboardPlan').innerHTML = `<p class="muted">${err.message}</p>`;
-  }
+  // Load recent journal
+  api.get('/journal?limit=6').then(j => {
+    renderTimeline(j.entries);
+  }).catch(() => {});
+
+  // Load Explorer data for Charts and Smart Insights
+  api.get('/explorer?preset=this_week').then(data => {
+    renderOverviewCharts(data);
+    generateInsights(data);
+  }).catch(() => {
+    // Fallback to month if this_week has no work items
+    api.get('/explorer?preset=current_month').then(data => {
+      renderOverviewCharts(data);
+      generateInsights(data);
+    }).catch(() => {});
+  });
 }
 
 function renderPlanPreview(plan) {
   const container = $('#dashboardPlan');
+  if (!container) return;
   container.innerHTML = '';
   let totalPlanned = 0;
+
   for (const p of plan.personPlans) {
     const planned = p.plannedDates.filter(d => d.status === 'PLANNED');
     totalPlanned += planned.length;
@@ -179,23 +245,25 @@ function renderPlanPreview(plan) {
       ]));
     }
     if (!planned.length && p.statusMessage) {
-      block.append(el('p', { class: 'muted small', style: 'padding-top:6px' }, p.statusMessage));
+      block.append(el('p', { class: 'muted small', style: 'padding-top:4px' }, p.statusMessage));
     }
     container.append(block);
   }
+
   if (!plan.personPlans.length) {
-    container.innerHTML = '<p class="muted">No people configured.</p>';
+    container.innerHTML = '<p class="muted">No team members configured.</p>';
   } else {
     container.prepend(el('p', { class: 'muted small', style: 'margin-bottom:8px' },
-      `${totalPlanned} task(s) planned · window ${plan.todayIso} → ${plan.nextThursdayIso}`));
+      `${totalPlanned} task(s) to create · Window ${plan.todayIso} → ${plan.nextThursdayIso}`));
   }
 }
 
 function renderTimeline(entries) {
   const container = $('#dashboardJournal');
+  if (!container) return;
   container.innerHTML = '';
   if (!entries?.length) {
-    container.innerHTML = '<p class="muted">No entries yet.</p>';
+    container.innerHTML = '<p class="muted">No execution history yet.</p>';
     return;
   }
   for (const e of entries) {
@@ -207,22 +275,553 @@ function renderTimeline(entries) {
   }
 }
 
-/* ----------------------------------------------------------------- planner */
-async function ensureConfig() {
-  if (!state.config) state.config = await api.get('/config');
-  return state.config;
+function generateInsights(data) {
+  const container = $('#insightsContainer');
+  if (!container || !data) return;
+
+  const insights = [];
+  data.matrix.forEach(row => {
+    if (row.stats.missingCount > 0) {
+      insights.push(`<li><span style="color:var(--warn); font-weight:600;">⚠️ Missing Tasks:</span> <strong>${escapeHtml(row.person.name)}</strong> has ${row.stats.missingCount} missing daily task(s) in this period.</li>`);
+    }
+    if ((row.stats.stateCounts['Active'] || 0) > 3) {
+      insights.push(`<li><span style="color:var(--accent); font-weight:600;">ℹ️ High WIP:</span> <strong>${escapeHtml(row.person.name)}</strong> has ${row.stats.stateCounts['Active']} active tasks concurrently.</li>`);
+    }
+    if (row.stats.duplicateCount > 0) {
+      insights.push(`<li><span style="color:var(--danger); font-weight:600;">🛡️ Duplicates:</span> <strong>${escapeHtml(row.person.name)}</strong> has ${row.stats.duplicateCount} duplicate tasks requiring review.</li>`);
+    }
+  });
+
+  if (insights.length === 0) {
+    container.innerHTML = `<p style="color:var(--ok);">✨ All configured team members are completely up to date with zero task gaps for this period!</p>`;
+  } else {
+    container.innerHTML = `<ul style="margin:0; padding-left:18px; line-height:1.7;">${insights.slice(0, 5).join('')}</ul>`;
+  }
 }
 
+function renderOverviewCharts(data) {
+  if (typeof Chart === 'undefined' || !data) return;
+
+  // 1. Status distribution donut
+  const statusCanvas = $('#statusDistributionChart');
+  if (statusCanvas) {
+    const s = data.summary.stateCounts || {};
+    const labels = ['New', 'Active', 'Closed', 'Resolved', 'Other'];
+    const values = [s.New || 0, s.Active || 0, s.Closed || 0, s.Resolved || 0, s.Other || 0];
+
+    if (state.charts.status) state.charts.status.destroy();
+    state.charts.status = new Chart(statusCanvas, {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          backgroundColor: ['#6366f1', '#f59e0b', '#22c55e', '#3b82f6', '#94a3b8'],
+          borderWidth: 0,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#93a4b8', font: { size: 12 } } },
+        },
+      },
+    });
+  }
+
+  // 2. Daily effort trend bar
+  const effortCanvas = $('#effortTrendChart');
+  if (effortCanvas) {
+    const labels = [];
+    const values = [];
+
+    data.dates.forEach(d => {
+      if (!d.isWeekend) {
+        labels.push(d.formattedDate);
+        let dailyWork = 0;
+        data.matrix.forEach(row => {
+          const cell = row.cells[d.dateIso];
+          if (cell?.tasks) {
+            dailyWork += cell.tasks.reduce((sum, t) => sum + (t.completedWork || 0), 0);
+          }
+        });
+        values.push(dailyWork);
+      }
+    });
+
+    if (state.charts.effort) state.charts.effort.destroy();
+    state.charts.effort = new Chart(effortCanvas, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Completed Work (hours)',
+          data: values,
+          backgroundColor: '#0078d4',
+          borderRadius: 6,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.06)' } },
+          x: { grid: { display: false } },
+        },
+      },
+    });
+  }
+}
+
+/* ------------------------------------------------------------- daily burndown */
+async function refreshBurndown() {
+  const selector = $('#burndownMonthSelector');
+  if (selector && !selector.value) {
+    const now = new Date();
+    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    selector.value = ym;
+  }
+  loadBurndownMonth();
+}
+
+async function loadBurndownMonth() {
+  const container = $('#burndownMatrixContainer');
+  if (!container) return;
+  const ym = $('#burndownMonthSelector')?.value;
+  if (!ym) return;
+
+  const [y, m] = ym.split('-');
+  const lastDay = new Date(Date.UTC(Number(y), Number(m), 0)).getUTCDate();
+  const start = `${ym}-01`;
+  const end = `${ym}-${String(lastDay).padStart(2, '0')}`;
+
+  container.innerHTML = '<p class="muted" style="padding:24px;">🔄 Fetching monthly work intelligence from Azure DevOps...</p>';
+
+  try {
+    const data = await api.get(`/explorer?startDate=${start}&endDate=${end}`);
+    state.burndownData = data;
+    renderBurndownTable(data);
+  } catch (err) {
+    container.innerHTML = `<p class="muted" style="color:var(--danger); padding:24px;">❌ Error: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function renderBurndownTable(data) {
+  const container = $('#burndownMatrixContainer');
+  if (!container) return;
+  const { dates, matrix } = data;
+
+  const table = el('table', { class: 'matrix-table' });
+  const thead = el('thead');
+  const hRow = el('tr', {}, [
+    el('th', { class: 'sticky-col' }, 'Team Member'),
+    el('th', {}, 'Total Hours'),
+    el('th', {}, 'Tasks'),
+  ]);
+
+  dates.forEach(d => {
+    hRow.append(el('th', {}, [
+      el('div', {}, d.formattedDate),
+      el('div', { class: 'muted small', style: 'font-weight:normal;' }, d.dayOfWeek.slice(0, 3)),
+    ]));
+  });
+  thead.append(hRow);
+  table.append(thead);
+
+  const tbody = el('tbody');
+  matrix.forEach(row => {
+    const tr = el('tr');
+    tr.append(el('td', { class: 'sticky-col' }, [
+      el('div', { style: 'font-weight:600;' }, row.person.name),
+      el('div', { class: 'muted small' }, `${row.person.pod || 'Team'} · ${row.person.role || 'Member'}`),
+    ]));
+    tr.append(el('td', { style: 'font-weight:bold; color:var(--accent);' }, `${row.stats.totalCompletedWork}h`));
+    tr.append(el('td', {}, String(row.stats.createdCount)));
+
+    dates.forEach(d => {
+      const cell = row.cells[d.dateIso];
+      if (cell.isWeekend) {
+        tr.append(el('td', { class: 'cell-status cell-weekend' }, 'WO'));
+      } else if (cell.status === 'CREATED' || cell.status === 'DUPLICATE') {
+        const completed = cell.tasks.reduce((sum, t) => sum + (t.completedWork || 0), 0);
+        const td = el('td', {
+          class: 'cell-status cell-created',
+          title: `Tasks: ${cell.tasks.length} | Completed: ${completed}h`,
+          onclick: () => openDateInspectModal(cell, row.person),
+        }, completed > 0 ? `${completed}h` : String(cell.tasks.length));
+        tr.append(td);
+      } else {
+        const td = el('td', {
+          class: 'cell-status cell-missing',
+          title: 'Missing task',
+          onclick: () => openDateInspectModal(cell, row.person),
+        }, '0');
+        tr.append(td);
+      }
+    });
+
+    tbody.append(tr);
+  });
+  table.append(tbody);
+
+  container.innerHTML = '';
+  const wrap = el('div', { class: 'matrix-container' }, table);
+  container.append(wrap);
+}
+
+/* ----------------------------------------------------------------- my work */
+async function refreshMyWork() {
+  const cfg = await ensureConfig();
+  const select = $('#myWorkPersonSelect');
+  if (select && select.children.length === 0) {
+    select.innerHTML = '';
+    cfg.people.filter(p => p.enabled !== false).forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.key;
+      opt.textContent = `${p.name} (${p.assignedTo})`;
+      select.append(opt);
+    });
+  }
+
+  const personKey = select?.value || cfg.people[0]?.key;
+  if (!personKey) {
+    $('#myWorkContainer').innerHTML = '<p class="muted">No configured team members.</p>';
+    return;
+  }
+
+  $('#myWorkContainer').innerHTML = '<p class="muted">Loading personal tasks...</p>';
+  try {
+    const data = await api.get(`/explorer?preset=current_month&users=${encodeURIComponent(personKey)}`);
+    renderMyWorkContent(data, personKey);
+  } catch (err) {
+    $('#myWorkContainer').innerHTML = `<p class="muted" style="color:var(--danger);">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function renderMyWorkContent(data, personKey) {
+  const container = $('#myWorkContainer');
+  if (!container) return;
+
+  const myTasks = (data.detailedTasks || []).filter(t => t.person.key === personKey && t.taskId);
+  if (!myTasks.length) {
+    container.innerHTML = '<p class="muted">No tasks found for this member in the current month.</p>';
+    return;
+  }
+
+  const table = el('table', { class: 'table' }, [
+    el('thead', {}, el('tr', {}, [
+      el('th', {}, 'Date'),
+      el('th', {}, 'Task ID'),
+      el('th', {}, 'Title'),
+      el('th', {}, 'State'),
+      el('th', {}, 'Completed (h)'),
+      el('th', {}, 'Action'),
+    ])),
+  ]);
+
+  const tbody = el('tbody');
+  myTasks.forEach(t => {
+    const stateCls = (t.state || 'new').toLowerCase();
+    tbody.append(el('tr', {}, [
+      el('td', { style: 'font-weight:600;' }, t.formattedDate),
+      el('td', {}, el('a', { href: t.url || '#', target: '_blank', style: 'color:var(--accent); font-weight:600;' }, `#${t.taskId}`)),
+      el('td', { class: 'title-cell' }, t.title || '—'),
+      el('td', {}, el('span', { class: `state-tag state-${stateCls}` }, t.state || 'New')),
+      el('td', {}, `${t.completedWork || 0}h`),
+      el('td', {}, el('a', { href: t.url || '#', target: '_blank', class: 'btn small ghost' }, 'Open in ADO ↗')),
+    ]));
+  });
+  table.append(tbody);
+
+  container.innerHTML = '';
+  container.append(el('div', { class: 'table-wrap' }, table));
+}
+
+/* ------------------------------------------------------------ task explorer */
+async function refreshExplorer() {
+  const cfg = await ensureConfig();
+  renderExplorerUserPills(cfg);
+
+  const preset = $('#explorerPreset')?.value || 'today_to_next_thursday';
+  const start = $('#explorerStart')?.value;
+  const end = $('#explorerEnd')?.value;
+
+  let query = `preset=${encodeURIComponent(preset)}`;
+  if (preset === 'custom' && start && end) {
+    query = `startDate=${encodeURIComponent(start)}&endDate=${encodeURIComponent(end)}`;
+  }
+
+  if (state.selectedExplorerKeys.size > 0) {
+    query += `&users=${encodeURIComponent([...state.selectedExplorerKeys].join(','))}`;
+  }
+
+  const matrixWrap = $('#explorerMatrixWrap');
+  if (matrixWrap) matrixWrap.innerHTML = '<p class="muted" style="padding:24px;">🔄 Querying Azure DevOps coverage...</p>';
+
+  try {
+    const data = await api.get(`/explorer?${query}`);
+    state.explorerData = data;
+
+    const lr = $('#explorerLastRefresh');
+    if (lr) lr.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+
+    // Update preset dates in UI inputs
+    if (data.dateRange) {
+      if ($('#explorerStart')) $('#explorerStart').value = data.dateRange.startDate;
+      if ($('#explorerEnd')) $('#explorerEnd').value = data.dateRange.endDate;
+    }
+
+    renderExplorerKpis(data.summary);
+    renderExplorerMatrix(data);
+    renderExplorerList(data.detailedTasks);
+  } catch (err) {
+    if (matrixWrap) matrixWrap.innerHTML = `<p class="muted" style="color:var(--danger); padding:24px;">❌ Error: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function renderExplorerUserPills(cfg) {
+  const container = $('#explorerUserPills');
+  if (!container) return;
+  const active = cfg.people.filter(p => p.enabled !== false);
+
+  if (state.selectedExplorerKeys.size === 0) {
+    active.forEach(p => state.selectedExplorerKeys.add(p.key));
+  }
+
+  container.innerHTML = '';
+  active.forEach(p => {
+    const on = state.selectedExplorerKeys.has(p.key);
+    const pill = el('span', {
+      class: `user-pill ${on ? 'on' : ''}`,
+      onclick: () => {
+        if (state.selectedExplorerKeys.has(p.key)) state.selectedExplorerKeys.delete(p.key);
+        else state.selectedExplorerKeys.add(p.key);
+        renderExplorerUserPills(cfg);
+        refreshExplorer();
+      },
+    }, [
+      el('span', {}, p.name),
+      el('span', { class: 'muted small' }, `(${p.key})`),
+    ]);
+    container.append(pill);
+  });
+
+  const tag = $('#explorerPillsTag');
+  if (tag) {
+    const count = state.selectedExplorerKeys.size;
+    tag.textContent = count === active.length ? 'All selected' : `${count} of ${active.length} selected`;
+  }
+}
+
+function renderExplorerKpis(s) {
+  if (!s) return;
+  if ($('#kpiExpUsers')) $('#kpiExpUsers').textContent = s.totalSelectedUsers;
+  if ($('#kpiExpWorkingDays')) $('#kpiExpWorkingDays').textContent = s.totalWorkingDates;
+  if ($('#kpiExpExpected')) $('#kpiExpExpected').textContent = s.expectedCombinations;
+  if ($('#kpiExpCreated')) $('#kpiExpCreated').textContent = s.existingCombinations;
+  if ($('#kpiExpCoveragePct')) $('#kpiExpCoveragePct').textContent = `${s.overallCoveragePercent}% coverage`;
+  if ($('#kpiExpMissing')) $('#kpiExpMissing').textContent = s.missingCombinations;
+  if ($('#kpiExpDuplicates')) $('#kpiExpDuplicates').textContent = s.duplicateCombinations;
+
+  const statesBox = $('#kpiExpStates');
+  if (statesBox && s.stateCounts) {
+    statesBox.innerHTML = `
+      <span class="state-tag state-new">New: ${s.stateCounts.New || 0}</span>
+      <span class="state-tag state-active">Active: ${s.stateCounts.Active || 0}</span>
+      <span class="state-tag state-closed">Closed: ${s.stateCounts.Closed || 0}</span>
+      <span class="state-tag state-resolved">Resolved: ${s.stateCounts.Resolved || 0}</span>
+    `;
+  }
+}
+
+function renderExplorerMatrix(data) {
+  const container = $('#explorerMatrixWrap');
+  if (!container) return;
+  const { dates, matrix } = data;
+
+  const table = el('table', { class: 'matrix-table' });
+  const thead = el('thead');
+  const hRow = el('tr', {}, [
+    el('th', { class: 'sticky-col' }, 'Team Member'),
+  ]);
+
+  dates.forEach(d => {
+    hRow.append(el('th', {}, [
+      el('div', {}, d.formattedDate),
+      el('div', { class: 'muted small', style: 'font-weight:normal;' }, d.dayOfWeek.slice(0, 3)),
+    ]));
+  });
+  thead.append(hRow);
+  table.append(thead);
+
+  const tbody = el('tbody');
+  matrix.forEach(row => {
+    const tr = el('tr');
+    tr.append(el('td', { class: 'sticky-col', style: 'cursor:pointer;', onclick: () => openUserInspectModal(row) }, [
+      el('div', { style: 'font-weight:600; color:var(--accent);' }, `${row.person.name} ↗`),
+      el('div', { class: 'muted small' }, `${row.stats.createdCount}/${row.stats.totalWorkingDays} (${row.stats.coveragePercent}%)`),
+    ]));
+
+    dates.forEach(d => {
+      const cell = row.cells[d.dateIso];
+      if (cell.isWeekend) {
+        tr.append(el('td', { class: 'cell-status cell-weekend' }, 'WO'));
+      } else if (cell.status === 'CREATED' || cell.status === 'DUPLICATE') {
+        const cls = cell.status === 'DUPLICATE' ? 'cell-duplicate' : 'cell-created';
+        const txt = cell.tasks.length > 1 ? `x${cell.tasks.length}` : '✓';
+        const td = el('td', {
+          class: `cell-status ${cls}`,
+          title: `Task #${cell.primaryTask?.id || ''}: ${cell.primaryTask?.title || ''}`,
+          onclick: () => openDateInspectModal(cell, row.person),
+        }, txt);
+        tr.append(td);
+      } else if (cell.status === 'MISSING') {
+        const td = el('td', {
+          class: 'cell-status cell-missing',
+          title: 'Missing task — eligible for creation',
+          onclick: () => openDateInspectModal(cell, row.person),
+        }, '—');
+        tr.append(td);
+      } else {
+        tr.append(el('td', { class: 'cell-status', style: 'opacity:0.3;' }, '·'));
+      }
+    });
+
+    tbody.append(tr);
+  });
+  table.append(tbody);
+
+  container.innerHTML = '';
+  container.append(table);
+}
+
+function renderExplorerList(items) {
+  const tbody = $('#explorerListTable tbody');
+  const countTag = $('#explorerListCount');
+  if (!tbody) return;
+
+  const query = $('#explorerListSearch')?.value?.toLowerCase().trim();
+  let filtered = items || [];
+  if (query) {
+    filtered = filtered.filter(t =>
+      (t.title && t.title.toLowerCase().includes(query)) ||
+      (t.person?.name && t.person.name.toLowerCase().includes(query)) ||
+      (t.taskId && String(t.taskId).includes(query))
+    );
+  }
+
+  if (countTag) countTag.textContent = `Showing ${filtered.length} items`;
+  tbody.innerHTML = '';
+
+  filtered.forEach(t => {
+    const tr = el('tr', {}, [
+      el('td', { style: 'font-weight:600;' }, t.formattedDate),
+      el('td', {}, t.person.name),
+      el('td', {}, t.taskId ? el('a', { href: t.url || '#', target: '_blank', style: 'color:var(--accent); font-weight:600;' }, `#${t.taskId}`) : '—'),
+      el('td', { class: 'title-cell' }, t.title || 'Missing Task'),
+      el('td', {}, t.state ? el('span', { class: `state-tag state-${t.state.toLowerCase()}` }, t.state) : '—'),
+      el('td', {}, t.completedWork !== undefined ? `${t.completedWork}h` : '—'),
+      el('td', {}, badge(t.status)),
+      el('td', {}, t.url ? el('a', { href: t.url, target: '_blank', class: 'btn small ghost' }, 'Open') : '—'),
+    ]);
+    tbody.append(tr);
+  });
+}
+
+/* ------------------------------------------------------------- inspect modals */
+function openDateInspectModal(cell, person) {
+  const modal = $('#dateInspectModal');
+  if (!modal) return;
+  $('#dateInspectTitle').textContent = `${person.name} — ${cell.formattedDate} (${cell.dayOfWeek})`;
+
+  const sumBox = $('#dateInspectSummary');
+  if (sumBox) {
+    sumBox.innerHTML = `
+      <span class="pill ${cell.status === 'CREATED' ? 'ok' : 'warn'}">${cell.status}</span>
+      <span class="pill">${cell.isWeekend ? 'Weekend' : 'Working Day'}</span>
+    `;
+  }
+
+  const cList = $('#dateInspectCreatedList');
+  if (cList) {
+    cList.innerHTML = '';
+    if (cell.tasks && cell.tasks.length > 0) {
+      cell.tasks.forEach(t => {
+        cList.append(el('div', { style: 'background:var(--bg-elev-2); padding:10px 14px; border-radius:var(--radius-sm); margin-bottom:8px;' }, [
+          el('div', { style: 'font-weight:600;' }, [
+            el('a', { href: t.url, target: '_blank', style: 'color:var(--accent); text-decoration:none;' }, `#${t.id} — ${t.title}`),
+          ]),
+          el('div', { class: 'muted small', style: 'margin-top:4px;' },
+            `State: ${t.state} | Completed: ${t.completedWork || 0}h | Remaining: ${t.remainingWork || 0}h`),
+        ]));
+      });
+    } else {
+      cList.innerHTML = '<p class="muted small">No work items created for this date.</p>';
+    }
+  }
+
+  const mList = $('#dateInspectMissingList');
+  if (mList) {
+    mList.innerHTML = '';
+    if (cell.status === 'MISSING') {
+      mList.innerHTML = `
+        <div style="background:rgba(217,139,11,0.12); border:1px solid rgba(217,139,11,0.3); padding:10px 14px; border-radius:var(--radius-sm); font-size:13px; color:var(--warn);">
+          ⚡ Task is missing for <strong>${escapeHtml(person.name)}</strong> on ${cell.formattedDate}.
+          ${cell.isEligibleForCreation ? 'This date is within the current creation window and eligible to be created.' : 'This date is outside the rolling window.'}
+        </div>
+      `;
+    } else {
+      mList.innerHTML = '<p class="muted small">No missing task flagged.</p>';
+    }
+  }
+
+  modal.classList.add('open');
+}
+
+function openUserInspectModal(row) {
+  const modal = $('#userInspectModal');
+  if (!modal) return;
+  $('#userInspectTitle').textContent = `${row.person.name} (${row.person.assignedTo})`;
+
+  const sumBox = $('#userInspectSummary');
+  if (sumBox) {
+    sumBox.innerHTML = `
+      <div class="stat-chip"><b>${row.stats.createdCount}/${row.stats.totalWorkingDays}</b><span>Created / Days</span></div>
+      <div class="stat-chip"><b>${row.stats.coveragePercent}%</b><span>Coverage</span></div>
+      <div class="stat-chip"><b>${row.stats.totalCompletedWork}h</b><span>Completed Work</span></div>
+      <div class="stat-chip"><b>${row.stats.missingCount}</b><span>Missing Tasks</span></div>
+    `;
+  }
+
+  const timeline = $('#userInspectTimeline');
+  if (timeline) {
+    timeline.innerHTML = '';
+    Object.values(row.cells).forEach(cell => {
+      timeline.append(el('div', { class: 'tl-item' }, [
+        el('span', { class: 'tl-time' }, cell.formattedDate),
+        el('span', { class: 'tl-main' }, cell.tasks?.[0]?.title || (cell.isWeekend ? 'Weekend (Off)' : 'Missing Task')),
+        badge(cell.status),
+      ]));
+    });
+  }
+
+  modal.classList.add('open');
+}
+
+/* ----------------------------------------------------------------- planner */
 async function renderPlannerPeople() {
   const cfg = await ensureConfig();
   const picker = $('#personPicker');
+  if (!picker) return;
   picker.innerHTML = '';
   const active = cfg.people.filter(p => p.enabled !== false);
   if (!active.length) {
     picker.append(el('p', { class: 'muted' }, 'No enabled team members. Add some in the Team tab.'));
     return;
   }
-  // Default: all selected
+
   if (state.selectedKeys.size === 0) active.forEach(p => state.selectedKeys.add(p.key));
 
   for (const p of active) {
@@ -242,161 +841,128 @@ async function renderPlannerPeople() {
   }
 }
 
-function selectedKeysOrAll() {
-  const cfg = state.config;
-  const active = (cfg?.people || []).filter(p => p.enabled !== false).map(p => p.key);
-  const keys = [...state.selectedKeys];
-  return keys.length === 0 || keys.length === active.length ? [] : keys;
-}
+async function runPlanPreview() {
+  const results = $('#planResults');
+  if (!results) return;
+  results.innerHTML = '<p class="muted"><span class="spinner"></span> Building plan preview...</p>';
 
-async function runPlan() {
-  const btn = $('#planBtn');
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Planning';
   try {
-    const data = await api.post('/tasks/plan', {
-      personKeys: selectedKeysOrAll(),
-      asOf: $('#asOf').value || undefined,
-      thursdayMode: $('#thursdayMode').value,
+    const keys = [...state.selectedKeys];
+    const plan = await api.post('/tasks/plan', {
+      personKeys: keys.length ? keys : undefined,
+      asOf: $('#asOf')?.value || undefined,
+      thursdayMode: $('#thursdayMode')?.value || undefined,
     });
-    renderPlanResults(data);
-    toast('Plan generated');
+    state.pendingPlan = plan;
+    renderPlanResults(plan);
   } catch (err) {
-    toast(err.message, 'err');
-  } finally {
-    btn.disabled = false; btn.textContent = 'Preview plan';
+    results.innerHTML = `<p class="muted" style="color:var(--danger);">❌ Preview error: ${escapeHtml(err.message)}</p>`;
   }
 }
 
-async function runExecute() {
-  const btn = $('#executeBtn');
-  const keys = selectedKeysOrAll();
-  const cfg = state.config;
-  const active = (cfg?.people || []).filter(p => p.enabled !== false);
-  const names = (keys.length ? active.filter(p => keys.includes(p.key)) : active).map(p => p.name).join(', ');
-  if (!confirm(`Create 3in1 tasks for: ${names || 'nobody'}?\n\nThis writes to Azure DevOps and is recorded in the audit log.`)) return;
-
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Executing';
-  try {
-    const data = await api.post('/tasks/execute', {
-      personKeys: keys,
-      asOf: $('#asOf').value || undefined,
-      thursdayMode: $('#thursdayMode').value,
-    });
-    renderExecuteResults(data);
-    toast(`Done: ${data.totalCreatedCount} created, ${data.totalTaskFailureCount} failed`, data.totalTaskFailureCount ? 'warn' : 'ok');
-  } catch (err) {
-    toast(err.message, 'err');
-  } finally {
-    btn.disabled = false; btn.textContent = 'Execute creation';
-  }
-}
-
-function renderPlanResults(data) {
+function renderPlanResults(plan) {
   const root = $('#planResults');
+  if (!root) return;
   root.innerHTML = '';
-  for (const p of data.personPlans) {
+
+  const summary = el('div', { class: 'row', style: 'justify-content:space-between; margin-bottom:12px;' }, [
+    el('strong', {}, `Plan window: ${plan.todayIso} → ${plan.nextThursdayIso}`),
+    el('span', { class: 'pill ok' }, `${plan.personPlans.length} members evaluated`),
+  ]);
+  root.append(summary);
+
+  for (const p of plan.personPlans) {
     const block = el('div', { class: 'person-block' });
-    block.append(el('h3', {}, [
-      p.person.name, ' ',
-      badge(p.status),
-    ]));
-    if (p.statusMessage) block.append(el('p', { class: 'muted small', style: 'margin-bottom:8px' }, p.statusMessage));
+    block.append(el('h3', {}, `${p.person.name} (${p.person.assignedTo})`));
+
+    if (p.sourceTask) {
+      block.append(el('p', { class: 'muted small' },
+        `Source Task: #${p.sourceTask.id} · "${p.sourceTask.title}" · ${p.sourceTask.parsedDate?.formattedTitleDate}`));
+    } else {
+      block.append(el('p', { class: 'muted small', style: 'color:var(--warn);' }, '⚠️ No source task discovered.'));
+    }
+
+    const grid = el('div', { class: 'plan-preview' });
     for (const d of p.plannedDates) {
-      block.append(el('div', { class: 'day' }, [
-        el('span', {}, d.formattedTitleDate),
+      grid.append(el('div', { class: 'day' }, [
+        el('span', {}, `${d.formattedTitleDate} — ${d.fullTitle || d.skipReason || ''}`),
         badge(d.status),
       ]));
     }
+    block.append(grid);
     root.append(block);
   }
 }
 
-function renderExecuteResults(data) {
-  const root = $('#planResults');
-  root.innerHTML = '';
-  const summary = el('div', { class: 'stat-chips' }, [
-    el('div', { class: 'stat-chip' }, [el('b', {}, String(data.totalCreatedCount)), el('span', {}, 'Created')]),
-    el('div', { class: 'stat-chip' }, [el('b', {}, String(data.totalDuplicateCount)), el('span', {}, 'Duplicates')]),
-    el('div', { class: 'stat-chip' }, [el('b', {}, String(data.totalTaskFailureCount)), el('span', {}, 'Failures')]),
-    el('div', { class: 'stat-chip' }, [el('b', {}, String(data.totalSourceFailureCount)), el('span', {}, 'No source')]),
-  ]);
-  root.append(summary);
-  for (const r of data.personResults) {
-    const block = el('div', { class: 'person-block' });
-    block.append(el('h3', {}, [r.person.name, ' ', badge(r.status)]));
-    for (const t of r.createdTasks) {
-      block.append(el('div', { class: 'day' }, [
-        el('span', {}, `#${t.id} ${t.title}`),
-        badge('CREATED'),
-      ]));
+function openConfirmationModal() {
+  const modal = $('#confirmModal');
+  const list = $('#confirmTaskList');
+  if (!modal || !list) return;
+
+  list.innerHTML = '';
+  const keys = [...state.selectedKeys];
+
+  // If we already previewed the plan, use it
+  if (state.pendingPlan) {
+    let count = 0;
+    for (const p of state.pendingPlan.personPlans) {
+      const planned = p.plannedDates.filter(d => d.status === 'PLANNED');
+      for (const d of planned) {
+        count++;
+        list.append(el('li', {}, `${p.person.name} — ${d.fullTitle}`));
+      }
     }
-    for (const f of r.failedTasks) {
-      block.append(el('div', { class: 'day' }, [
-        el('span', {}, `${f.formattedTitleDate} — ${f.errorMessage || 'failed'}`),
-        badge('FAILED'),
-      ]));
+    if (count === 0) {
+      list.innerHTML = '<li style="color:var(--ok);">All team members are up to date! Zero tasks needed.</li>';
     }
-    root.append(block);
+  } else {
+    list.innerHTML = `<li>Evaluate and create pending tasks for: <strong>${keys.length ? keys.join(', ') : 'All enabled team members'}</strong></li>`;
   }
+
+  modal.classList.add('open');
 }
 
-/* ---------------------------------------------------------------- explorer */
-const CELL_STATE = (status) => {
-  if (status === 'PLANNED') return 'missing';
-  if (status === 'WEEKEND_SKIP') return 'skip';
-  if (status === 'FUTURE_TASK_WARN') return 'warn';
-  return 'has';
-};
+async function executeCreation() {
+  const modal = $('#confirmModal');
+  if (modal) modal.classList.remove('open');
 
-async function refreshExplorer() {
-  const root = $('#explorerGrid');
-  root.innerHTML = '<p class="muted">Loading coverage…</p>';
+  const btn = $('#executeBtn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Creating tasks...'; }
+
+  // Open console drawer to view execution
+  openConsoleDrawer();
+
   try {
-    const plan = await api.post('/tasks/plan', {
-      all: true,
+    const keys = [...state.selectedKeys];
+    const res = await api.post('/tasks/execute', {
+      personKeys: keys.length ? keys : undefined,
       asOf: $('#asOf')?.value || undefined,
+      thursdayMode: $('#thursdayMode')?.value || undefined,
+      dryRun: false,
     });
-    root.innerHTML = '';
-    if (!plan.personPlans.length) {
-      root.innerHTML = '<p class="muted">No people configured.</p>';
-      return;
-    }
-    for (const p of plan.personPlans) {
-      const row = el('div', { class: 'explorer-row' }, [
-        el('span', { class: 'explorer-name' }, p.person.name),
-      ]);
-      const grid = el('div', { class: 'cell-grid' });
-      if (!p.plannedDates.length) {
-        grid.append(el('span', { class: 'muted small' }, p.statusMessage || 'No dates in window'));
-      }
-      for (const d of p.plannedDates) {
-        const cls = CELL_STATE(d.status);
-        grid.append(el('div', { class: `cell ${cls}`, title: d.fullTitle || d.formattedTitleDate }, [
-          el('span', { class: 'cell-date' }, d.formattedTitleDate),
-          el('span', { class: 'cell-state' }, BADGE_LABELS[d.status] || d.status),
-        ]));
-      }
-      row.append(grid);
-      root.append(row);
-    }
+    toast(`Created ${res.totalCreatedCount} tasks, skipped ${res.totalDuplicateCount} duplicates`);
+    refreshDashboard();
+    runPlanPreview();
   } catch (err) {
-    root.innerHTML = '';
-    root.append(el('p', { class: 'muted' }, err.message));
+    toast(err.message, 'err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Execute creation'; }
   }
 }
 
-
+/* ------------------------------------------------------------- team members */
 function renderPeople() {
   const list = $('#peopleList');
+  if (!list) return;
   list.innerHTML = '';
   state.people.forEach((p, idx) => {
     const row = el('div', { class: 'person-row' });
-    row.append(field('Key', input(p.key, v => state.people[idx].key = v, 'text')));
-    row.append(field('Name', input(p.name, v => state.people[idx].name = v, 'text')));
-    row.append(field('Assigned to', input(p.assignedTo, v => state.people[idx].assignedTo = v, 'text')));
-    row.append(field('Role / POD', input(p.role || p.pod || '', v => state.people[idx].role = v, 'text')));
+    row.append(field('Key', input(p.key, v => state.people[idx].key = v)));
+    row.append(field('Name', input(p.name, v => state.people[idx].name = v)));
+    row.append(field('Assigned to (Email / UPN)', input(p.assignedTo, v => state.people[idx].assignedTo = v)));
+    row.append(field('Role / POD', input(p.role || p.pod || '', v => state.people[idx].role = v)));
     const del = el('button', {
-      class: 'btn ghost del small',
+      class: 'btn ghost small del',
       onclick: () => { state.people.splice(idx, 1); renderPeople(); },
     }, 'Remove');
     row.append(del);
@@ -424,35 +990,78 @@ async function savePeople() {
   try {
     await api.post('/config/people', { people: state.people });
     state.config.people = state.people.map(p => ({ ...p }));
-    toast('Team saved');
+    toast('Team members saved successfully');
   } catch (err) {
     toast(err.message, 'err');
   }
 }
 
-/* ---------------------------------------------------------------- journal */
+function openAddPersonModal() {
+  const modal = $('#personModal');
+  if (!modal) return;
+  $('#personKeyInput').value = '';
+  $('#personNameInput').value = '';
+  $('#personEmailInput').value = '';
+  $('#personPodInput').value = '';
+  $('#personRoleInput').value = '';
+  $('#personSourceIdInput').value = '';
+  modal.classList.add('open');
+}
+
+function savePersonFromModal() {
+  const key = $('#personKeyInput').value.trim();
+  const name = $('#personNameInput').value.trim();
+  const assignedTo = $('#personEmailInput').value.trim();
+  const pod = $('#personPodInput').value.trim();
+  const role = $('#personRoleInput').value.trim();
+  const sourceTaskId = $('#personSourceIdInput').value.trim();
+
+  if (!key || !name || !assignedTo) {
+    toast('Key, Name, and Assigned To are required', 'err');
+    return;
+  }
+
+  state.people.push({
+    key,
+    name,
+    assignedTo,
+    pod: pod || undefined,
+    role: role || undefined,
+    sourceTaskId: sourceTaskId ? Number(sourceTaskId) : undefined,
+    enabled: true,
+  });
+
+  renderPeople();
+  $('#personModal').classList.remove('open');
+  savePeople();
+}
+
+/* ---------------------------------------------------------------- audit log */
 async function refreshJournal() {
   try {
-    const data = await api.get('/journal?limit=200');
+    const data = await api.get('/journal?limit=250');
     state.journal = data.entries;
     const stats = $('#journalStats');
-    stats.innerHTML = '';
-    stats.append(
-      el('div', { class: 'stat-chip' }, [el('b', {}, String(data.totalEntries)), el('span', {}, 'Entries')]),
-      el('div', { class: 'stat-chip' }, [el('b', {}, String(data.incompleteEntriesCount)), el('span', {}, 'Incomplete relation copies')]),
-    );
+    if (stats) {
+      stats.innerHTML = '';
+      stats.append(
+        el('div', { class: 'stat-chip' }, [el('b', {}, String(data.totalEntries)), el('span', {}, 'Total Log Entries')]),
+        el('div', { class: 'stat-chip' }, [el('b', {}, String(data.incompleteEntriesCount)), el('span', {}, 'Incomplete Relation Copies')]),
+      );
+    }
     const tbody = $('#journalTable tbody');
+    if (!tbody) return;
     tbody.innerHTML = '';
     for (const e of data.entries) {
       tbody.append(el('tr', {}, [
         el('td', {}, new Date(e.timestamp).toLocaleString()),
-        el('td', {}, e.personName),
-        el('td', {}, e.targetIsoDate),
-        el('td', { class: 'title-cell', title: e.title }, e.title),
-        el('td', {}, e.createdWorkItemId ? `#${e.createdWorkItemId}` : '—'),
+        el('td', {}, e.personName || '—'),
+        el('td', {}, e.targetIsoDate || '—'),
+        el('td', { class: 'title-cell' }, e.title || '—'),
+        el('td', {}, e.createdWorkItemId ? el('span', { style: 'font-weight:600; color:var(--accent);' }, `#${e.createdWorkItemId}`) : '—'),
         el('td', {}, badge(e.fieldCopyStatus)),
         el('td', {}, badge(e.relationCopyStatus)),
-        el('td', {}, e.verified ? '✓' : '✗'),
+        el('td', {}, el('span', { class: `pill ${e.verifiedState ? 'ok' : 'warn'}` }, e.verifiedState ? 'Verified' : 'Pending')),
       ]));
     }
   } catch (err) {
@@ -460,147 +1069,293 @@ async function refreshJournal() {
   }
 }
 
-/* -------------------------------------------------------------- scheduler */
+/* ---------------------------------------------------------------- scheduler */
 async function refreshScheduler() {
-  const sched = await api.get('/scheduler');
-  state.scheduler = sched;
-  $('#schedToggle').checked = sched.running;
-  $('#schedState').textContent = sched.running ? 'Running' : 'Stopped';
-  $('#schedTz').textContent = sched.timezone;
-  $('#schedNext').textContent = sched.nextRun ? new Date(sched.nextRun).toLocaleString() : '—';
-  $('#schedLast').textContent = sched.lastRun
-    ? `${sched.lastRunResult || 'done'} · ${timeAgo(sched.lastRun)}`
-    : '—';
-}
-
-async function toggleScheduler(enabled) {
   try {
-    const sched = await api.post('/scheduler/toggle', { enabled });
-    state.scheduler = sched;
-    toast(enabled ? 'Scheduler started' : 'Scheduler stopped');
-    refreshScheduler();
+    const s = await api.get('/scheduler');
+    state.scheduler = s;
+    const toggle = $('#schedToggle');
+    if (toggle) toggle.checked = s.running;
+    const stateLabel = $('#schedState');
+    if (stateLabel) stateLabel.textContent = s.running ? 'Running' : 'Stopped';
+    if ($('#schedTz')) $('#schedTz').textContent = s.timezone || 'Asia/Kolkata';
+    if ($('#schedNext')) $('#schedNext').textContent = s.nextRun ? new Date(s.nextRun).toLocaleString() : '—';
+    if ($('#schedLast')) $('#schedLast').textContent = s.lastResult?.status || 'No runs yet';
   } catch (err) {
     toast(err.message, 'err');
-    refreshScheduler();
   }
 }
 
-/* --------------------------------------------------------------- settings */
-function fillSettings() {
-  const c = state.config;
-  if (!c) return;
-  $('#setOrg').value = c.organization || '';
-  $('#setProject').value = c.project || '';
-  $('#setTz').value = c.timezone || '';
-  $('#setStart').value = c.startTime || '';
-  $('#setPat').value = '';
+async function toggleScheduler(enable) {
+  try {
+    const s = await api.post('/scheduler/toggle', { enable });
+    toast(s.running ? 'Scheduler started' : 'Scheduler stopped');
+    refreshScheduler();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+/* ----------------------------------------------------------------- settings */
+async function fillSettings() {
+  const cfg = await ensureConfig();
+  if ($('#setOrg')) $('#setOrg').value = cfg.organization || '';
+  if ($('#setProject')) $('#setProject').value = cfg.project || '';
+  if ($('#setTz')) $('#setTz').value = cfg.timezone || 'Asia/Kolkata';
+  if ($('#setStart')) $('#setStart').value = cfg.startTime || '09:30';
 }
 
 async function saveSettings() {
   try {
-    await api.post('/config/settings', {
-      organization: $('#setOrg').value,
-      project: $('#setProject').value,
-      timezone: $('#setTz').value,
-      startTime: $('#setStart').value,
-    });
-    state.config = await api.get('/config');
-    toast('Settings saved');
+    const body = {
+      organization: $('#setOrg').value.trim(),
+      project: $('#setProject').value.trim(),
+      timezone: $('#setTz').value.trim(),
+      startTime: $('#setStart').value.trim(),
+    };
+    await api.post('/config/settings', body);
+    state.config = null;
+    toast('Settings saved successfully');
+    refreshStatus();
   } catch (err) {
     toast(err.message, 'err');
   }
 }
 
 async function savePat() {
-  const pat = $('#setPat').value;
-  if (!pat) { toast('Enter a PAT first', 'warn'); return; }
+  const pat = $('#setPat').value.trim();
+  if (!pat) {
+    toast('Please enter a Personal Access Token', 'err');
+    return;
+  }
   try {
-    const data = await api.post('/config/pat', { pat });
+    const res = await api.post('/config/pat', { pat });
+    toast(`PAT updated (${res.patMasked})`);
     $('#setPat').value = '';
-    toast(`PAT saved (${data.patMasked})`);
-    await refreshStatus();
+    refreshStatus();
   } catch (err) {
     toast(err.message, 'err');
   }
 }
 
-/* ------------------------------------------------------------------- logs */
-let logSource = null;
-function initLogs() {
-  const pre = $('#logStream');
-  const append = (entry) => {
-    const line = el('div', { class: `l-${entry.level}` }, `[${entry.level.toUpperCase()}] ${entry.message}`);
-    pre.append(line);
-    while (pre.childNodes.length > 500) pre.removeChild(pre.firstChild);
-    pre.scrollTop = pre.scrollHeight;
+async function testConnection() {
+  toast('Testing Azure DevOps connection...');
+  await refreshStatus();
+  if (state.status?.connected) {
+    toast('Connection successful!', 'ok');
+  } else {
+    toast('Connection failed. Check PAT and permissions.', 'err');
+  }
+}
+
+/* ----------------------------------------------------------- console drawer */
+function openConsoleDrawer() {
+  const drawer = $('#executionDrawer');
+  if (drawer) drawer.classList.add('open');
+}
+
+function toggleConsoleDrawer() {
+  const drawer = $('#executionDrawer');
+  if (drawer) drawer.classList.toggle('open');
+}
+
+function connectLogStream() {
+  const term = $('#logStream');
+  const drawerBody = $('#drawerBody');
+  const statusPill = $('#logStatus');
+
+  const es = new EventSource('/api/logs/stream');
+  es.onopen = () => {
+    if (statusPill) { statusPill.textContent = 'live'; statusPill.className = 'pill ok'; }
   };
-  api.get('/logs/recent?limit=200').then(entries => {
-    pre.innerHTML = '';
-    entries.forEach(append);
-  }).catch(() => {});
+  es.onerror = () => {
+    if (statusPill) { statusPill.textContent = 'reconnecting…'; statusPill.className = 'pill warn'; }
+  };
+  es.onmessage = (event) => {
+    try {
+      const entry = JSON.parse(event.data);
+      const line = `[${new Date(entry.timestamp).toLocaleTimeString()}] [${entry.level}] ${entry.message}\n`;
 
-  if (logSource) logSource.close();
-  logSource = new EventSource('/api/logs/stream');
-  logSource.onopen = () => { $('#logStatus').textContent = 'live'; $('#logStatus').className = 'pill ok'; };
-  logSource.onerror = () => { $('#logStatus').textContent = 'reconnecting…'; $('#logStatus').className = 'pill warn'; };
-  logSource.onmessage = (ev) => {
-    try { append(JSON.parse(ev.data)); } catch { /* ping */ }
+      if (term) {
+        term.append(document.createTextNode(line));
+        term.scrollTop = term.scrollHeight;
+      }
+      if (drawerBody) {
+        const span = document.createElement('div');
+        span.textContent = line.trim();
+        drawerBody.append(span);
+        drawerBody.scrollTop = drawerBody.scrollHeight;
+      }
+    } catch {
+      // ignore parse errors
+    }
   };
 }
 
-/* ------------------------------------------------------------------ theme */
-function initTheme() {
-  const saved = localStorage.getItem('theme');
-  document.documentElement.dataset.theme = saved || 'dark';
-}
-function toggleTheme() {
-  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-  document.documentElement.dataset.theme = next;
-  localStorage.setItem('theme', next);
-}
-
-/* ------------------------------------------------------------------- init */
+/* ------------------------------------------------------------- wiring up */
 function wire() {
-  $$('.nav-item').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.view)));
-  $$('[data-view-link]').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.viewLink)));
-  $('#themeToggle').addEventListener('click', toggleTheme);
-  $('#menuBtn').addEventListener('click', () => $('#sidebar').classList.toggle('open'));
-  $('#refreshBtn').addEventListener('click', () => { state.config = null; refreshDashboard(); loadPeople(); toast('Refreshed'); });
-  $('#quickRunBtn').addEventListener('click', () => switchView('planner'));
+  // Navigation tabs
+  $$('.nav-item').forEach(b => {
+    b.addEventListener('click', () => switchView(b.dataset.view));
+  });
 
-  $('#planBtn').addEventListener('click', runPlan);
-  $('#executeBtn').addEventListener('click', runExecute);
-  $('#exploreRefresh').addEventListener('click', refreshExplorer);
-  $('#exploreCreateMissing').addEventListener('click', async () => {
-    await runExecute();
+  // Topbar triggers
+  $('#refreshBtn')?.addEventListener('click', () => {
+    const current = location.hash.slice(1) || 'dashboard';
+    switchView(current);
+    toast('Refreshed data');
+  });
+
+  $('#quickRunBtn')?.addEventListener('click', () => {
+    switchView('planner');
+    openConfirmationModal();
+  });
+
+  $('#consoleBtn')?.addEventListener('click', toggleConsoleDrawer);
+  $('#btnCloseDrawer')?.addEventListener('click', () => $('#executionDrawer')?.classList.remove('open'));
+
+  // Theme toggle
+  $('#themeToggle')?.addEventListener('click', () => {
+    const root = document.documentElement;
+    const isDark = root.getAttribute('data-theme') === 'dark';
+    root.setAttribute('data-theme', isDark ? 'light' : 'dark');
+    try { localStorage.setItem('theme', isDark ? 'light' : 'dark'); } catch {}
+  });
+
+  // Planner controls
+  $('#planBtn')?.addEventListener('click', runPlanPreview);
+  $('#executeBtn')?.addEventListener('click', openConfirmationModal);
+  $('#btnConfirmExecute')?.addEventListener('click', executeCreation);
+  $('#btnCancelConfirmModal')?.addEventListener('click', () => $('#confirmModal')?.classList.remove('open'));
+  $('#btnCloseConfirmModal')?.addEventListener('click', () => $('#confirmModal')?.classList.remove('open'));
+
+  // Burndown controls
+  $('#loadBurndownBtn')?.addEventListener('click', loadBurndownMonth);
+
+  // My Work controls
+  $('#myWorkPersonSelect')?.addEventListener('change', refreshMyWork);
+  $('#myWorkRefreshBtn')?.addEventListener('click', refreshMyWork);
+
+  // Explorer controls
+  $('#explorerPreset')?.addEventListener('change', () => {
+    const preset = $('#explorerPreset').value;
+    if (preset !== 'custom') refreshExplorer();
+  });
+  $('#explorerApplyBtn')?.addEventListener('click', refreshExplorer);
+  $('#exploreRefreshBtn')?.addEventListener('click', refreshExplorer);
+  $('#explorerResetBtn')?.addEventListener('click', () => {
+    $('#explorerPreset').value = 'today_to_next_thursday';
     refreshExplorer();
   });
-  $('#addPersonBtn').addEventListener('click', () => {
-    state.people.push({ key: `person${Date.now()}`, name: '', assignedTo: '', role: '', enabled: true });
-    renderPeople();
+  $('#explorerSelectAllBtn')?.addEventListener('click', () => {
+    ensureConfig().then(cfg => {
+      cfg.people.filter(p => p.enabled !== false).forEach(p => state.selectedExplorerKeys.add(p.key));
+      renderExplorerUserPills(cfg);
+      refreshExplorer();
+    });
   });
-  $('#savePeopleBtn').addEventListener('click', savePeople);
-  $('#saveSettingsBtn').addEventListener('click', saveSettings);
-  $('#savePatBtn').addEventListener('click', savePat);
-  $('#schedToggle').addEventListener('change', e => toggleScheduler(e.target.checked));
-  $('#exportCsv').addEventListener('click', () => window.open('/api/journal/export?format=csv', '_blank'));
-  $('#exportJson').addEventListener('click', () => window.open('/api/journal/export?format=json', '_blank'));
+  $('#explorerDeselectAllBtn')?.addEventListener('click', () => {
+    ensureConfig().then(cfg => {
+      state.selectedExplorerKeys.clear();
+      renderExplorerUserPills(cfg);
+      refreshExplorer();
+    });
+  });
+  $('#explorerMemberSearch')?.addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase().trim();
+    $$('#explorerUserPills .user-pill').forEach(p => {
+      p.style.display = p.textContent.toLowerCase().includes(q) ? 'inline-flex' : 'none';
+    });
+  });
+  $('#btnToggleMatrixView')?.addEventListener('click', () => {
+    $('#explorerMatrixWrap').style.display = 'block';
+    $('#explorerListWrap').style.display = 'none';
+    $('#btnToggleMatrixView').style.fontWeight = '600';
+    $('#btnToggleListView').style.fontWeight = 'normal';
+  });
+  $('#btnToggleListView')?.addEventListener('click', () => {
+    $('#explorerMatrixWrap').style.display = 'none';
+    $('#explorerListWrap').style.display = 'block';
+    $('#btnToggleListView').style.fontWeight = '600';
+    $('#btnToggleMatrixView').style.fontWeight = 'normal';
+  });
+  $('#explorerListSearch')?.addEventListener('input', () => {
+    renderExplorerList(state.explorerData?.detailedTasks || []);
+  });
+  $('#explorerCreateMissingBtn')?.addEventListener('click', async () => {
+    switchView('planner');
+    runPlanPreview().then(() => openConfirmationModal());
+  });
 
+  // Modals close buttons
+  $('#btnCloseDateInspectModal')?.addEventListener('click', () => $('#dateInspectModal')?.classList.remove('open'));
+  $('#btnCloseDateInspectBtn')?.addEventListener('click', () => $('#dateInspectModal')?.classList.remove('open'));
+  $('#btnCloseUserInspectModal')?.addEventListener('click', () => $('#userInspectModal')?.classList.remove('open'));
+  $('#btnCloseUserInspectBtn')?.addEventListener('click', () => $('#userInspectModal')?.classList.remove('open'));
+  $('#btnClosePersonModal')?.addEventListener('click', () => $('#personModal')?.classList.remove('open'));
+  $('#btnCancelPersonModal')?.addEventListener('click', () => $('#personModal')?.classList.remove('open'));
+
+  // Team controls
+  $('#addPersonBtn')?.addEventListener('click', openAddPersonModal);
+  $('#btnSavePersonModal')?.addEventListener('click', savePersonFromModal);
+  $('#savePeopleBtn')?.addEventListener('click', savePeople);
+
+  // Journal controls
+  $('#exportCsv')?.addEventListener('click', () => window.open('/api/journal/export?format=csv', '_blank'));
+  $('#exportJson')?.addEventListener('click', () => window.open('/api/journal/export?format=json', '_blank'));
+
+  // Scheduler controls
+  $('#schedToggle')?.addEventListener('change', e => toggleScheduler(e.target.checked));
+
+  // Settings controls
+  $('#saveSettingsBtn')?.addEventListener('click', saveSettings);
+  $('#savePatBtn')?.addEventListener('click', savePat);
+  $('#testConnBtn')?.addEventListener('click', testConnection);
+  $('#btnRunCreationAll')?.addEventListener('click', () => {
+    state.selectedKeys.clear();
+    executeCreation();
+  });
+  $('#btnRepairAll')?.addEventListener('click', async () => {
+    toast('Repairing incomplete relationships...');
+    try {
+      const res = await api.post('/tasks/execute', { all: true, dryRun: false });
+      toast('Relations repaired', 'ok');
+      refreshJournal();
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  });
+
+  $('#togglePatEye')?.addEventListener('click', () => {
+    const input = $('#setPat');
+    if (!input) return;
+    input.type = input.type === 'password' ? 'text' : 'password';
+  });
+
+  // Mobile drawer menu
+  $('#menuBtn')?.addEventListener('click', () => {
+    $('#sidebar')?.classList.toggle('open');
+  });
+
+  // Hash routing
   window.addEventListener('hashchange', () => {
     const v = location.hash.slice(1);
-    if (VIEWS[v]) switchView(v);
+    if (v) switchView(v);
   });
 }
 
-async function init() {
-  initTheme();
+/* ---------------------------------------------------------------- bootstrap */
+async function bootstrap() {
+  try {
+    const saved = localStorage.getItem('theme');
+    if (saved) document.documentElement.setAttribute('data-theme', saved);
+  } catch {}
+
   wire();
-  initLogs();
-  await refreshDashboard();
-  await renderPlannerPeople();
-  await loadPeople();
-  const startView = location.hash.slice(1);
-  if (VIEWS[startView]) switchView(startView);
+  connectLogStream();
+
+  const initial = location.hash.slice(1) || 'dashboard';
+  switchView(initial);
 }
 
-init();
+document.addEventListener('DOMContentLoaded', bootstrap);
