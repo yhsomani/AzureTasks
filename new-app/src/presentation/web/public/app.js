@@ -110,6 +110,13 @@ function formatDateShort(iso) {
   }
 }
 
+function getAdoWorkItemUrl(id) {
+  if (!id) return '#';
+  const org = state.status?.organization || 'BFLDevOpsOrg';
+  const project = state.status?.project || '3in1_Agile_Projects';
+  return `https://dev.azure.com/${org}/${project}/_workitems/edit/${id}`;
+}
+
 /* -------------------------------------------------------------- navigation */
 const VIEW_META = {
   dashboard: ['Dashboard', 'Track daily contributions, monitor team workloads, and automate tasks'],
@@ -280,9 +287,18 @@ function renderTimeline(entries) {
     return;
   }
   for (const e of entries) {
+    const mainEl = el('span', { class: 'tl-main' }, [
+      el('span', {}, `${e.personName} · ${e.title} `),
+      e.createdWorkItemId ? el('a', {
+        href: getAdoWorkItemUrl(e.createdWorkItemId),
+        target: '_blank',
+        class: 'ado-link',
+        title: `Open task #${e.createdWorkItemId} in Azure DevOps`,
+      }, `#${e.createdWorkItemId} ↗`) : null,
+    ]);
     container.append(el('div', { class: 'tl-item' }, [
       el('span', { class: 'tl-time' }, timeAgo(e.timestamp)),
-      el('span', { class: 'tl-main' }, `${e.personName} · ${e.title}`),
+      mainEl,
       badge(e.fieldCopyStatus === 'SUCCESS' ? 'SUCCESS' : 'FAILED'),
     ]));
   }
@@ -812,9 +828,25 @@ function openUserInspectModal(row) {
   if (timeline) {
     timeline.innerHTML = '';
     Object.values(row.cells).forEach(cell => {
+      const firstTask = cell.tasks?.[0];
+      const mainEl = el('span', { class: 'tl-main' });
+      if (firstTask) {
+        mainEl.append(
+          el('a', {
+            href: firstTask.url || getAdoWorkItemUrl(firstTask.id),
+            target: '_blank',
+            class: 'ado-link',
+            style: 'font-weight:600;',
+          }, `#${firstTask.id}`),
+          document.createTextNode(` — ${firstTask.title}`)
+        );
+      } else {
+        mainEl.textContent = cell.isWeekend ? 'Weekend (Off)' : 'Missing Task';
+      }
+
       timeline.append(el('div', { class: 'tl-item' }, [
         el('span', { class: 'tl-time' }, cell.formattedDate),
-        el('span', { class: 'tl-main' }, cell.tasks?.[0]?.title || (cell.isWeekend ? 'Weekend (Off)' : 'Missing Task')),
+        mainEl,
         badge(cell.status),
       ]));
     });
@@ -959,8 +991,16 @@ function renderPlanMatrix(plan) {
       el('div', { style: 'font-weight:600;' }, planItem.person.name),
       el('div', { class: 'muted small' }, planItem.person.assignedTo),
       sourceId
-        ? el('div', { class: 'muted small', style: 'margin-top:2px; font-size:11.5px;' },
-            `Source: #${sourceId} (${planItem.sourceTask.parsedDate?.formattedTitleDate || ''})`)
+        ? el('div', { class: 'muted small', style: 'margin-top:2px; font-size:11.5px;' }, [
+            document.createTextNode('Source: '),
+            el('a', {
+              href: getAdoWorkItemUrl(sourceId),
+              target: '_blank',
+              class: 'ado-link',
+              title: `Open source task #${sourceId} in Azure DevOps`,
+            }, `#${sourceId} ↗`),
+            document.createTextNode(` (${planItem.sourceTask.parsedDate?.formattedTitleDate || ''})`),
+          ])
         : el('div', { class: 'small', style: 'color:var(--warn); margin-top:2px;' }, '⚠️ No source task'),
     ]);
 
@@ -987,7 +1027,8 @@ function renderPlanMatrix(plan) {
       } else if (!item) {
         if (planItem.status === 'FUTURE_TASK_WARN' || planItem.status === 'NO_TASKS_NEEDED') {
           totalExisting++;
-          td.innerHTML = '<span class="cell-status cell-created" title="Existing task covers schedule">✓ Exist</span>';
+          const srcLink = sourceId ? getAdoWorkItemUrl(sourceId) : '#';
+          td.innerHTML = `<a href="${srcLink}" target="_blank" class="cell-status cell-created" style="display:inline-block; text-decoration:none;" title="Covered by schedule (#${sourceId || ''})">✓ Exist ↗</a>`;
         } else {
           td.innerHTML = '<span class="muted">-</span>';
         }
@@ -995,8 +1036,9 @@ function renderPlanMatrix(plan) {
         td.innerHTML = '<span class="cell-status cell-weekend">Weekend</span>';
       } else if (item.status === 'DUPLICATE_ALREADY_EXISTS' || item.status === 'DUPLICATE') {
         totalExisting++;
-        const link = `https://dev.azure.com/${state.status?.organization || 'BFLDevOpsOrg'}/${state.status?.project || '3in1_Agile_Projects'}/_workitems/edit/${item.skipReason?.match(/#(\d+)/)?.[1] || ''}`;
-        td.innerHTML = `<span class="cell-status cell-created" title="${escapeHtml(item.skipReason || 'Task exists')}">✓ Exist</span>`;
+        const matchId = item.skipReason?.match(/#(\d+)/)?.[1];
+        const link = matchId ? getAdoWorkItemUrl(matchId) : (sourceId ? getAdoWorkItemUrl(sourceId) : '#');
+        td.innerHTML = `<a href="${link}" target="_blank" class="cell-status cell-created" style="display:inline-block; text-decoration:none;" title="${escapeHtml(item.skipReason || 'Task exists')}">✓ #${matchId || 'Exist'} ↗</a>`;
       } else if (item.status === 'MULTIPLE_EXISTING_TASKS') {
         totalExisting++;
         td.innerHTML = `<span class="cell-status cell-duplicate" title="${escapeHtml(item.skipReason || 'Multiple tasks')}">⚠️ Duplicate</span>`;
@@ -1080,8 +1122,16 @@ function renderPlanResults(plan) {
     if (p.sourceTask) {
       const srcId = p.sourceTask.workItem?.id || p.sourceTask.id;
       const srcTitle = p.sourceTask.workItem?.fields?.['System.Title'] || p.sourceTask.title || '';
-      block.append(el('p', { class: 'muted small' },
-        `Source Task: #${srcId} · "${srcTitle}" · ${p.sourceTask.parsedDate?.formattedTitleDate}`));
+      block.append(el('p', { class: 'muted small' }, [
+        document.createTextNode('Source Task: '),
+        srcId ? el('a', {
+          href: getAdoWorkItemUrl(srcId),
+          target: '_blank',
+          class: 'ado-link',
+          title: `Open source task #${srcId} in Azure DevOps`,
+        }, `#${srcId} ↗`) : null,
+        document.createTextNode(` · "${srcTitle}" · ${p.sourceTask.parsedDate?.formattedTitleDate}`),
+      ]));
     } else {
       block.append(el('p', { class: 'muted small', style: 'color:var(--warn);' }, '⚠️ No source task discovered.'));
     }
@@ -1092,8 +1142,20 @@ function renderPlanResults(plan) {
 
     const grid = el('div', { class: 'plan-preview' });
     for (const d of (p.plannedDates || [])) {
+      const matchId = d.skipReason?.match(/#(\d+)/)?.[1];
+      const descEl = el('span', {}, [
+        document.createTextNode(`${d.formattedTitleDate} — ${d.fullTitle || d.skipReason || ''} `),
+        matchId ? el('a', {
+          href: getAdoWorkItemUrl(matchId),
+          target: '_blank',
+          class: 'ado-link',
+          style: 'font-size:11.5px;',
+          title: `Open task #${matchId} in Azure DevOps`,
+        }, `#${matchId} ↗`) : null,
+      ]);
+
       grid.append(el('div', { class: 'day' }, [
-        el('span', {}, `${d.formattedTitleDate} — ${d.fullTitle || d.skipReason || ''}`),
+        descEl,
         badge(d.status),
       ]));
     }
@@ -1169,6 +1231,25 @@ function renderPeople() {
     row.append(field('Name', input(p.name, v => state.people[idx].name = v)));
     row.append(field('Assigned to (Email / UPN)', input(p.assignedTo, v => state.people[idx].assignedTo = v)));
     row.append(field('Role / POD', input(p.role || p.pod || '', v => state.people[idx].role = v)));
+    
+    // Source Task ID field with link
+    const srcField = el('label', { class: 'field' });
+    const labelRow = el('span', { style: 'display:flex; justify-content:space-between; align-items:center;' }, [
+      el('span', {}, 'Source Task ID'),
+      p.sourceTaskId ? el('a', {
+        href: getAdoWorkItemUrl(p.sourceTaskId),
+        target: '_blank',
+        class: 'ado-link',
+        style: 'font-size:11px;',
+        title: 'Open source work item in Azure DevOps',
+      }, `#${p.sourceTaskId} ↗`) : el('span', { class: 'muted small', style: 'font-size:10.5px;' }, 'Auto'),
+    ]);
+    srcField.append(labelRow);
+    srcField.append(input(p.sourceTaskId, v => {
+      state.people[idx].sourceTaskId = v ? Number(v) : undefined;
+    }, 'number'));
+    row.append(srcField);
+
     const del = el('button', {
       class: 'btn ghost small del',
       onclick: () => { state.people.splice(idx, 1); renderPeople(); },
@@ -1266,7 +1347,12 @@ async function refreshJournal() {
         el('td', {}, e.personName || '—'),
         el('td', {}, e.targetIsoDate || '—'),
         el('td', { class: 'title-cell' }, e.title || '—'),
-        el('td', {}, e.createdWorkItemId ? el('span', { style: 'font-weight:600; color:var(--accent);' }, `#${e.createdWorkItemId}`) : '—'),
+        el('td', {}, e.createdWorkItemId ? el('a', {
+          href: getAdoWorkItemUrl(e.createdWorkItemId),
+          target: '_blank',
+          class: 'ado-link',
+          title: `Open task #${e.createdWorkItemId} in Azure DevOps`,
+        }, `#${e.createdWorkItemId} ↗`) : '—'),
         el('td', {}, badge(e.fieldCopyStatus)),
         el('td', {}, badge(e.relationCopyStatus)),
         el('td', {}, el('span', { class: `pill ${e.verifiedState ? 'ok' : 'warn'}` }, e.verifiedState ? 'Verified' : 'Pending')),
