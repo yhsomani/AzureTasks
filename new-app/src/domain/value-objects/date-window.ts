@@ -132,7 +132,7 @@ export function planCreationDates(input: DatePlanInput): DatePlan {
   const plannedDates: PlannedDate[] = [];
 
   // If latest existing task is beyond the window, warn
-  if (latestExistingTaskIso > nextThursdayIso) {
+  if (latestExistingTaskIso && latestExistingTaskIso > nextThursdayIso) {
     return {
       plannedDates: [],
       effectiveStartDate: todayIso,
@@ -143,13 +143,13 @@ export function planCreationDates(input: DatePlanInput): DatePlan {
 
   // Start from the day after the latest existing task, or today if no tasks exist
   let currentIso = latestExistingTaskIso ? addDays(latestExistingTaskIso, 1) : todayIso;
-  
+
   // Don't go before today
   if (currentIso < todayIso) {
     currentIso = todayIso;
   }
 
-  // Plan dates up to and including nextThursday
+  // Evaluate each date up to and including nextThursday
   while (currentIso <= nextThursdayIso) {
     const dayOfWeek = getDayOfWeek(currentIso);
     const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6) && skipWeekends;

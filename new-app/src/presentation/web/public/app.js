@@ -100,6 +100,16 @@ function escapeHtml(str) {
   }[m]));
 }
 
+function formatDateShort(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso + 'T00:00:00Z');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  } catch {
+    return iso;
+  }
+}
+
 /* -------------------------------------------------------------- navigation */
 const VIEW_META = {
   dashboard: ['Dashboard', 'Track daily contributions, monitor team workloads, and automate tasks'],
@@ -130,7 +140,10 @@ function switchView(view) {
   if (view === 'burndown') refreshBurndown();
   if (view === 'mywork') refreshMyWork();
   if (view === 'explorer') refreshExplorer();
-  if (view === 'planner') renderPlannerPeople();
+  if (view === 'planner') {
+    renderPlannerPeople();
+    runPlanPreview();
+  }
   if (view === 'people') loadPeople();
   if (view === 'journal') refreshJournal();
   if (view === 'scheduler') refreshScheduler();
@@ -824,6 +837,8 @@ async function renderPlannerPeople() {
 
   if (state.selectedKeys.size === 0) active.forEach(p => state.selectedKeys.add(p.key));
 
+  updatePlannerMemberPill(active.length);
+
   for (const p of active) {
     const on = state.selectedKeys.has(p.key);
     const chip = el('label', {
@@ -831,7 +846,9 @@ async function renderPlannerPeople() {
       onclick: () => {
         if (state.selectedKeys.has(p.key)) state.selectedKeys.delete(p.key);
         else state.selectedKeys.add(p.key);
+        updatePlannerMemberPill(active.length);
         renderPlannerPeople();
+        runPlanPreview();
       },
     }, [
       el('span', {}, p.name),
@@ -841,10 +858,30 @@ async function renderPlannerPeople() {
   }
 }
 
+function updatePlannerMemberPill(totalActive) {
+  const pill = $('#plannerMembersTag');
+  if (!pill) return;
+  const count = state.selectedKeys.size;
+  if (count === totalActive) {
+    pill.textContent = `All ${totalActive} selected`;
+    pill.className = 'pill ok';
+  } else if (count === 0) {
+    pill.textContent = 'None selected (previewing all)';
+    pill.className = 'pill warn';
+  } else {
+    pill.textContent = `${count} of ${totalActive} selected`;
+    pill.className = 'pill';
+  }
+}
+
 async function runPlanPreview() {
+  const matrixWrap = $('#planMatrixWrap');
   const results = $('#planResults');
-  if (!results) return;
-  results.innerHTML = '<p class="muted"><span class="spinner"></span> Building plan preview...</p>';
+  const statusPill = $('#plannerAutoRefreshStatus');
+  if (statusPill) { statusPill.textContent = 'Updating…'; statusPill.className = 'pill warn'; }
+
+  if (matrixWrap) matrixWrap.innerHTML = '<p class="muted" style="padding:24px;"><span class="spinner"></span> Analyzing Azure DevOps work items and planning window...</p>';
+  if (results) results.innerHTML = '<p class="muted"><span class="spinner"></span> Building plan preview...</p>';
 
   try {
     const keys = [...state.selectedKeys];
@@ -854,9 +891,172 @@ async function runPlanPreview() {
       thursdayMode: $('#thursdayMode')?.value || undefined,
     });
     state.pendingPlan = plan;
+    renderPlanMatrix(plan);
     renderPlanResults(plan);
+    if (statusPill) { statusPill.textContent = 'Up to date'; statusPill.className = 'pill ok'; }
   } catch (err) {
-    results.innerHTML = `<p class="muted" style="color:var(--danger);">❌ Preview error: ${escapeHtml(err.message)}</p>`;
+    if (matrixWrap) matrixWrap.innerHTML = `<p class="muted" style="color:var(--danger); padding:24px;">❌ Matrix error: ${escapeHtml(err.message)}</p>`;
+    if (results) results.innerHTML = `<p class="muted" style="color:var(--danger); padding:16px;">❌ Preview error: ${escapeHtml(err.message)}</p>`;
+    if (statusPill) { statusPill.textContent = 'Error'; statusPill.className = 'pill bad'; }
+  }
+}
+
+function renderPlanMatrix(plan) {
+  const matrixWrap = $('#planMatrixWrap');
+  if (!matrixWrap) return;
+  matrixWrap.innerHTML = '';
+
+  const { todayIso, nextThursdayIso, personPlans } = plan;
+
+  // Update KPIs
+  $('#kpiPlanWindow')?.replaceChildren(document.createTextNode(`${formatDateShort(todayIso)} → ${formatDateShort(nextThursdayIso)}`));
+  $('#kpiPlanMembers')?.replaceChildren(document.createTextNode(String(personPlans.length)));
+
+  // Construct all dates in the creation window from todayIso to nextThursdayIso
+  const allDates = [];
+  let curr = todayIso;
+  while (curr <= nextThursdayIso) {
+    const dObj = new Date(curr + 'T00:00:00Z');
+    const dow = dObj.getUTCDay();
+    allDates.push({
+      isoDate: curr,
+      formattedTitleDate: dObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }),
+      dayOfWeekName: dObj.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }),
+      isWeekend: dow === 0 || dow === 6,
+    });
+    // add 1 day
+    dObj.setUTCDate(dObj.getUTCDate() + 1);
+    curr = dObj.toISOString().slice(0, 10);
+  }
+
+  let totalToCreate = 0;
+  let totalExisting = 0;
+
+  const table = el('table', { class: 'matrix-table' });
+  const thead = el('thead');
+  const headerRow = el('tr', {}, [
+    el('th', { class: 'sticky-col' }, 'Team Member'),
+  ]);
+
+  allDates.forEach(d => {
+    headerRow.append(el('th', {}, [
+      el('div', {}, d.formattedTitleDate),
+      el('div', { style: 'font-size:11px; font-weight:normal; color:var(--text-muted);' }, d.dayOfWeekName),
+    ]));
+  });
+  thead.append(headerRow);
+  table.append(thead);
+
+  const tbody = el('tbody');
+  personPlans.forEach(planItem => {
+    const tr = el('tr');
+    const hasPlanned = (planItem.plannedDates || []).some(p => p.status === 'PLANNED');
+    const memberKey = planItem.person.key || planItem.person.name;
+
+    // Person cell
+    const sourceId = planItem.sourceTask?.workItem?.id || planItem.sourceTask?.id;
+    const nameCell = el('td', { class: 'sticky-col matrix-person-cell', style: 'vertical-align:top;' }, [
+      el('div', { style: 'font-weight:600;' }, planItem.person.name),
+      el('div', { class: 'muted small' }, planItem.person.assignedTo),
+      sourceId
+        ? el('div', { class: 'muted small', style: 'margin-top:2px; font-size:11.5px;' },
+            `Source: #${sourceId} (${planItem.sourceTask.parsedDate?.formattedTitleDate || ''})`)
+        : el('div', { class: 'small', style: 'color:var(--warn); margin-top:2px;' }, '⚠️ No source task'),
+    ]);
+
+    if (hasPlanned) {
+      const btnRunMember = el('button', {
+        class: 'btn-action-person',
+        style: 'margin-top: 6px;',
+        onclick: (e) => {
+          e.stopPropagation();
+          runForMember(memberKey, planItem.person.name);
+        },
+      }, `⚡ Create for ${planItem.person.name.split(' ')[0]}`);
+      nameCell.append(btnRunMember);
+    }
+    tr.append(nameCell);
+
+    // Each date column
+    allDates.forEach(d => {
+      const td = el('td');
+      const item = (planItem.plannedDates || []).find(p => p.isoDate === d.isoDate);
+
+      if (d.isWeekend) {
+        td.innerHTML = '<span class="cell-status cell-weekend">Weekend</span>';
+      } else if (!item) {
+        if (planItem.status === 'FUTURE_TASK_WARN' || planItem.status === 'NO_TASKS_NEEDED') {
+          totalExisting++;
+          td.innerHTML = '<span class="cell-status cell-created" title="Existing task covers schedule">✓ Exist</span>';
+        } else {
+          td.innerHTML = '<span class="muted">-</span>';
+        }
+      } else if (item.status === 'WEEKEND_SKIP') {
+        td.innerHTML = '<span class="cell-status cell-weekend">Weekend</span>';
+      } else if (item.status === 'DUPLICATE_ALREADY_EXISTS' || item.status === 'DUPLICATE') {
+        totalExisting++;
+        const link = `https://dev.azure.com/${state.status?.organization || 'BFLDevOpsOrg'}/${state.status?.project || '3in1_Agile_Projects'}/_workitems/edit/${item.skipReason?.match(/#(\d+)/)?.[1] || ''}`;
+        td.innerHTML = `<span class="cell-status cell-created" title="${escapeHtml(item.skipReason || 'Task exists')}">✓ Exist</span>`;
+      } else if (item.status === 'MULTIPLE_EXISTING_TASKS') {
+        totalExisting++;
+        td.innerHTML = `<span class="cell-status cell-duplicate" title="${escapeHtml(item.skipReason || 'Multiple tasks')}">⚠️ Duplicate</span>`;
+      } else if (item.status === 'PLANNED') {
+        totalToCreate++;
+        const btn = el('button', {
+          class: 'btn-action-cell',
+          title: `Create task for ${planItem.person.name} on ${d.formattedTitleDate}`,
+          onclick: () => runForCell(memberKey, planItem.person.name, d.isoDate, d.formattedTitleDate),
+        }, '+ Create');
+        td.append(btn);
+      } else {
+        td.innerHTML = `<span class="cell-status cell-missing">${item.status}</span>`;
+      }
+      tr.append(td);
+    });
+
+    tbody.append(tr);
+  });
+
+  table.append(tbody);
+  matrixWrap.append(table);
+
+  $('#kpiPlanToCreate')?.replaceChildren(document.createTextNode(String(totalToCreate)));
+  $('#kpiPlanExisting')?.replaceChildren(document.createTextNode(String(totalExisting)));
+}
+
+async function runForMember(personKey, personName) {
+  if (!confirm(`Create planned Azure DevOps tasks for ${personName || personKey}?`)) return;
+  openConsoleDrawer();
+  try {
+    const res = await api.post('/tasks/execute', {
+      personKeys: [personKey],
+      asOf: $('#asOf')?.value || undefined,
+      thursdayMode: $('#thursdayMode')?.value || undefined,
+      dryRun: false,
+    });
+    toast(`Created ${res.totalCreatedCount} tasks for ${personName || personKey}`, 'ok');
+    runPlanPreview();
+    refreshDashboard();
+  } catch (err) {
+    toast(`Creation failed: ${err.message}`, 'err');
+  }
+}
+
+async function runForCell(personKey, personName, isoDate, dateStr) {
+  if (!confirm(`Create Azure DevOps task for ${personName || personKey} on ${dateStr} (${isoDate})?`)) return;
+  openConsoleDrawer();
+  try {
+    const res = await api.post('/tasks/execute', {
+      personKeys: [personKey],
+      asOf: isoDate,
+      thursdayMode: $('#thursdayMode')?.value || undefined,
+      dryRun: false,
+    });
+    toast(`Task created for ${personName || personKey} on ${dateStr}`, 'ok');
+    runPlanPreview();
+    refreshDashboard();
+  } catch (err) {
+    toast(`Creation failed: ${err.message}`, 'err');
   }
 }
 
@@ -865,9 +1065,11 @@ function renderPlanResults(plan) {
   if (!root) return;
   root.innerHTML = '';
 
+  const toCreateCount = plan.personPlans.reduce((sum, p) => sum + (p.plannedDates || []).filter(d => d.status === 'PLANNED').length, 0);
+
   const summary = el('div', { class: 'row', style: 'justify-content:space-between; margin-bottom:12px;' }, [
     el('strong', {}, `Plan window: ${plan.todayIso} → ${plan.nextThursdayIso}`),
-    el('span', { class: 'pill ok' }, `${plan.personPlans.length} members evaluated`),
+    el('span', { class: `pill ${toCreateCount > 0 ? 'ok' : ''}` }, `${toCreateCount} pending to create`),
   ]);
   root.append(summary);
 
@@ -876,14 +1078,20 @@ function renderPlanResults(plan) {
     block.append(el('h3', {}, `${p.person.name} (${p.person.assignedTo})`));
 
     if (p.sourceTask) {
+      const srcId = p.sourceTask.workItem?.id || p.sourceTask.id;
+      const srcTitle = p.sourceTask.workItem?.fields?.['System.Title'] || p.sourceTask.title || '';
       block.append(el('p', { class: 'muted small' },
-        `Source Task: #${p.sourceTask.id} · "${p.sourceTask.title}" · ${p.sourceTask.parsedDate?.formattedTitleDate}`));
+        `Source Task: #${srcId} · "${srcTitle}" · ${p.sourceTask.parsedDate?.formattedTitleDate}`));
     } else {
       block.append(el('p', { class: 'muted small', style: 'color:var(--warn);' }, '⚠️ No source task discovered.'));
     }
 
+    if (p.statusMessage) {
+      block.append(el('p', { class: 'muted small', style: 'color:var(--text-muted); padding: 4px 0;' }, p.statusMessage));
+    }
+
     const grid = el('div', { class: 'plan-preview' });
-    for (const d of p.plannedDates) {
+    for (const d of (p.plannedDates || [])) {
       grid.append(el('div', { class: 'day' }, [
         el('span', {}, `${d.formattedTitleDate} — ${d.fullTitle || d.skipReason || ''}`),
         badge(d.status),
@@ -906,7 +1114,7 @@ function openConfirmationModal() {
   if (state.pendingPlan) {
     let count = 0;
     for (const p of state.pendingPlan.personPlans) {
-      const planned = p.plannedDates.filter(d => d.status === 'PLANNED');
+      const planned = (p.plannedDates || []).filter(d => d.status === 'PLANNED');
       for (const d of planned) {
         count++;
         list.append(el('li', {}, `${p.person.name} — ${d.fullTitle}`));
@@ -940,7 +1148,7 @@ async function executeCreation() {
       thursdayMode: $('#thursdayMode')?.value || undefined,
       dryRun: false,
     });
-    toast(`Created ${res.totalCreatedCount} tasks, skipped ${res.totalDuplicateCount} duplicates`);
+    toast(`Created ${res.totalCreatedCount} tasks, skipped ${res.totalDuplicateCount} duplicates`, 'ok');
     refreshDashboard();
     runPlanPreview();
   } catch (err) {
@@ -1228,6 +1436,67 @@ function wire() {
   $('#btnConfirmExecute')?.addEventListener('click', executeCreation);
   $('#btnCancelConfirmModal')?.addEventListener('click', () => $('#confirmModal')?.classList.remove('open'));
   $('#btnCloseConfirmModal')?.addEventListener('click', () => $('#confirmModal')?.classList.remove('open'));
+
+  $('#asOf')?.addEventListener('change', runPlanPreview);
+  $('#thursdayMode')?.addEventListener('change', runPlanPreview);
+
+  $('#btnSimulateWindow')?.addEventListener('click', () => {
+    const today = state.todayIso || new Date().toISOString().slice(0, 10);
+    // Advance date to next Thursday + 1 day (Friday) to simulate following week
+    const [y, m, d] = today.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    const dow = dt.getUTCDay();
+    const daysUntilNextThu = (4 - dow + 7) % 7 || 7;
+    dt.setUTCDate(dt.getUTCDate() + daysUntilNextThu + 1);
+    const simDate = dt.toISOString().slice(0, 10);
+    const asOfInput = $('#asOf');
+    if (asOfInput) asOfInput.value = simDate;
+    toast(`Simulating creation window as of ${simDate}`, 'ok');
+    runPlanPreview();
+  });
+
+  $('#btnResetPlannerWindow')?.addEventListener('click', () => {
+    const asOfInput = $('#asOf');
+    if (asOfInput) asOfInput.value = '';
+    const thuMode = $('#thursdayMode');
+    if (thuMode) thuMode.value = 'CURRENT';
+    toast('Reset planner to current date and window', 'ok');
+    runPlanPreview();
+  });
+
+  $('#plannerSelectAllBtn')?.addEventListener('click', () => {
+    ensureConfig().then(cfg => {
+      const active = cfg.people.filter(p => p.enabled !== false);
+      active.forEach(p => state.selectedKeys.add(p.key));
+      updatePlannerMemberPill(active.length);
+      renderPlannerPeople();
+      runPlanPreview();
+    });
+  });
+
+  $('#plannerDeselectAllBtn')?.addEventListener('click', () => {
+    ensureConfig().then(cfg => {
+      state.selectedKeys.clear();
+      const active = cfg.people.filter(p => p.enabled !== false);
+      updatePlannerMemberPill(active.length);
+      renderPlannerPeople();
+      runPlanPreview();
+    });
+  });
+
+  $('#btnTogglePlanMatrix')?.addEventListener('click', () => {
+    $('#planMatrixWrap').style.display = 'block';
+    $('#planListWrap').style.display = 'none';
+    $('#btnTogglePlanMatrix').classList.add('active-tab-btn');
+    $('#btnTogglePlanList').classList.remove('active-tab-btn');
+  });
+
+  $('#btnTogglePlanList')?.addEventListener('click', () => {
+    $('#planMatrixWrap').style.display = 'none';
+    $('#planListWrap').style.display = 'block';
+    $('#btnTogglePlanList').classList.add('active-tab-btn');
+    $('#btnTogglePlanMatrix').classList.remove('active-tab-btn');
+  });
 
   // Burndown controls
   $('#loadBurndownBtn')?.addEventListener('click', loadBurndownMonth);

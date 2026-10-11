@@ -208,6 +208,12 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .badge.FAILED, .badge.PARTIAL { background: rgba(209, 52, 56, 0.15); color: var(--danger); }
 .badge.FUTURE_TASK_WARN, .badge.MULTIPLE_EXISTING_TASKS { background: rgba(217, 139, 11, 0.16); color: var(--warn); }
 
+.active-tab-btn { background: var(--bg-elev-2); border-color: var(--accent) !important; color: var(--accent) !important; }
+.btn-action-cell { font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); cursor: pointer; transition: all var(--transition); }
+.btn-action-cell:hover { background: var(--accent); color: #fff; }
+.btn-action-person { font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); cursor: pointer; }
+.btn-action-person:hover { background: var(--accent); color: #fff; }
+
 .person-block { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; margin-top: 14px; }
 .person-block h3 { font-size: 14px; margin-bottom: 8px; }
 

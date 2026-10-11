@@ -265,23 +265,79 @@
 
       <!-- 5. PLANNER VIEW -->
       <section class="view" id="view-planner">
-        <article class="card">
+        <!-- Configuration & Controls -->
+        <article class="card" style="margin-bottom: 16px;">
           <header class="card-head">
-            <h2>Create tasks</h2>
-            <div class="row gap" style="margin:0;">
-              <label class="field inline"><span>As of</span><input type="date" id="asOf" /></label>
-              <label class="field inline"><span>Thursday mode</span>
-                <select id="thursdayMode"><option value="CURRENT">Current week</option><option value="FOLLOWING">Following week</option></select>
-              </label>
+            <div>
+              <h2>⚡ Task Planner &amp; Assignment Studio</h2>
+              <p class="muted small">Plan, preview, and safely execute rolling daily task creation with concurrency guards and duplicate prevention</p>
+            </div>
+            <div class="row gap" style="margin: 0;">
+              <button class="btn ghost small" id="btnSimulateWindow" title="Advance to following Thursday window">🔮 Simulate Following Week</button>
+              <button class="btn ghost small" id="btnResetPlannerWindow" title="Reset to today">↺ Reset to Today</button>
             </div>
           </header>
-          <div class="row wrap gap" id="personPicker"></div>
-          <div class="row gap">
-            <button class="btn ghost" id="planBtn">Preview plan</button>
-            <button class="btn primary" id="executeBtn">Execute creation</button>
+
+          <div class="grid cols-3" style="margin-bottom: 14px;">
+            <label class="field" style="margin: 0;">
+              <span>As of Date (Simulation Base)</span>
+              <input type="date" id="asOf" />
+            </label>
+            <label class="field" style="margin: 0;">
+              <span>Thursday Stop Mode</span>
+              <select id="thursdayMode">
+                <option value="CURRENT" selected>Current week (Stops this Thursday)</option>
+                <option value="FOLLOWING">Following week (Advances 7 days on Thursday)</option>
+              </select>
+            </label>
+            <div style="display:flex; align-items:flex-end; gap:8px;">
+              <button class="btn ghost" id="planBtn" style="flex:1;">🔍 Preview Plan</button>
+              <button class="btn primary" id="executeBtn" style="flex:1;">🚀 Execute Creation</button>
+            </div>
           </div>
-          <p class="muted small">Preview never writes to Azure DevOps. Execution is guarded by a concurrency lock and recorded in the audit log.</p>
-          <div id="planResults" style="margin-top: 14px;"></div>
+
+          <div style="padding-top: 12px; border-top: 1px solid var(--border);">
+            <div class="row" style="justify-content: space-between; flex-wrap: wrap; margin-bottom: 8px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <strong style="font-size: 13px;">👥 Target Team Members:</strong>
+                <span id="plannerMembersTag" class="pill ok">All enabled selected</span>
+              </div>
+              <div style="display:flex; gap:6px;">
+                <button class="btn ghost small" id="plannerSelectAllBtn">Select All</button>
+                <button class="btn ghost small" id="plannerDeselectAllBtn">Deselect All</button>
+              </div>
+            </div>
+            <div class="row wrap gap" id="personPicker" style="gap:8px;"></div>
+          </div>
+        </article>
+
+        <!-- KPI SUMMARY BAR -->
+        <div class="grid cols-4" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin-bottom: 16px;">
+          <article class="card kpi"><span class="kpi-label">Rolling Window</span><span class="kpi-value small" id="kpiPlanWindow">—</span><span class="kpi-hint">Today → Stop Day</span></article>
+          <article class="card kpi"><span class="kpi-label">Selected Members</span><span class="kpi-value" id="kpiPlanMembers">—</span><span class="kpi-hint">evaluated in plan</span></article>
+          <article class="card kpi"><span class="kpi-label">Tasks to Create</span><span class="kpi-value" id="kpiPlanToCreate" style="color:var(--accent);">0</span><span class="kpi-hint">working days pending</span></article>
+          <article class="card kpi"><span class="kpi-label">Protected / Existing</span><span class="kpi-value" id="kpiPlanExisting" style="color:var(--ok);">0</span><span class="kpi-hint">duplicate safe</span></article>
+        </div>
+
+        <!-- MATRIX & DETAIL TABS -->
+        <article class="card">
+          <header class="card-head">
+            <div class="row gap" style="margin: 0;">
+              <button class="btn ghost small active-tab-btn" id="btnTogglePlanMatrix" style="font-weight:600;">📊 Window Assignment Matrix</button>
+              <button class="btn ghost small" id="btnTogglePlanList">📋 Pending Tasks List</button>
+            </div>
+            <div class="row gap" style="margin: 0;">
+              <span class="pill" id="plannerAutoRefreshStatus">Ready</span>
+            </div>
+          </header>
+
+          <div id="planMatrixWrap" class="matrix-container">
+            <p class="muted" style="padding: 24px;">Click "Preview Plan" to inspect the creation window matrix.</p>
+          </div>
+
+          <div id="planListWrap" style="display: none; padding-top: 8px;">
+            <div id="planResults" class="plan-preview"></div>
+          </div>
         </article>
       </section>
 

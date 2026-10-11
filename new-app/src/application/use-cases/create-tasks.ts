@@ -329,8 +329,23 @@ export class CreateTasksUseCase {
         this.duplicateDetector
       );
       
+      const toCreate = newPlan.plannedDates.filter(d => d.status === 'PLANNED');
+      let status: PersonExecutionPlan['status'] = toCreate.length > 0 ? 'READY' : 'NO_TASKS_NEEDED';
+      let statusMsg = newPlan.warningMessage;
+
+      if (toCreate.length === 0 && !statusMsg) {
+        statusMsg = `All working dates up to date (latest task: ${plan.sourceTask.parsedDate.formattedTitleDate}).`;
+      }
+
+      if (plan.sourceTask.parsedDate.isoDate > plan.nextThursday && toCreate.length === 0) {
+        status = 'FUTURE_TASK_WARN';
+        statusMsg = `Latest task date (${plan.sourceTask.parsedDate.isoDate}) is ahead of creation window ending on Thursday (${plan.nextThursday}).`;
+      }
+
       return {
         ...plan,
+        status,
+        statusMessage: statusMsg,
         plannedDates: newPlan.plannedDates,
         effectiveStartDate: newPlan.effectiveStartDate,
       };
