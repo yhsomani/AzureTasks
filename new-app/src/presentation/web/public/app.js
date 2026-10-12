@@ -1195,6 +1195,14 @@ function renderPlanMatrix(plan) {
           totalExisting++;
           const srcLink = sourceId ? getAdoWorkItemUrl(sourceId) : '#';
           td.innerHTML = `<a href="${srcLink}" target="_blank" class="cell-status cell-created" style="display:inline-block; text-decoration:none;" title="Covered by schedule (#${sourceId || ''})">✓ Exist ↗</a>`;
+        } else if (planItem.status === 'SOURCE_NOT_FOUND') {
+          const btn = el('button', {
+            class: 'btn-action-cell',
+            style: 'border-style:dashed;',
+            title: `Create ad-hoc task for ${planItem.person.name} on ${d.formattedTitleDate}`,
+            onclick: () => openAdHocModal(memberKey, d.isoDate),
+          }, '+ Create');
+          td.append(btn);
         } else {
           td.innerHTML = '<span class="muted">-</span>';
         }
@@ -1729,14 +1737,17 @@ async function testConnection() {
 }
 
 /* ----------------------------------------------------------- ad-hoc task modal */
-function openAdHocModal(defaultPersonKey, defaultDate) {
+async function openAdHocModal(defaultPersonKey, defaultDate) {
   const modal = $('#adHocModal');
   if (!modal) return;
+
+  const cfg = await ensureConfig();
+  const members = (state.people && state.people.length > 0) ? state.people : (cfg.people || []);
 
   const select = $('#adHocPersonSelect');
   if (select) {
     select.innerHTML = '';
-    (state.people || []).forEach(p => {
+    members.forEach(p => {
       const opt = document.createElement('option');
       opt.value = p.key;
       opt.textContent = `${p.name} (${p.assignedTo})`;
