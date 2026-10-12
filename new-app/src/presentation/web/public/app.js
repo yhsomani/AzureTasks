@@ -1405,6 +1405,7 @@ function renderPeople() {
     row.append(field('Name', input(p.name, v => state.people[idx].name = v)));
     row.append(field('Assigned to (Email / UPN)', input(p.assignedTo, v => state.people[idx].assignedTo = v)));
     row.append(field('Role / POD', input(p.role || p.pod || '', v => state.people[idx].role = v)));
+    row.append(field('Title Prefix', input(p.titlePrefix || '', v => state.people[idx].titlePrefix = v ? v : undefined)));
     
     // Source Task ID field with link
     const srcField = el('label', { class: 'field' });
@@ -1476,6 +1477,7 @@ function openAddPersonModal() {
   $('#personEmailInput').value = '';
   $('#personPodInput').value = '';
   $('#personRoleInput').value = '';
+  if ($('#personTitlePrefixInput')) $('#personTitlePrefixInput').value = '';
   $('#personSourceIdInput').value = '';
   modal.classList.add('open');
 }
@@ -1486,6 +1488,7 @@ async function savePersonFromModal() {
   const assignedTo = $('#personEmailInput').value.trim();
   const pod = $('#personPodInput').value.trim();
   const role = $('#personRoleInput').value.trim();
+  const titlePrefix = $('#personTitlePrefixInput')?.value.trim();
   const sourceTaskId = $('#personSourceIdInput').value.trim();
 
   if (!key || !name || !assignedTo) {
@@ -1505,6 +1508,7 @@ async function savePersonFromModal() {
     assignedTo,
     pod: pod || undefined,
     role: role || undefined,
+    titlePrefix: titlePrefix || undefined,
     sourceTaskId: sourceTaskId ? Number(sourceTaskId) : undefined,
     enabled: true,
   };

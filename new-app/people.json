@@ -29,6 +29,13 @@
       "assignedTo": "vishal.shinde17@bajajfinserv.in",
       "role": "SDM",
       "enabled": true
+    },
+    {
+      "key": "Karan_Dham",
+      "name": "Karan Dham",
+      "assignedTo": "karan.dham@bajajfinserv.in",
+      "role": "Dev On-Role",
+      "enabled": true
     }
   ],
   "schedulerEnabled": true,

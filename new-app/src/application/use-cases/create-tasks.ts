@@ -10,7 +10,8 @@ import {
   DiscoveredTask, 
   WorkItem, 
   CreatedTask,
-  parseTitleDate
+  parseTitleDate,
+  extractTitlePrefix
 } from '../../domain/entities/task.js';
 import { 
   TaskDiscoveryService, 
@@ -257,10 +258,11 @@ export class CreateTasksUseCase {
     const runId = `adhoc-${Date.now()}`;
     try {
       // 1. Resolve source task
+      const memberPrefix = person.titlePrefix || this.config.titlePrefix;
       let sourceTask: DiscoveredTask | null = null;
       if (input.sourceTaskId) {
         const item = await this.workItemRepo.getWorkItem(input.sourceTaskId);
-        const parsedDate = parseTitleDate(item.fields['System.Title'] || '', this.config.titlePrefix);
+        const parsedDate = parseTitleDate(item.fields['System.Title'] || '', memberPrefix, true);
         sourceTask = {
           workItem: item,
           parsedDate,
@@ -270,7 +272,7 @@ export class CreateTasksUseCase {
         sourceTask = await this.workItemRepo.findLatestTaskForPerson(
           this.config.project,
           this.config.workItemType,
-          this.config.titlePrefix,
+          memberPrefix,
           person.assignedTo,
           personConfig.sourceTaskId ?? this.config.defaultSourceTaskId
         );
@@ -281,15 +283,16 @@ export class CreateTasksUseCase {
       }
 
       // 2. Determine Title
+      const effectivePrefix = person.titlePrefix || extractTitlePrefix(sourceTask.workItem.fields['System.Title'] || '') || this.config.titlePrefix;
       const fullTitle = input.customTitle?.trim() 
-        || `${this.config.titlePrefix} ${formatTitleDate(input.targetIsoDate)}`;
+        || `${effectivePrefix} ${formatTitleDate(input.targetIsoDate)}`;
 
       // 3. Duplicate check unless bypassed
       if (!input.bypassDuplicateCheck) {
         const existingMap = await this.discovery.getExistingTasksMap(
           this.config.project,
           this.config.workItemType,
-          this.config.titlePrefix,
+          effectivePrefix,
           person,
           input.targetIsoDate,
           input.targetIsoDate
@@ -413,11 +416,12 @@ export class CreateTasksUseCase {
         continue;
       }
 
+      const personPrefix = person.titlePrefix || extractTitlePrefix(discovered.workItem.fields['System.Title'] || '') || this.config.titlePrefix;
       const plan = this.datePlanning.planForPerson(
         person,
         discovered,
         todayIso,
-        this.config.titlePrefix,
+        personPrefix,
         thursdayMode,
         this.config.skipWeekends,
         this.config.stopDayOfWeek,
@@ -457,10 +461,11 @@ export class CreateTasksUseCase {
     endDate: string
   ): Promise<void> {
     for (const person of people) {
+      const personPrefix = person.titlePrefix || this.config.titlePrefix;
       const existingMap = await this.discovery.getExistingTasksMap(
         this.config.project,
         this.config.workItemType,
-        this.config.titlePrefix,
+        personPrefix,
         person,
         startDate,
         endDate
@@ -473,11 +478,12 @@ export class CreateTasksUseCase {
     return plans.map(plan => {
       if (!plan.sourceTask) return plan;
       
+      const personPrefix = plan.person.titlePrefix || extractTitlePrefix(plan.sourceTask.workItem.fields['System.Title'] || '') || this.config.titlePrefix;
       const newPlan = this.datePlanning.planForPerson(
         plan.person,
         plan.sourceTask,
         todayIso,
-        this.config.titlePrefix,
+        personPrefix,
         thursdayMode,
         this.config.skipWeekends,
         this.config.stopDayOfWeek,

@@ -5,7 +5,7 @@
 
 import { WorkItemRepository, AppConfig } from '../../domain/ports/repositories.js';
 import { Person } from '../../domain/entities/person.js';
-import { DiscoveredTask } from '../../domain/entities/task.js';
+import { DiscoveredTask, extractTitlePrefix } from '../../domain/entities/task.js';
 import { TaskDiscoveryService, DuplicateDetector, DatePlanningService } from '../../domain/services/task-services.js';
 import { PlannedDate, validateNotPastDate } from '../../domain/value-objects/date-window.js';
 import { PersonExecutionPlan } from './create-tasks.js';
@@ -37,19 +37,19 @@ export class PlanTasksUseCase {
     this.datePlanning = new DatePlanningService();
   }
 
-  async execute(input: PlanTasksInput): Promise<PlanTasksOutput> {
+  async execute(input: PlanTasksInput = {}): Promise<PlanTasksOutput> {
     const people = this.selectPeople(input);
     if (people.length === 0) {
       throw new Error('No people selected for planning');
     }
 
     const actualTodayIso = this.datePlanning.getTodayIso(this.config.timezone);
-    const configuredTodayIso = input.asOf || actualTodayIso;
+    const configuredTodayIso = input?.asOf || actualTodayIso;
     validateNotPastDate(configuredTodayIso, actualTodayIso);
     
     const todayIso = configuredTodayIso;
     // Effective window mode: request override wins over persisted config.
-    const thursdayMode = input.thursdayMode ?? this.config.thursdayMode;
+    const thursdayMode = input?.thursdayMode ?? this.config.thursdayMode;
     const nextThursdayIso = this.datePlanning.getNextThursdayIso(todayIso, thursdayMode, this.config.stopDayOfWeek);
 
     // Discover source tasks
@@ -64,10 +64,11 @@ export class PlanTasksUseCase {
 
     // Get existing tasks for duplicate detection
     for (const person of people) {
+      const personPrefix = person.titlePrefix || this.config.titlePrefix;
       const existingMap = await this.discovery.getExistingTasksMap(
         this.config.project,
         this.config.workItemType,
-        this.config.titlePrefix,
+        personPrefix,
         person,
         todayIso,
         nextThursdayIso
@@ -119,11 +120,12 @@ export class PlanTasksUseCase {
         };
       }
 
+      const personPrefix = person.titlePrefix || extractTitlePrefix(discovered.workItem.fields['System.Title'] || '') || this.config.titlePrefix;
       const plan = this.datePlanning.planForPerson(
         person,
         discovered,
         todayIso,
-        this.config.titlePrefix,
+        personPrefix,
         thursdayMode,
         this.config.skipWeekends,
         this.config.stopDayOfWeek,

@@ -131,21 +131,52 @@ export function filterCopyableRelations(relations: WorkItemRelation[]): WorkItem
 }
 
 /**
- * Parse date from task title (format: "Prefix | MMM DD")
+ * Parse date from task title (format: "Prefix | MMM DD" or "Prefix | MMM DD | Details")
  */
-export function parseTitleDate(title: string, titlePrefix: string): ParsedTaskDate {
-  // Prefix may or may not include the trailing "|" separator; normalize it away.
-  const rawPrefix = titlePrefix.trim().replace(/\s*\|+\s*$/, '');
-  const prefixPattern = rawPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape regex
-  const regex = new RegExp(`^${prefixPattern}\\s*\\|\\s*(?:([A-Za-z]{3,9})\\s+(\\d{1,2})|(\\d{1,2})\\s+([A-Za-z]{3,9}))$`, 'i');
-  
-  const match = title.match(regex);
-  if (!match) {
+export function parseTitleDate(
+  title: string,
+  titlePrefix?: string,
+  allowAnyPrefix = false
+): ParsedTaskDate {
+  if (!title) {
     return { isoDate: '', formattedTitleDate: '', year: 0, isValid: false };
   }
-  
-  const monthStr = match[1] || match[4];
-  const dayStr = match[2] || match[3];
+
+  let monthStr = '';
+  let dayStr = '';
+
+  // Mode 1: If titlePrefix is provided and we are not forcing allowAnyPrefix
+  if (titlePrefix && !allowAnyPrefix) {
+    const rawPrefix = titlePrefix.trim().replace(/\s*\|+\s*$/, '');
+    const prefixPattern = rawPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape regex
+    const regex = new RegExp(
+      `^${prefixPattern}\\s*\\|\\s*(?:([A-Za-z]{3,9})\\s+(\\d{1,2})|(\\d{1,2})\\s+([A-Za-z]{3,9}))(?:\\s*\\|.*)?$`,
+      'i'
+    );
+    const match = title.match(regex);
+    if (match) {
+      monthStr = match[1] || match[4];
+      dayStr = match[2] || match[3];
+    }
+  }
+
+  // Mode 2: If no prefix, or allowAnyPrefix, or prefix wasn't matched, check pipe-delimited segments
+  if (!monthStr && (!titlePrefix || allowAnyPrefix)) {
+    const segments = title.split('|').map(s => s.trim());
+    for (const seg of segments) {
+      const match = seg.match(/^(?:([A-Za-z]{3,9})\s+(\d{1,2})|(\d{1,2})\s+([A-Za-z]{3,9}))$/i);
+      if (match) {
+        monthStr = match[1] || match[4];
+        dayStr = match[2] || match[3];
+        break;
+      }
+    }
+  }
+
+  if (!monthStr || !dayStr) {
+    return { isoDate: '', formattedTitleDate: '', year: 0, isValid: false };
+  }
+
   const month = monthStrToNumber(monthStr);
   const day = parseInt(dayStr, 10);
   const currentYear = new Date().getFullYear();
@@ -155,12 +186,12 @@ export function parseTitleDate(title: string, titlePrefix: string): ParsedTaskDa
   if (month < 0 || day < 1 || day > 31) {
     return { isoDate: '', formattedTitleDate: '', year: 0, isValid: false };
   }
-  
-  // Try current year first, then previous
+
+  // Try current year first, then previous, then next
   let isoDate = '';
   let isValid = false;
-  
-  for (const year of [currentYear, currentYear - 1]) {
+
+  for (const year of [currentYear, currentYear - 1, currentYear + 1]) {
     const testDate = new Date(Date.UTC(year, month, day));
     if (testDate.getUTCMonth() === month && testDate.getUTCDate() === day) {
       isoDate = testDate.toISOString().split('T')[0];
@@ -168,10 +199,22 @@ export function parseTitleDate(title: string, titlePrefix: string): ParsedTaskDa
       break;
     }
   }
-  
+
   const formatted = `${monthStr} ${day}`;
-  
+
   return { isoDate, formattedTitleDate: formatted, year: currentYear, isValid };
+}
+
+/**
+ * Extracts the title prefix from a work item title (e.g. "Your_Relation | OCT 12" -> "Your_Relation |")
+ */
+export function extractTitlePrefix(title: string): string {
+  if (!title) return '';
+  const parts = title.split('|');
+  if (parts.length > 1 && parts[0].trim().length > 0) {
+    return parts[0].trim() + ' |';
+  }
+  return '';
 }
 
 function monthStrToNumber(month: string): number {

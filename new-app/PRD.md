@@ -47,3 +47,11 @@ Transform the `new-app` task creation and automation engine into an enterprise-g
 - [x] 6.2 Live API & E2E verification: verify plan generation, scheduler persistence across server restart, journal audit logging.
 - [x] 6.3 Update `docs/TEST_RESULTS.md` with verification proofs.
 - [x] 6.4 Generate comprehensive final delivery report and complete the Ralph Loop.
+
+### Phase 7: Dynamic Team Member Task Fetching & Multi-POD Prefix Resolution
+- [x] 7.1 Fix WIQL queries in `work-item-service.ts` (`findLatestTaskForPerson`, `getExistingTasksForPerson`, `findCandidateTasks`) to filter by `System.AssignedTo` instead of global `titlePrefix` filter.
+- [x] 7.2 Upgrade `parseTitleDate` in `task.ts` to flexibly parse dates from multi-segment titles (`Prefix | Date | Details`) and varied POD prefixes (`3in1_PWA_MyAccount`, `3in1_PWA_FD_Services`, `Your_Relation`, etc.).
+- [x] 7.3 Support per-person `titlePrefix` in `PersonConfig`, with auto-detection from their latest source task in Azure DevOps.
+- [x] 7.4 Update `planTasks` and `createTasks` to use member-specific title prefixes so newly added members have their tasks generated and tracked according to their POD convention.
+- [x] 7.5 Update Team Management UI to support optional Title Prefix field.
+- [x] 7.6 Verify with automated unit/integration tests and live Azure DevOps queries for all team members (including Vishal Shinde and Karan Dham).

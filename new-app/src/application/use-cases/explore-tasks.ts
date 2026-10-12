@@ -290,20 +290,30 @@ export class ExploreTasksUseCase {
     for (const item of candidateWorkItems) {
       const assignedToVal = item.fields['System.AssignedTo'];
       const title = String(item.fields['System.Title'] || '');
-      const parsed = parseTitleDate(title, this.config.titlePrefix);
-      if (!parsed.isValid) continue;
 
       for (const p of selectedPeople) {
         if (matchesPerson(assignedToVal, p)) {
+          const personPrefix = p.titlePrefix || this.config.titlePrefix;
+          const parsed = parseTitleDate(title, personPrefix, true);
+          let itemDate = parsed.isValid ? parsed.isoDate : '';
+
+          // Secondary fallback: Microsoft.VSTS.Scheduling.StartDate
+          if (!itemDate && item.fields['Microsoft.VSTS.Scheduling.StartDate']) {
+            const rawStart = String(item.fields['Microsoft.VSTS.Scheduling.StartDate']);
+            itemDate = rawStart.split('T')[0];
+          }
+
+          if (!itemDate) continue;
+
           const pKey = p.key.toLowerCase();
           let dateMap = personTaskIndex.get(pKey);
           if (!dateMap) {
             dateMap = new Map();
             personTaskIndex.set(pKey, dateMap);
           }
-          const list = dateMap.get(parsed.isoDate) || [];
+          const list = dateMap.get(itemDate) || [];
           list.push(item);
-          dateMap.set(parsed.isoDate, list);
+          dateMap.set(itemDate, list);
         }
       }
     }

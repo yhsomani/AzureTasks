@@ -11,6 +11,7 @@ export interface PersonConfig {
   sourceTaskId?: number; // Optional per-person source work item override
   pod?: string;          // Team or POD name
   role?: string;         // Role in the company
+  titlePrefix?: string;  // Optional custom or POD-specific title prefix override (e.g. "3in1_PWA_FD_Services |")
 }
 
 export interface PersonIdentity {
@@ -121,6 +122,7 @@ export class Person {
   readonly sourceTaskId?: number;
   readonly pod?: string;
   readonly role?: string;
+  readonly titlePrefix?: string;
 
   constructor(config: PersonConfig) {
     const validation = validatePerson(config);
@@ -135,6 +137,7 @@ export class Person {
     this.sourceTaskId = config.sourceTaskId;
     this.pod = config.pod;
     this.role = config.role;
+    this.titlePrefix = config.titlePrefix;
   }
 
   /**
@@ -160,6 +163,7 @@ export class Person {
       sourceTaskId: this.sourceTaskId,
       pod: this.pod,
       role: this.role,
+      titlePrefix: this.titlePrefix,
     };
   }
 }

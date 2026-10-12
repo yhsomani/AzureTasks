@@ -575,6 +575,11 @@
           <label class="field"><span>POD / Team</span><input type="text" id="personPodInput" placeholder="e.g. 101_EMI Card Insurance" /></label>
           <label class="field"><span>Role</span><input type="text" id="personRoleInput" placeholder="e.g. Software Engineer" /></label>
           <label class="field">
+            <span>Title / POD Prefix (Optional)</span>
+            <input type="text" id="personTitlePrefixInput" placeholder="e.g. 3in1_PWA_FD_Services | (or leave blank to auto-detect)" />
+            <span class="muted small">Leave blank to auto-detect from person's Azure DevOps tasks.</span>
+          </label>
+          <label class="field">
             <span>Source Task ID Override (Optional)</span>
             <input type="number" id="personSourceIdInput" placeholder="e.g. 10647986" />
             <span class="muted small">Leave empty to automatically discover latest dated task.</span>
