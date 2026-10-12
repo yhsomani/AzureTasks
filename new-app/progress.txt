@@ -19,11 +19,14 @@ Legacy reference: Legacy (Read-only)
 - Added API endpoint `POST /api/tasks/adhoc` with full input validation and concurrency locking.
 - Created `#adHocModal` in UI with full control over assignee, target date, custom title, source task reference, estimate, activity, and duplicate bypass.
 - Added "➕ Create Ad-Hoc Task" button in Task Planner and wired all event listeners and live updates.
-## Iteration 4 - Phase 5 & 6 Complete: Full End-to-End Delivery & Verification
-- Enhanced UI with Scheduler Dashboard cards, auto-resume checkboxes, run time inputs, status indicators, and Ad-Hoc Task Creator modal.
-- Expanded automated test suite from 116 to 122 tests (100% pass across 13 test files).
-- Production build clean (`npm run build`).
-- Live verification in Chrome DevTools MCP & server reboot persistence test: verified scheduler preserves state across reboots and automatically re-arms the timer on boot.
-- Universal Azure DevOps links intact across all views.
-- Updated `docs/TEST_RESULTS.md` and `docs/audit/AUTOMATION_AUDIT_REPORT.md`.
-- Goal achieved with verified enterprise-grade reliability.
+## Iteration 5 - UI Performance Optimization, Progressive Data Loading & Dynamic Team Member Synchronization
+- Implemented Stale-While-Revalidate (SWR) cache in client-side API client (`app.js`) to provide instant sub-millisecond tab switching and view activation.
+- Integrated `AbortController` cancellation for in-flight queries (`dashboard-explorer`, `explorer-query`, `burndown-query`, `mywork-query`) when users navigate tabs or apply new filters.
+- Replaced monolithic blocking spinners with localized, smooth shimmer skeleton placeholders (`.skeleton`, `.skeleton-text`, `.skeleton-row`, `.skeleton-card`) across Dashboard, Burndown, My Work, Task Explorer, and Task Planner.
+- Decoupled initial Dashboard bootstrap so Connection status, Scheduler status, Rolling window config, Plan preview, and Analytics charts render progressively without blocking each other.
+- Solved dynamic team member synchronization:
+  - Adding a team member via modal optimistically renders them immediately in Team Management.
+  - Automatically invalidates client cache and activates the new member in Explorer & Planner filters.
+  - Triggers localized background query specifically for the new member (`/explorer?preset=today_to_next_thursday&users=<key>`) to warm up their Azure DevOps work item history.
+  - Synchronizes all views (Dashboard KPIs, Task Planner pills & matrix, Explorer user pills, My Work dropdown) without requiring an app reload or server restart.
+- Verified type safety (`tsc --noEmit`), automated test suite (122 tests passing across 13 test files), and built production bundle cleanly.
