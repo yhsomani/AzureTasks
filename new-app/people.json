@@ -22,6 +22,13 @@
       "pod": "108_My Account Part 2",
       "role": "SDM",
       "enabled": true
+    },
+    {
+      "key": "Vishal Shinde17",
+      "name": "Vishal Shinde17",
+      "assignedTo": "vishal.shinde17@bajajfinserv.in",
+      "role": "SDM",
+      "enabled": true
     }
   ],
   "schedulerEnabled": true,
