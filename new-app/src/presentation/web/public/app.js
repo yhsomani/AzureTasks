@@ -5,6 +5,7 @@
 
 /* ------------------------------------------------------------------ state */
 const state = {
+  currentView: 'dashboard',
   status: null,
   config: null,
   people: [],
@@ -16,6 +17,8 @@ const state = {
   scheduler: null,
   charts: { effort: null, status: null },
   pendingPlan: null,
+  cache: new Map(), // SWR client-side cache
+  abortControllers: new Map(), // Per-key abort controllers for active requests
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -23,14 +26,59 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 /* ----------------------------------------------------------------- api */
 const api = {
-  async get(url) {
-    const res = await fetch(`/api${url}`);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(err.error || `HTTP ${res.status}`);
+  /**
+   * Cached GET with optional SWR (Stale-While-Revalidate)
+   */
+  async get(url, options = {}) {
+    const { swr = false, maxAgeMs = 30000, abortKey = null, forceFresh = false } = options;
+
+    if (abortKey) {
+      if (state.abortControllers.has(abortKey)) {
+        state.abortControllers.get(abortKey).abort();
+      }
+      const controller = new AbortController();
+      state.abortControllers.set(abortKey, controller);
     }
-    const json = await res.json();
-    return json.data;
+
+    const cached = state.cache.get(url);
+    const now = Date.now();
+
+    // If cache is fresh and not forced to refresh, return immediately
+    if (!forceFresh && cached && (now - cached.timestamp < maxAgeMs)) {
+      return cached.data;
+    }
+
+    // If SWR requested and we have stale cached data, call onStale if provided and fetch in background
+    if (!forceFresh && swr && cached && typeof options.onStale === 'function') {
+      try {
+        options.onStale(cached.data);
+      } catch {}
+    }
+
+    const fetchOpts = {};
+    if (abortKey && state.abortControllers.has(abortKey)) {
+      fetchOpts.signal = state.abortControllers.get(abortKey).signal;
+    }
+
+    try {
+      const res = await fetch(`/api${url}`, fetchOpts);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const json = await res.json();
+      state.cache.set(url, { data: json.data, timestamp: Date.now() });
+      if (abortKey) state.abortControllers.delete(abortKey);
+      return json.data;
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        // Request was aborted by user navigation or newer query
+        if (cached) return cached.data;
+        throw err;
+      }
+      if (abortKey) state.abortControllers.delete(abortKey);
+      throw err;
+    }
   },
 
   async post(url, body) {
@@ -45,6 +93,18 @@ const api = {
     }
     const json = await res.json();
     return json.data;
+  },
+
+  invalidateCache(pattern) {
+    if (!pattern) {
+      state.cache.clear();
+      return;
+    }
+    for (const key of state.cache.keys()) {
+      if (key.includes(pattern)) {
+        state.cache.delete(key);
+      }
+    }
   },
 };
 
@@ -133,6 +193,7 @@ const VIEW_META = {
 
 function switchView(view) {
   if (!VIEW_META[view]) view = 'dashboard';
+  state.currentView = view;
   $$('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
 
@@ -160,7 +221,7 @@ function switchView(view) {
 /* ------------------------------------------------------------- system status */
 async function refreshStatus() {
   try {
-    const s = await api.get('/status');
+    const s = await api.get('/status', { swr: true, maxAgeMs: 15000 });
     state.status = s;
     const badgeEl = $('#connBadge');
     const textEl = $('#connText');
@@ -190,8 +251,10 @@ async function refreshStatus() {
   }
 }
 
-async function ensureConfig() {
-  if (!state.config) state.config = await api.get('/config');
+async function ensureConfig(force = false) {
+  if (!state.config || force) {
+    state.config = await api.get('/config', { swr: !force, maxAgeMs: 60000, forceFresh: force });
+  }
   return state.config;
 }
 
@@ -199,6 +262,7 @@ async function ensureConfig() {
 async function refreshDashboard() {
   refreshStatus();
 
+  // 1. Instant or cached config display
   ensureConfig().then(cfg => {
     const active = cfg.people.filter(p => p.enabled !== false);
     const kpiP = $('#kpiPeople');
@@ -209,7 +273,8 @@ async function refreshDashboard() {
     if (kpiMode) kpiMode.textContent = `Mode: ${cfg.thursdayMode === 'FOLLOWING' ? 'Following Thursday' : 'Current Week'}`;
   }).catch(() => {});
 
-  api.get('/scheduler').then(sched => {
+  // 2. Scheduler state
+  api.get('/scheduler', { swr: true, maxAgeMs: 15000 }).then(sched => {
     state.scheduler = sched;
     const ks = $('#kpiSched');
     const kh = $('#kpiSchedHint');
@@ -217,26 +282,54 @@ async function refreshDashboard() {
     if (kh) kh.textContent = sched.nextRun ? `Next: ${new Date(sched.nextRun).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'weekdays 09:30';
   }).catch(() => {});
 
-  // Load preview plan
+  // 3. Plan Preview: render cached or progressive skeleton
+  const dp = $('#dashboardPlan');
+  if (dp && !state.pendingPlan) {
+    dp.innerHTML = `
+      <div class="skeleton-text skeleton" style="width:60%;"></div>
+      <div class="skeleton-text skeleton" style="width:85%;"></div>
+      <div class="skeleton-text skeleton" style="width:70%;"></div>
+    `;
+  }
   api.post('/tasks/plan', { all: true }).then(plan => {
+    state.pendingPlan = plan;
     renderPlanPreview(plan);
   }).catch(err => {
-    const dp = $('#dashboardPlan');
     if (dp) dp.innerHTML = `<p class="muted">${escapeHtml(err.message)}</p>`;
   });
 
-  // Load recent journal
-  api.get('/journal?limit=6').then(j => {
+  // 4. Timeline journal
+  api.get('/journal?limit=6', { swr: true, maxAgeMs: 20000 }).then(j => {
     renderTimeline(j.entries);
   }).catch(() => {});
 
-  // Load Explorer data for Charts and Smart Insights
-  api.get('/explorer?preset=this_week').then(data => {
+  // 5. Insights & Overview Charts with SWR
+  const insightsContainer = $('#insightsContainer');
+  if (insightsContainer && !state.explorerData) {
+    insightsContainer.innerHTML = '<div class="skeleton-text skeleton" style="width:75%;"></div>';
+  }
+
+  api.get('/explorer?preset=this_week', {
+    swr: true,
+    maxAgeMs: 60000,
+    abortKey: 'dashboard-explorer',
+    onStale: (data) => {
+      renderOverviewCharts(data);
+      generateInsights(data);
+    },
+  }).then(data => {
     renderOverviewCharts(data);
     generateInsights(data);
   }).catch(() => {
-    // Fallback to month if this_week has no work items
-    api.get('/explorer?preset=current_month').then(data => {
+    api.get('/explorer?preset=current_month', {
+      swr: true,
+      maxAgeMs: 60000,
+      abortKey: 'dashboard-explorer',
+      onStale: (data) => {
+        renderOverviewCharts(data);
+        generateInsights(data);
+      },
+    }).then(data => {
       renderOverviewCharts(data);
       generateInsights(data);
     }).catch(() => {});
@@ -425,14 +518,33 @@ async function loadBurndownMonth() {
   const lastDay = new Date(Date.UTC(Number(y), Number(m), 0)).getUTCDate();
   const start = `${ym}-01`;
   const end = `${ym}-${String(lastDay).padStart(2, '0')}`;
+  const url = `/explorer?startDate=${start}&endDate=${end}`;
 
-  container.innerHTML = '<p class="muted" style="padding:24px;">🔄 Fetching monthly work intelligence from Azure DevOps...</p>';
+  if (!state.burndownData) {
+    container.innerHTML = `
+      <div style="padding:20px;">
+        <div class="skeleton-row skeleton" style="height:44px; margin-bottom:12px;"></div>
+        <div class="skeleton-row skeleton"></div>
+        <div class="skeleton-row skeleton"></div>
+        <div class="skeleton-row skeleton"></div>
+      </div>
+    `;
+  }
 
   try {
-    const data = await api.get(`/explorer?startDate=${start}&endDate=${end}`);
+    const data = await api.get(url, {
+      swr: true,
+      maxAgeMs: 45000,
+      abortKey: 'burndown-query',
+      onStale: (stale) => {
+        state.burndownData = stale;
+        renderBurndownTable(stale);
+      },
+    });
     state.burndownData = data;
     renderBurndownTable(data);
   } catch (err) {
+    if (err.name === 'AbortError') return;
     container.innerHTML = `<p class="muted" style="color:var(--danger); padding:24px;">❌ Error: ${escapeHtml(err.message)}</p>`;
   }
 }
@@ -520,12 +632,31 @@ async function refreshMyWork() {
     return;
   }
 
-  $('#myWorkContainer').innerHTML = '<p class="muted">Loading personal tasks...</p>';
+  const url = `/explorer?preset=current_month&users=${encodeURIComponent(personKey)}`;
+  const container = $('#myWorkContainer');
+  if (container) {
+    const cached = state.cache.get(url);
+    if (!cached) {
+      container.innerHTML = `
+        <div style="padding:16px;">
+          <div class="skeleton-row skeleton"></div>
+          <div class="skeleton-row skeleton"></div>
+        </div>
+      `;
+    }
+  }
+
   try {
-    const data = await api.get(`/explorer?preset=current_month&users=${encodeURIComponent(personKey)}`);
+    const data = await api.get(url, {
+      swr: true,
+      maxAgeMs: 30000,
+      abortKey: 'mywork-query',
+      onStale: (stale) => renderMyWorkContent(stale, personKey),
+    });
     renderMyWorkContent(data, personKey);
   } catch (err) {
-    $('#myWorkContainer').innerHTML = `<p class="muted" style="color:var(--danger);">${escapeHtml(err.message)}</p>`;
+    if (err.name === 'AbortError') return;
+    if (container) container.innerHTML = `<p class="muted" style="color:var(--danger);">${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -587,10 +718,29 @@ async function refreshExplorer() {
   }
 
   const matrixWrap = $('#explorerMatrixWrap');
-  if (matrixWrap) matrixWrap.innerHTML = '<p class="muted" style="padding:24px;">🔄 Querying Azure DevOps coverage...</p>';
+  if (matrixWrap && !state.explorerData) {
+    matrixWrap.innerHTML = `
+      <div style="padding:24px;">
+        <div class="skeleton-row skeleton" style="height:44px; margin-bottom:12px;"></div>
+        <div class="skeleton-row skeleton"></div>
+        <div class="skeleton-row skeleton"></div>
+        <div class="skeleton-row skeleton"></div>
+      </div>
+    `;
+  }
 
   try {
-    const data = await api.get(`/explorer?${query}`);
+    const data = await api.get(`/explorer?${query}`, {
+      swr: true,
+      maxAgeMs: 30000,
+      abortKey: 'explorer-query',
+      onStale: (stale) => {
+        state.explorerData = stale;
+        renderExplorerKpis(stale.summary);
+        renderExplorerMatrix(stale);
+        renderExplorerList(stale.detailedTasks);
+      },
+    });
     state.explorerData = data;
 
     const lr = $('#explorerLastRefresh');
@@ -606,6 +756,7 @@ async function refreshExplorer() {
     renderExplorerMatrix(data);
     renderExplorerList(data.detailedTasks);
   } catch (err) {
+    if (err.name === 'AbortError') return;
     if (matrixWrap) matrixWrap.innerHTML = `<p class="muted" style="color:var(--danger); padding:24px;">❌ Error: ${escapeHtml(err.message)}</p>`;
   }
 }
@@ -912,8 +1063,23 @@ async function runPlanPreview() {
   const statusPill = $('#plannerAutoRefreshStatus');
   if (statusPill) { statusPill.textContent = 'Updating…'; statusPill.className = 'pill warn'; }
 
-  if (matrixWrap) matrixWrap.innerHTML = '<p class="muted" style="padding:24px;"><span class="spinner"></span> Analyzing Azure DevOps work items and planning window...</p>';
-  if (results) results.innerHTML = '<p class="muted"><span class="spinner"></span> Building plan preview...</p>';
+  if (matrixWrap && !state.pendingPlan) {
+    matrixWrap.innerHTML = `
+      <div style="padding:20px;">
+        <div class="skeleton-row skeleton" style="height:40px; margin-bottom:12px;"></div>
+        <div class="skeleton-row skeleton"></div>
+        <div class="skeleton-row skeleton"></div>
+      </div>
+    `;
+  }
+  if (results && !state.pendingPlan) {
+    results.innerHTML = `
+      <div style="padding:16px;">
+        <div class="skeleton-text skeleton" style="width:50%;"></div>
+        <div class="skeleton-text skeleton" style="width:80%;"></div>
+      </div>
+    `;
+  }
 
   try {
     const keys = [...state.selectedKeys];
@@ -1270,16 +1436,25 @@ function input(value, onChange, type = 'text') {
 }
 
 async function loadPeople() {
-  const cfg = await ensureConfig();
+  const cfg = await ensureConfig(true);
   state.people = cfg.people.map(p => ({ ...p }));
   renderPeople();
 }
 
 async function savePeople() {
   try {
-    await api.post('/config/people', { people: state.people });
+    const res = await api.post('/config/people', { people: state.people });
     state.config.people = state.people.map(p => ({ ...p }));
-    toast('Team members saved successfully');
+    api.invalidateCache();
+    toast('Team members saved successfully', 'ok');
+
+    // Update people count KPI
+    const active = state.people.filter(p => p.enabled !== false);
+    if ($('#kpiPeople')) $('#kpiPeople').textContent = active.length;
+
+    // Refresh views to show updated members
+    renderPlannerPeople();
+    renderExplorerUserPills(state.config);
   } catch (err) {
     toast(err.message, 'err');
   }
@@ -1297,7 +1472,7 @@ function openAddPersonModal() {
   modal.classList.add('open');
 }
 
-function savePersonFromModal() {
+async function savePersonFromModal() {
   const key = $('#personKeyInput').value.trim();
   const name = $('#personNameInput').value.trim();
   const assignedTo = $('#personEmailInput').value.trim();
@@ -1310,7 +1485,13 @@ function savePersonFromModal() {
     return;
   }
 
-  state.people.push({
+  // Check duplicate key in local state
+  if (state.people.some(p => p.key.toLowerCase() === key.toLowerCase())) {
+    toast(`Member key "${key}" already exists. Please choose a unique key.`, 'err');
+    return;
+  }
+
+  const newMember = {
     key,
     name,
     assignedTo,
@@ -1318,11 +1499,60 @@ function savePersonFromModal() {
     role: role || undefined,
     sourceTaskId: sourceTaskId ? Number(sourceTaskId) : undefined,
     enabled: true,
-  });
+  };
 
+  // Optimistically append to local state and update Team UI immediately
+  state.people.push(newMember);
   renderPeople();
   $('#personModal').classList.remove('open');
-  savePeople();
+
+  toast(`Adding ${name} and syncing Azure DevOps data...`, 'ok');
+
+  try {
+    // Persist to backend
+    await api.post('/config/people', { people: state.people });
+    if (!state.config) state.config = { people: [] };
+    state.config.people = state.people.map(p => ({ ...p }));
+
+    // Invalidate caches to ensure fresh data across views
+    api.invalidateCache();
+
+    // Select the new member in Explorer & Planner
+    state.selectedKeys.add(key);
+    state.selectedExplorerKeys.add(key);
+
+    // Update planner & explorer user pills
+    renderPlannerPeople();
+    renderExplorerUserPills(state.config);
+
+    // Update My Work dropdown if present
+    const myWorkSelect = $('#myWorkPersonSelect');
+    if (myWorkSelect) {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = `${name} (${assignedTo})`;
+      myWorkSelect.append(opt);
+    }
+
+    // Trigger progressive background fetch for newly added member across Explorer & Planner
+    runPlanPreview();
+
+    // Query explorer specifically for the new member to warm up their data in background
+    api.get(`/explorer?preset=today_to_next_thursday&users=${encodeURIComponent(key)}`, { forceFresh: true }).then(() => {
+      toast(`✅ Data synchronized for ${name}`, 'ok');
+      if (state.currentView === 'explorer') refreshExplorer();
+      if (state.currentView === 'burndown') loadBurndownMonth();
+      if (state.currentView === 'dashboard') refreshDashboard();
+    }).catch(e => {
+      console.warn(`Initial sync for ${key}:`, e);
+    });
+
+  } catch (err) {
+    // Rollback on server error
+    state.people = state.people.filter(p => p.key !== key);
+    renderPeople();
+    toast(`Failed to save team member: ${err.message}`, 'err');
+  }
 }
 
 /* ---------------------------------------------------------------- audit log */
