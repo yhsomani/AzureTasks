@@ -160,15 +160,43 @@ export function parseTitleDate(
     }
   }
 
-  // Mode 2: If no prefix, or allowAnyPrefix, or prefix wasn't matched, check pipe-delimited segments
+  // Mode 2: If no prefix, or allowAnyPrefix, or prefix wasn't matched, check segments and delimiters
   if (!monthStr && (!titlePrefix || allowAnyPrefix)) {
-    const segments = title.split('|').map(s => s.trim());
+    // 2a. Check segments split by pipe or colon
+    const segments = title.split(/[|:]/).map(s => s.trim());
     for (const seg of segments) {
-      const match = seg.match(/^(?:([A-Za-z]{3,9})\s+(\d{1,2})|(\d{1,2})\s+([A-Za-z]{3,9}))$/i);
+      const match = seg.match(/^(?:([A-Za-z]{3,9})[ -]+(\d{1,2})|(\d{1,2})[ -]+([A-Za-z]{3,9}))$/i);
       if (match) {
-        monthStr = match[1] || match[4];
-        dayStr = match[2] || match[3];
-        break;
+        const m = match[1] || match[4];
+        if (monthStrToNumber(m) >= 0) {
+          monthStr = m;
+          dayStr = match[2] || match[3];
+          break;
+        }
+      }
+    }
+
+    // 2b. Start of title with date (e.g. "12 October : ...", "12 Oct - ...", "October 12 : ...")
+    if (!monthStr) {
+      const startMatch = title.match(/^\s*(?:([A-Za-z]{3,9})[ -]+(\d{1,2})|(\d{1,2})[ -]+([A-Za-z]{3,9}))(?:\s*[:\-|]|\s+|$)/i);
+      if (startMatch) {
+        const m = startMatch[1] || startMatch[4];
+        if (monthStrToNumber(m) >= 0) {
+          monthStr = m;
+          dayStr = startMatch[2] || startMatch[3];
+        }
+      }
+    }
+
+    // 2c. Anywhere in title: word boundary month + day or day + month
+    if (!monthStr) {
+      const anyMatch = title.match(/\b(?:([A-Za-z]{3,9})[ -]+(\d{1,2})|(\d{1,2})[ -]+([A-Za-z]{3,9}))\b/i);
+      if (anyMatch) {
+        const m = anyMatch[1] || anyMatch[4];
+        if (monthStrToNumber(m) >= 0) {
+          monthStr = m;
+          dayStr = anyMatch[2] || anyMatch[3];
+        }
       }
     }
   }

@@ -9,7 +9,7 @@ log. Ships as a CLI + web dashboard + weekday scheduler.
   dependencies: `express`, `cors`, `dotenv`.
 - **Architecture:** hexagonal (ports & adapters) — pure domain, application use
   cases, infrastructure adapters, presentation.
-- **Tests:** 112 passing (12 files) — unit + integration with in-memory fakes.
+- **Tests:** 167 passing (17 files) — unit + integration with in-memory fakes.
 
 > Legacy implementation is preserved untouched in [`../Legacy`](../Legacy).
 > See [`docs/LEGACY_RECOVERY.md`](docs/LEGACY_RECOVERY.md).
@@ -24,17 +24,18 @@ npm install
 
 # 1. Configure the connection (never commit this file)
 cp .env.example .env
-# edit .env and set AZURE_DEVOPS_PAT
+# edit .env and set AZURE_DEVOPS_PAT, GITHUB_TOKEN
 
 # 2. Optional: edit people.json (team members + org/project)
 
 # 3. Run
-npm run dev -- plan     # preview, writes nothing
-npm run dev -- run      # create tasks
-npm run dev             # web dashboard on http://localhost:3000
+npm run dev -- plan         # preview task creation, writes nothing
+npm run dev -- run          # create tasks
+npm run dev -- close-today  # close today's tasks with GitHub PR descriptions
+npm run dev                 # web dashboard on http://localhost:3000
 ```
 
-The server reads `AZURE_DEVOPS_PAT` from the environment. Required PAT scope:
+The server reads `AZURE_DEVOPS_PAT` and `GITHUB_TOKEN` from the environment. Required PAT scope:
 **Work Items: Read & Write**.
 
 ## Commands
@@ -44,7 +45,8 @@ The server reads `AZURE_DEVOPS_PAT` from the environment. Required PAT scope:
 | `serve` (default) | Start the web dashboard + API |
 | `plan` | Preview what would be created (dry-run) |
 | `run` | Create tasks now |
-| `daemon` | Start the weekday 09:30 scheduler |
+| `daemon` | Start the automated weekday scheduler (morning creation + evening closure) |
+| `close-today` | Close current-day tasks (0h remaining, 8h completed, PR deliverables) |
 | `repair` | Re-copy missing relations on partially created tasks (idempotent) |
 | `help` | Usage |
 
@@ -54,7 +56,9 @@ Common options: `--all`, `--person <key,key>`, `--dry-run`, `--yes`,
 
 ```bash
 npm run dev -- run --all --yes
-npm run dev -- plan --person yash_somani --as-of 2026-10-08
+npm run dev -- close-today --dry-run
+npm run dev -- close-today --all
+npm run dev -- plan --person yash_somani --as-of 2026-10-15
 npm run dev -- serve --port 8080
 ```
 

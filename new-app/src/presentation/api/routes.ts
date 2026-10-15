@@ -3,12 +3,15 @@
  * HTTP endpoints exposing application use cases
  */
 
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
 import { CreateTasksUseCase } from '../../application/use-cases/create-tasks.js';
 import { PlanTasksUseCase } from '../../application/use-cases/plan-tasks.js';
 import { GetSystemStatusUseCase } from '../../application/use-cases/get-status.js';
 import { ConfigUseCases } from '../../application/use-cases/config.js';
 import { ExploreTasksUseCase } from '../../application/use-cases/explore-tasks.js';
+import { RepairRelationsUseCase } from '../../application/use-cases/repair-relations.js';
+import { CloseDailyTasksUseCase } from '../../application/use-cases/close-daily-tasks.js';
+import { GitHubClient } from '../../infrastructure/github/github-client.js';
 import { JournalRepository, SchedulerRepository } from '../../domain/ports/repositories.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 
@@ -18,6 +21,9 @@ export interface ApiDependencies {
   exploreTasks: ExploreTasksUseCase;
   getStatus: GetSystemStatusUseCase;
   config: ConfigUseCases;
+  repairRelations?: RepairRelationsUseCase;
+  closeDailyTasks?: CloseDailyTasksUseCase;
+  githubClient?: GitHubClient;
   journal: JournalRepository;
   scheduler: SchedulerRepository;
 }
@@ -62,6 +68,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
   router.post('/config/settings', async (req, res) => {
     try {
       const data = await deps.config.saveSettings(req.body);
+      const savedGhToken = typeof req.body?.githubToken === 'string' ? req.body.githubToken.trim() : '';
+      if (savedGhToken) logger.registerSecret(savedGhToken);
       res.json({ success: true, data });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
@@ -149,6 +157,40 @@ export function createApiRouter(deps: ApiDependencies): Router {
     } catch (err: any) {
       logger.error(`Ad-hoc task creation failed: ${err.message}`);
       res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/tasks/repair', async (_req, res) => {
+    try {
+      if (!deps.repairRelations) {
+        return res.status(400).json({ success: false, error: 'RepairRelationsUseCase not configured' });
+      }
+      logger.info('Repair API requested: re-copying missing relations...');
+      const report = await deps.repairRelations.execute();
+      res.json({ success: true, data: report });
+    } catch (err: any) {
+      logger.error(`Repair relations failed: ${err.message}`);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/tasks/close-today', async (req, res) => {
+    try {
+      if (!deps.closeDailyTasks) {
+        return res.status(501).json({ success: false, error: 'EOD task closure is not configured' });
+      }
+      const { personKeys, asOf, dryRun } = req.body || {};
+      logger.info(`EOD task closure requested (dryRun=${Boolean(dryRun)}, asOf=${asOf || 'today'})...`);
+      const result = await deps.closeDailyTasks.execute({
+        personKeys,
+        asOf,
+        dryRun: Boolean(dryRun),
+        bypassRules: true,
+      });
+      res.json({ success: true, data: result });
+    } catch (err: any) {
+      logger.error(`EOD task closure failed: ${err.message}`);
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
@@ -259,9 +301,16 @@ export function createApiRouter(deps: ApiDependencies): Router {
 
   router.post('/scheduler/config', async (req, res) => {
     try {
-      const { startTime, timezone, autoStart } = req.body || {};
+      const { startTime, timezone, autoStart, autoClose, autoCloseStartTime, autoCloseEndTime } = req.body || {};
       if (deps.scheduler.configure) {
-        await deps.scheduler.configure({ startTime, timezone, autoStart });
+        await deps.scheduler.configure({
+          startTime,
+          timezone,
+          autoStart,
+          autoClose,
+          autoCloseStartTime,
+          autoCloseEndTime,
+        });
       }
       res.json({ success: true, data: deps.scheduler.getStatus() });
     } catch (err: any) {
@@ -277,6 +326,45 @@ export function createApiRouter(deps: ApiDependencies): Router {
       } else {
         res.status(400).json({ success: false, error: 'Direct run trigger not supported' });
       }
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/scheduler/trigger-autoclose', async (_req, res) => {
+    try {
+      if (deps.scheduler.triggerAutoCloseNow) {
+        const result = await deps.scheduler.triggerAutoCloseNow();
+        res.json({ success: result.success, message: result.message, data: deps.scheduler.getStatus() });
+      } else {
+        res.status(400).json({ success: false, error: 'Direct auto-close trigger not supported' });
+      }
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // GitHub test & preview
+  router.get('/github/test-user', async (req, res) => {
+    try {
+      if (!deps.githubClient) {
+        return res.status(501).json({ success: false, error: 'GitHub client not configured' });
+      }
+      const email = String(req.query.email || '').trim();
+      const rawUser = String(req.query.username || '').trim();
+      let username = rawUser;
+      if (!username && email) {
+        username = (await deps.githubClient.resolveUserByEmail(email)) || '';
+      }
+      if (!username) {
+        return res.status(404).json({ success: false, error: `Could not resolve GitHub username for '${email || 'unspecified'}'` });
+      }
+      const config = await deps.config.getConfig();
+      const targetDate = String(req.query.date || '').trim() || new Date().toISOString().split('T')[0];
+      const deliverables = await deps.githubClient.getPrDeliverablesForDate(username, targetDate, config.timezone, {
+        org: config.githubOrg,
+      });
+      res.json({ success: true, data: { email, username, deliverables } });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -300,9 +388,21 @@ export function createApiRouter(deps: ApiDependencies): Router {
     }
 
     const unsubscribe = logger.addListener(entry => {
-      res.write(`data: ${JSON.stringify(entry)}\n\n`);
+      try {
+        res.write(`data: ${JSON.stringify(entry)}\n\n`);
+      } catch {
+        // client socket closed
+      }
     });
-    const heartbeat = setInterval(() => res.write(': ping\n\n'), 15000);
+
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(': ping\n\n');
+      } catch {
+        clearInterval(heartbeat);
+        unsubscribe();
+      }
+    }, 15000);
 
     req.on('close', () => {
       clearInterval(heartbeat);

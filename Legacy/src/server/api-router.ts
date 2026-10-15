@@ -28,6 +28,7 @@ export class ApiRouter {
     
     // Tasks
     router.get('/tasks/live', (req, res) => this.handleGetLiveTasks(res));
+    router.get('/tasks/live/stream', (req, res) => this.handleStreamLiveTasks(res));
     router.post('/tasks/plan', (req, res) => this.handlePlanTasks(req.body, res));
     router.post('/tasks/execute', (req, res) => this.handleExecuteTasks(req.body, res));
     
@@ -35,15 +36,19 @@ export class ApiRouter {
     router.get('/explorer', (req, res) => {
       // Create a mock URL object so existing code works
       const url = new URL(req.originalUrl, `http://${req.headers.host}`);
-      this.handleGetExplorer(url, res);
+      return this.handleGetExplorer(url, res);
+    });
+    router.get('/explorer/stream', (req, res) => {
+      const url = new URL(req.originalUrl, `http://${req.headers.host}`);
+      return this.handleStreamExplorer(url, res);
     });
     router.post('/explorer/create-missing', (req, res) => this.handleCreateMissingFromExplorer(req.body, res));
     
     // Journal / Audit
-    router.get('/journal', (req, res) => this.handleGetJournal(res));
+    router.get('/journal', (req, res) => this.handleGetJournal(req, res));
     router.get('/journal/export', (req, res) => {
       const url = new URL(req.originalUrl, `http://${req.headers.host}`);
-      this.handleExportJournal(url, res);
+      return this.handleExportJournal(url, res);
     });
     
     // Scheduler
@@ -53,7 +58,7 @@ export class ApiRouter {
     // Logs
     router.get('/logs', (req, res) => {
       const url = new URL(req.originalUrl, `http://${req.headers.host}`);
-      this.handleGetLogs(url, res);
+      return this.handleGetLogs(url, res);
     });
     router.get('/logs/stream', (req, res) => this.handleStreamLogs(req, res));
     
@@ -161,7 +166,7 @@ export class ApiRouter {
       }
 
       if (method === 'GET' && pathname === '/api/journal') {
-        await this.handleGetJournal(res);
+        await this.handleGetJournal(req, res);
         return true;
       }
 
@@ -524,17 +529,32 @@ export class ApiRouter {
     });
   }
 
-  private async handleGetJournal(res: ServerResponse): Promise<void> {
+  private async handleGetJournal(req: any, res: ServerResponse): Promise<void> {
     const journal = new TaskJournal();
     const entries = journal.getEntries();
     const incomplete = journal.getUnfinishedRelations();
+    
+    // Support limit and offset for pagination
+    const url = new URL(req.originalUrl, `http://${req.headers.host}`);
+    const limitParam = url.searchParams.get('limit');
+    const offsetParam = url.searchParams.get('offset');
+    
+    const limit = limitParam ? parseInt(limitParam, 10) : 100;
+    const offset = offsetParam ? parseInt(offsetParam, 10) : 0;
+    
+    // Reverse first so newest is at offset 0
+    const reversed = [...entries].reverse();
+    const paginated = reversed.slice(offset, offset + limit);
 
     this.sendJson(res, 200, {
       success: true,
       data: {
         totalEntries: entries.length,
         incompleteEntriesCount: incomplete.length,
-        entries: entries.slice(-100).reverse(), // Last 100 entries, newest first
+        limit,
+        offset,
+        hasMore: offset + limit < entries.length,
+        entries: paginated,
       },
     });
   }
@@ -677,6 +697,129 @@ export class ApiRouter {
     const limit = parseInt(url.searchParams.get('limit') || '100', 10);
     const logs = logger.getRecentLogs(limit);
     this.sendJson(res, 200, { success: true, data: { logs } });
+  }
+
+  private async handleStreamExplorer(url: URL, res: any): Promise<void> {
+    if (!this.client) {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.write(`data: ${JSON.stringify({ type: 'error', error: 'Azure DevOps client not initialized' })}\n\n`);
+      res.end();
+      return;
+    }
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    });
+
+    try {
+      const preset = url.searchParams.get('preset') || '';
+      let startDate = url.searchParams.get('startDate') || '';
+      let endDate = url.searchParams.get('endDate') || '';
+      const usersParam = url.searchParams.get('users') || '';
+      const asOf = url.searchParams.get('asOf') || undefined;
+
+      if (preset) {
+        const presetRange = TaskExplorerService.getPresetDateRange(preset, this.config.timezone, asOf);
+        startDate = presetRange.startDate;
+        endDate = presetRange.endDate;
+      } else if (!startDate || !endDate) {
+        const defaultRange = TaskExplorerService.getPresetDateRange('today_to_next_thursday', this.config.timezone, asOf);
+        startDate = startDate || defaultRange.startDate;
+        endDate = endDate || defaultRange.endDate;
+      }
+
+      const selectedUsers = usersParam
+        ? usersParam.split(',').map((u) => u.trim()).filter(Boolean)
+        : undefined;
+
+      res.write(`data: ${JSON.stringify({ type: 'started', dateRange: { startDate, endDate }, message: 'Task Explorer initialized' })}\n\n`);
+
+      // Send progress update
+      const dayCount = Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24));
+      res.write(`data: ${JSON.stringify({ type: 'progress', message: `Analyzing ${dayCount} working days...`, progress: 10 })}\n\n`);
+
+      // Call explorer service
+      const explorerService = new TaskExplorerService(this.client, this.config);
+      
+      res.write(`data: ${JSON.stringify({ type: 'progress', message: 'Fetching tasks from Azure DevOps...', progress: 25 })}\n\n`);
+
+      const result = await explorerService.exploreDateRange({
+        startDate,
+        endDate,
+        selectedUsers,
+        asOf,
+      });
+
+      res.write(`data: ${JSON.stringify({ type: 'progress', message: 'Processing work items...', progress: 75 })}\n\n`);
+
+      // Send the complete result
+      res.write(`data: ${JSON.stringify({ type: 'progress', message: 'Rendering results...', progress: 90 })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'complete', data: result, progress: 100 })}\n\n`);
+      res.end();
+    } catch (err: any) {
+      res.write(`data: ${JSON.stringify({ type: 'error', error: err.message || String(err) })}\n\n`);
+      res.end();
+    }
+  }
+
+  private async handleStreamLiveTasks(res: any): Promise<void> {
+    if (!this.client) {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.write(`data: ${JSON.stringify({ type: 'error', error: 'Azure DevOps client not initialized' })}\n\n`);
+      res.end();
+      return;
+    }
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    });
+
+    try {
+      res.write(`data: ${JSON.stringify({ type: 'started', message: 'Building task plan...', progress: 0 })}\n\n`);
+
+      const orchestrator = new TaskOrchestrator(this.client, this.config, {
+        dryRun: true,
+        yes: true,
+        all: true,
+        verbose: false,
+      });
+
+      res.write(`data: ${JSON.stringify({ type: 'progress', message: 'Fetching team configuration...', progress: 15 })}\n\n`);
+
+      const planData = await orchestrator.buildPlan();
+
+      res.write(`data: ${JSON.stringify({ type: 'progress', message: 'Organizing task assignments...', progress: 80 })}\n\n`);
+
+      res.write(`data: ${JSON.stringify({
+        type: 'complete',
+        data: {
+          todayIso: planData.todayIso,
+          nextThursdayIso: planData.nextThursdayIso,
+          personPlans: planData.personPlans,
+        },
+        progress: 100,
+      })}\n\n`);
+      res.end();
+    } catch (err: any) {
+      res.write(`data: ${JSON.stringify({ type: 'error', error: err.message || String(err) })}\n\n`);
+      res.end();
+    }
   }
 
   private async handleStreamLogs(req: any, res: any): Promise<void> {

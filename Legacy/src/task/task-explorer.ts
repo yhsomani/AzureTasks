@@ -278,7 +278,8 @@ export class TaskExplorerService {
     const candidateIds = await wiqlService.findCandidateSourceTasks(
       this.config.project,
       this.config.workItemType,
-      this.config.titlePrefix
+      this.config.titlePrefix,
+      Array.from(new Set(selectedPeople.flatMap((p: any) => [p.assignedTo, p.name].filter(Boolean) as string[])))
     );
 
     let allProjectWorkItems: WorkItem[] = [];
@@ -302,9 +303,20 @@ export class TaskExplorerService {
       const assignedToVal = item.fields['System.AssignedTo'];
       const title = String(item.fields['System.Title'] || '');
       const createdDate = item.fields['System.CreatedDate'] as string | undefined;
-      const parsed = parseDateFromTitle(title, createdDate);
+      const parsed = parseDateFromTitle(title, createdDate, true);
+      let isoDate = parsed ? parsed.isoDate : '';
 
-      if (!parsed) continue;
+      if (!isoDate && item.fields['Microsoft.VSTS.Scheduling.StartDate']) {
+        isoDate = String(item.fields['Microsoft.VSTS.Scheduling.StartDate']).split('T')[0];
+      }
+      if (!isoDate && item.fields['Custom.PlannedStartdate']) {
+        isoDate = String(item.fields['Custom.PlannedStartdate']).split('T')[0];
+      }
+      if (!isoDate && item.fields['Custom.ActualStartdate']) {
+        isoDate = String(item.fields['Custom.ActualStartdate']).split('T')[0];
+      }
+
+      if (!isoDate) continue;
 
       for (const p of allConfiguredPeople) {
         if (matchesPerson(assignedToVal, p)) {
@@ -314,9 +326,9 @@ export class TaskExplorerService {
             dateMap = new Map();
             personTaskIndex.set(pKey, dateMap);
           }
-          const list = dateMap.get(parsed.isoDate) || [];
+          const list = dateMap.get(isoDate) || [];
           list.push(item);
-          dateMap.set(parsed.isoDate, list);
+          dateMap.set(isoDate, list);
         }
       }
     }

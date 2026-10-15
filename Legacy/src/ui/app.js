@@ -46,28 +46,58 @@ function updateThemeIcon(theme) {
 // Tab Navigation
 function setupTabs() {
   const tabs = document.querySelectorAll('.nav-tab-btn');
+  
+  const syncHash = () => {
+    let target = window.location.hash.substring(1);
+    const validTabs = Array.from(tabs).map(t => t.getAttribute('data-tab'));
+    if (!validTabs.includes(target)) {
+      target = validTabs[0] || 'overview';
+    }
+    
+    appState.activeTab = target;
+    tabs.forEach((t) => {
+      t.classList.remove('active');
+      t.setAttribute('aria-selected', 'false');
+    });
+    document.querySelectorAll('.tab-pane').forEach((p) => p.classList.remove('active'));
+    
+    const activeTabBtn = document.querySelector(`.nav-tab-btn[data-tab="${target}"]`);
+    const activePane = document.getElementById(`tab-${target}`);
+    
+    if (activeTabBtn) {
+      activeTabBtn.classList.add('active');
+      activeTabBtn.setAttribute('aria-selected', 'true');
+    }
+    if (activePane) activePane.classList.add('active');
+    
+    if (target === 'explorer') loadExplorer();
+    if (target === 'team') renderTeamTable();
+    if (target === 'burndown') loadBurndown();
+  };
+
+  window.addEventListener('hashchange', syncHash);
+
   tabs.forEach((tab) => {
     tab.addEventListener('click', () => {
       const target = tab.getAttribute('data-tab');
-      appState.activeTab = target;
-
-      tabs.forEach((t) => t.classList.remove('active'));
-      tab.classList.add('active');
-
-      document.querySelectorAll('.tab-pane').forEach((p) => p.classList.remove('active'));
-      const activePane = document.getElementById(`tab-${target}`);
-      if (activePane) activePane.classList.add('active');
-
-      if (target === 'explorer') loadExplorer();
-      if (target === 'audit') loadJournal();
-      if (target === 'team') renderTeamTable();
-      if (target === 'burndown') loadBurndown();
+      window.location.hash = target;
     });
   });
+
+  syncHash();
 }
 
 // Event Listeners
 function setupEventListeners() {
+  const btnLoadBurndown = document.getElementById('btnLoadBurndown');
+  if (btnLoadBurndown) {
+    btnLoadBurndown.addEventListener('click', () => {
+      const selector = document.getElementById('burndownMonthSelector');
+      const selectedMonth = selector ? selector.value : null;
+      loadBurndown(selectedMonth);
+    });
+  }
+
   document.getElementById('btnRefreshMatrix').addEventListener('click', () => {
     appState.simulationDate = null;
     loadLiveMatrix();
@@ -107,6 +137,17 @@ function setupEventListeners() {
   document.getElementById('btnCancelPersonModal').addEventListener('click', closePersonModal);
   document.getElementById('btnSavePerson').addEventListener('click', savePerson);
 
+  // Date & User Inspect Modal close buttons
+  const btnCloseDateInspect = document.getElementById('btnCloseDateInspectBtn');
+  if (btnCloseDateInspect) btnCloseDateInspect.addEventListener('click', closeDateInspectModal);
+  const btnCloseDateInspectModal = document.getElementById('btnCloseDateInspectModal');
+  if (btnCloseDateInspectModal) btnCloseDateInspectModal.addEventListener('click', closeDateInspectModal);
+  
+  const btnCloseUserInspect = document.getElementById('btnCloseUserInspectBtn');
+  if (btnCloseUserInspect) btnCloseUserInspect.addEventListener('click', closeUserInspectModal);
+  const btnCloseUserInspectModal = document.getElementById('btnCloseUserInspectModal');
+  if (btnCloseUserInspectModal) btnCloseUserInspectModal.addEventListener('click', closeUserInspectModal);
+
   // Settings
   document.getElementById('settingsForm').addEventListener('submit', handleSettingsSubmit);
   document.getElementById('btnTestConn').addEventListener('click', testConnection);
@@ -134,10 +175,8 @@ function setupEventListeners() {
   if (btnToggleSched) btnToggleSched.addEventListener('click', toggleScheduler);
 
   // Repair
-  document.getElementById('btnRepairAll').addEventListener('click', runRepair);
 
-  // Journal Filters
-  setupJournalEventListeners();
+  document.getElementById('btnRepairAll').addEventListener('click', runRepair);
 
   // Task Explorer Event Listeners
   setupExplorerEventListeners();
@@ -149,11 +188,13 @@ async function loadAll() {
   await loadConfig();
   await loadScheduler();
   await loadLiveMatrix();
+  await loadBurndown();
 }
 
 async function loadStatus() {
   try {
     const res = await fetch('/api/status');
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const json = await res.json();
     if (json.success) {
       appState.status = json.data;
@@ -202,6 +243,7 @@ function renderStatus(status) {
 async function loadConfig() {
   try {
     const res = await fetch('/api/config');
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const json = await res.json();
     if (json.success) {
       appState.config = json.data;
@@ -236,13 +278,14 @@ async function loadLiveMatrix(asOfDate) {
       : { method: 'GET' };
 
     const res = await fetch(url, opts);
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const json = await res.json();
 
     if (json.success) {
       appState.planData = json.data;
       renderMatrix(json.data);
     } else {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--danger); padding: 2rem;">Error: ${json.error}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--danger); padding: 2rem;">Error: ${json.error || 'Unknown error'}</td></tr>`;
     }
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--danger); padding: 2rem;">Failed to connect to backend: ${err.message}</td></tr>`;
@@ -324,14 +367,23 @@ function renderMatrix(data) {
         td.innerHTML = `<span class="status-pill status-weekend">Weekend</span>`;
       } else if (item.status === 'DUPLICATE_ALREADY_EXISTS' || item.status === 'DUPLICATE') {
         totalExisting++;
-        const link = item.existingTaskId
-          ? `https://dev.azure.com/${appState.status.organization}/${appState.status.project}/_workitems/edit/${item.existingTaskId}`
+        const existingId = item.existingWorkItemIds && item.existingWorkItemIds[0];
+        const link = existingId
+          ? `https://dev.azure.com/${appState.status.organization}/${appState.status.project}/_workitems/edit/${existingId}`
           : '#';
         td.innerHTML = `
           <a href="${link}" target="_blank" class="status-pill status-duplicate" title="Task already exists" style="text-decoration: none;">
-            ✓ #${item.existingTaskId || 'Exist'}
+            ✓ #${existingId || 'Exist'}
           </a>
         `;
+      } else if (item.status === 'MULTIPLE_EXISTING_TASKS') {
+        totalExisting++;
+        const ids = item.existingWorkItemIds || [];
+        const links = ids.map(id => {
+          const url = `https://dev.azure.com/${appState.status.organization}/${appState.status.project}/_workitems/edit/${id}`;
+          return `<a href="${url}" target="_blank" style="color: inherit; text-decoration: underline;">#${id}</a>`;
+        }).join(', ');
+        td.innerHTML = `<span class="status-pill status-warning" title="${ids.length} tasks on this date: ${ids.map(id => '#'+id).join(', ')}">⚠️ ${ids.length}× ${links}</span>`;
       } else if (item.status === 'PLANNED') {
         totalToCreate++;
         plannedItemsList.push({
@@ -446,6 +498,14 @@ function closePersonModal() {
   document.getElementById('personModal').classList.remove('active');
 }
 
+function closeDateInspectModal() {
+  document.getElementById('dateInspectModal').classList.remove('active');
+}
+
+function closeUserInspectModal() {
+  document.getElementById('userInspectModal').classList.remove('active');
+}
+
 window.editPerson = (idx) => openPersonModal(idx);
 
 window.deletePerson = async (idx) => {
@@ -471,7 +531,9 @@ async function savePerson() {
   }
 
   const people = [...appState.config.people];
+  const key = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
   const personObj = {
+    key,
     name,
     assignedTo: email,
     pod: pod || undefined,
@@ -501,6 +563,8 @@ async function savePeopleToServer(people) {
     if (json.success) {
       await loadConfig();
       await loadLiveMatrix();
+      await loadExplorer();
+      await loadBurndown();
     } else {
       alert(`Error saving member: ${json.error}`);
     }
@@ -650,6 +714,29 @@ async function executeTasks() {
   }
 }
 
+async function runRepair() {
+  if (!confirm('Repair task relationships? This will fix incomplete parent-child links from previous executions.')) return;
+  openDrawer();
+  logToTerminal('Starting relationship repair process...', 'info');
+
+  try {
+    const res = await fetch('/api/journal/repair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    
+    const json = await res.json();
+    if (json.success) {
+      logToTerminal(`✅ Repair completed: ${json.data.message || 'Relationships repaired successfully'}`, 'success');
+    } else {
+      logToTerminal(`❌ Repair failed: ${json.error || 'Unknown error'}`, 'error');
+    }
+  } catch (err) {
+    logToTerminal(`Repair error: ${err.message}`, 'error');
+  }
+}
+
 window.runForMember = async function (personKey) {
   if (!confirm(`Create planned Azure DevOps tasks for ${personKey}?`)) return;
   openDrawer();
@@ -700,69 +787,11 @@ let burndownState = {
   search: ''
 };
 
-function setupJournalEventListeners() {
-  const monthSelect = document.getElementById('burndownMonth');
-  const yearSelect = document.getElementById('burndownYear');
-  const searchInput = document.getElementById('burndownSearch');
-  const btnApply = document.getElementById('btnApplyBurndown');
-
-  if (monthSelect) monthSelect.value = burndownState.month.toString();
-  if (yearSelect) yearSelect.value = burndownState.year.toString();
-
-  if (btnApply) {
-    btnApply.addEventListener('click', () => {
-      burndownState.month = parseInt(monthSelect.value, 10);
-      burndownState.year = parseInt(yearSelect.value, 10);
-      burndownState.search = searchInput.value.trim().toLowerCase();
-      renderBurndownMatrix();
-    });
-  }
-}
-
-
-async function loadJournal() {
-  const tbody = document.getElementById('auditListBody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem;">Loading Daily Burndown data...</td></tr>';
-
-  try {
-    const res = await fetch('/api/journal');
-    const json = await res.json();
-    if (json.success && json.data.entries) {
-      renderAuditTable(json.data.entries);
-    }
-  } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="color: var(--danger); text-align: center;">Failed to load data: ${err.message}</td></tr>`;
-  }
-}
-
-function renderAuditTable(entries) {
-  const tbody = document.getElementById('auditListBody');
-  if (!tbody) return;
-
-  if (entries.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No audit records found.</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = entries.map(entry => {
-    return `<tr>
-      <td>${entry.timestamp || entry.createdDate || '-'}</td>
-      <td>${entry.type || entry.operation || 'EXECUTE'}</td>
-      <td>
-        <span class="badge-pill ${entry.status === 'SUCCESS' ? 'badge-connected' : 'badge-disconnected'}">
-          ${entry.status || 'UNKNOWN'}
-        </span>
-      </td>
-      <td>${entry.user || '-'}</td>
-      <td>${entry.taskId || entry.workItemId || '-'}</td>
-      <td style="font-size: 0.8rem; color: var(--text-muted);">${entry.message || entry.error || ''}</td>
-    </tr>`;
-  }).join('');
-}
 
 async function loadScheduler() {
   try {
     const res = await fetch('/api/scheduler');
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const json = await res.json();
     if (json.success && json.data) {
       appState.scheduler = json.data;
@@ -796,6 +825,13 @@ function renderScheduler(status) {
 
 async function toggleScheduler() {
   const current = appState.scheduler?.enabled || false;
+  const previousState = { ...appState.scheduler };
+  
+  // Optimistic UI update
+  appState.scheduler = { ...appState.scheduler, enabled: !current };
+  renderScheduler(appState.scheduler);
+  logToTerminal(`Optimistically ${!current ? 'enabling' : 'disabling'} scheduler...`, 'info');
+
   try {
     const res = await fetch('/api/scheduler/toggle', {
       method: 'POST',
@@ -806,10 +842,15 @@ async function toggleScheduler() {
     if (json.success) {
       appState.scheduler = json.data;
       renderScheduler(json.data);
-      logToTerminal(`Daily scheduler ${!current ? 'ENABLED' : 'DISABLED'}. Target time: ${json.data.targetTime} (${json.data.timezone}).`, !current ? 'success' : 'info');
+      logToTerminal(`Daily scheduler confirmed ${!current ? 'ENABLED' : 'DISABLED'}. Target time: ${json.data.targetTime} (${json.data.timezone}).`, !current ? 'success' : 'info');
+    } else {
+      throw new Error(json.error || 'Server rejected toggle');
     }
   } catch (err) {
-    logToTerminal(`Failed to toggle scheduler: ${err.message}`, 'error');
+    // Rollback
+    appState.scheduler = previousState;
+    renderScheduler(appState.scheduler);
+    logToTerminal(`Failed to toggle scheduler: ${err.message}. Rolled back to previous state.`, 'error');
   }
 }
 
@@ -862,6 +903,14 @@ function getTodayIsoBrowser() {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function formatDateShort(iso) {
+  if (!iso) return '';
+  const parts = iso.split('-');
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const m = months[parseInt(parts[1], 10) - 1];
+  return `${parseInt(parts[2], 10)} ${m}`;
 }
 
 function addDaysBrowser(isoDate, days) {
@@ -1082,17 +1131,6 @@ function setupExplorerEventListeners() {
   if (btnCreateMissing) {
     btnCreateMissing.addEventListener('click', createMissingInRange);
   }
-
-  // Modal Closures
-  const btnCloseDate1 = document.getElementById('btnCloseDateInspectModal');
-  const btnCloseDate2 = document.getElementById('btnCloseDateInspectBtn');
-  if (btnCloseDate1) btnCloseDate1.addEventListener('click', closeDateInspectModal);
-  if (btnCloseDate2) btnCloseDate2.addEventListener('click', closeDateInspectModal);
-
-  const btnCloseUser1 = document.getElementById('btnCloseUserInspectModal');
-  const btnCloseUser2 = document.getElementById('btnCloseUserInspectBtn');
-  if (btnCloseUser1) btnCloseUser1.addEventListener('click', closeUserInspectModal);
-  if (btnCloseUser2) btnCloseUser2.addEventListener('click', closeUserInspectModal);
 }
 
 function initExplorerUsers() {
@@ -1195,8 +1233,8 @@ function handlePresetChange() {
 
 
 window.inspectCell = function(personName, dateIso) {
-  if (!currentDashboardData) return;
-  const row = currentDashboardData.matrix.find(r => r.person.name === personName);
+  if (!appState.explorerData) return;
+  const row = appState.explorerData.matrix.find(r => r.person.name === personName);
   if (!row) return;
   const cell = row.cells[dateIso];
   if (!cell) return;
@@ -1258,7 +1296,15 @@ async function loadBurndown(selectedMonth) {
   const container = document.getElementById('burndownMatrixContainer');
   if (!container) return;
 
-  container.innerHTML = `<div style="text-align: center; padding: 3rem; color: var(--text-muted);">Loading Work Intelligence Matrix...</div>`;
+  container.innerHTML = `
+    <div style="text-align: center; padding: 3rem;">
+      <div style="color: var(--text-muted); margin-bottom: 1rem;">🔄 Streaming Work Intelligence Matrix...</div>
+      <div style="width: 200px; height: 4px; background: var(--border-color); border-radius: 2px; margin: 0 auto; overflow: hidden;">
+        <div id="burndownProgressBar" style="width: 0%; height: 100%; background: var(--primary); transition: width 0.3s ease;"></div>
+      </div>
+      <div id="burndownProgressText" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem;">Starting...</div>
+    </div>
+  `;
 
   try {
     let y, m;
@@ -1275,19 +1321,62 @@ async function loadBurndown(selectedMonth) {
     const start = `${y}-${m}-01`;
     const end = `${y}-${m}-31`;
 
-    const res = await fetch(`/api/explorer?startDate=${start}&endDate=${end}`);
-    const json = await res.json();
+    // Use streaming endpoint
+    const streamUrl = `/api/explorer/stream?startDate=${start}&endDate=${end}`;
+    const eventSource = new EventSource(streamUrl);
+    let lastUpdateTime = Date.now();
 
-    if (json.success) {
-      renderBurndownMatrix(json.data);
-      renderOverviewCharts(json.data);
-      generateInsights(json.data);
-      renderMyWork(json.data);
-    } else {
-      container.innerHTML = `<div style="color: var(--danger); padding: 2rem;">Error: ${json.error}</div>`;
-    }
+    eventSource.addEventListener('message', (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        const now = Date.now();
+        const shouldUpdate = now - lastUpdateTime > 100;
+
+        if (msg.type === 'started') {
+          document.getElementById('burndownProgressBar').style.width = '5%';
+          document.getElementById('burndownProgressText').textContent = '📊 Initializing...';
+          lastUpdateTime = now;
+        } else if (msg.type === 'progress') {
+          if (shouldUpdate || msg.progress >= 90) {
+            const progressBar = document.getElementById('burndownProgressBar');
+            if (progressBar) {
+              progressBar.style.width = (msg.progress || 50) + '%';
+            }
+            const progressText = document.getElementById('burndownProgressText');
+            if (progressText) {
+              progressText.textContent = `${msg.message} (${msg.progress || 50}%)`;
+            }
+            lastUpdateTime = now;
+          }
+        } else if (msg.type === 'complete') {
+          eventSource.close();
+          appState.explorerData = msg.data;
+          
+          // Animate to 100%
+          const progressBar = document.getElementById('burndownProgressBar');
+          if (progressBar) progressBar.style.width = '100%';
+
+          setTimeout(() => {
+            renderBurndownMatrix(msg.data);
+            renderOverviewCharts(msg.data);
+            generateInsights(msg.data);
+            renderMyWork(msg.data);
+          }, 200);
+        } else if (msg.type === 'error') {
+          eventSource.close();
+          container.innerHTML = `<div style="color: var(--danger); padding: 2rem;">❌ Error: ${msg.error || 'Unknown error'}</div>`;
+        }
+      } catch (e) {
+        console.error('Failed to parse stream message:', e);
+      }
+    });
+
+    eventSource.addEventListener('error', (e) => {
+      eventSource.close();
+      container.innerHTML = `<div style="color: var(--danger); padding: 2rem;">❌ Stream connection lost</div>`;
+    });
   } catch (err) {
-    container.innerHTML = `<div style="color: var(--danger); padding: 2rem;">Failed to load burndown: ${err.message}</div>`;
+    container.innerHTML = `<div style="color: var(--danger); padding: 2rem;">❌ Failed to load burndown: ${err.message}</div>`;
   }
 }
 
@@ -1337,6 +1426,133 @@ function renderBurndownMatrix(data) {
   container.innerHTML = html;
 }
 
+function renderOverviewCharts(data) {
+  if (typeof Chart === 'undefined') return;
+  
+  // 1. Render state distribution chart
+  const statusCanvas = document.getElementById('statusDistributionChart');
+  if (statusCanvas) {
+    const s = data.summary.stateCounts;
+    const labels = ['New', 'Active', 'Closed', 'Resolved', 'Other'];
+    const values = [s.New || 0, s.Active || 0, s.Closed || 0, s.Resolved || 0, s.Other || 0];
+
+    if (statusCanvas._chartInstance) statusCanvas._chartInstance.destroy();
+
+    statusCanvas._chartInstance = new Chart(statusCanvas, {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          backgroundColor: ['#6366f1', '#f59e0b', '#22c55e', '#3b82f6', '#94a3b8'],
+          borderWidth: 0,
+        }],
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#94a3b8', font: { size: 12 } } },
+        },
+      },
+    });
+  }
+
+  // 2. Render daily effort trend
+  const effortCanvas = document.getElementById('effortTrendChart');
+  if (effortCanvas) {
+    const labels = [];
+    const values = [];
+    
+    // Aggregate completed work per date
+    data.dates.forEach(d => {
+      if (!d.isWeekend) {
+        labels.push(d.formattedDate);
+        let dailyTotal = 0;
+        data.matrix.forEach(row => {
+          const cell = row.cells[d.dateIso];
+          if (cell && cell.tasks) {
+            dailyTotal += cell.tasks.reduce((sum, t) => sum + (t.completedWork || 0), 0);
+          }
+        });
+        values.push(dailyTotal);
+      }
+    });
+
+    if (effortCanvas._chartInstance) effortCanvas._chartInstance.destroy();
+
+    effortCanvas._chartInstance = new Chart(effortCanvas, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Total Completed Work (h)',
+          data: values,
+          backgroundColor: '#3b82f6',
+          borderRadius: 4
+        }],
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          y: { beginAtZero: true }
+        }
+      },
+    });
+  }
+}
+
+function renderMyWork(data) {
+  // Render the "My Work" summary table (tasks assigned to logged-in user or first person in config)
+  const container = document.getElementById('myWorkContainer');
+  if (!container) return;
+
+  const myPerson = appState.config?.people?.[0];
+  if (!myPerson) {
+    container.innerHTML = '<div style="color: var(--text-muted);">No team members configured.</div>';
+    return;
+  }
+
+  const myRow = data.matrix.find(r =>
+    r.person.assignedTo.toLowerCase() === myPerson.assignedTo.toLowerCase()
+  );
+
+  if (!myRow) {
+    container.innerHTML = `<div style="color: var(--text-muted);">No data found for ${escapeHtml(myPerson.name)}.</div>`;
+    return;
+  }
+
+  const tasks = data.detailedTasks.filter(t =>
+    t.person.assignedTo.toLowerCase() === myPerson.assignedTo.toLowerCase() &&
+    t.status !== 'MISSING'
+  );
+
+  if (tasks.length === 0) {
+    container.innerHTML = `<div style="color: var(--text-muted);">No tasks found for ${escapeHtml(myPerson.name)} in this period.</div>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <table class="matrix-table" style="font-size: 0.85rem;">
+      <thead><tr>
+        <th>Date</th><th>Task ID</th><th>Title</th><th>State</th>
+      </tr></thead>
+      <tbody>
+        ${tasks.map(t => `
+          <tr>
+            <td><strong>${escapeHtml(t.formattedDate)}</strong></td>
+            <td>${t.taskId ? `<a href="${escapeHtml(t.url || '')}" target="_blank" style="color: var(--brand-primary);">#${t.taskId}</a>` : '-'}</td>
+            <td style="max-width:250px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(t.title || '-')}</td>
+            <td><span class="state-tag state-${(t.state || 'new').toLowerCase()}">${escapeHtml(t.state || 'New')}</span></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
 async function loadExplorer() {
   const startDate = document.getElementById('explorerStartDate').value;
   const endDate = document.getElementById('explorerEndDate').value;
@@ -1346,8 +1562,12 @@ async function loadExplorer() {
   const matrixBody = document.getElementById('explorerMatrixBody');
   matrixBody.innerHTML = `
     <tr>
-      <td colspan="12" style="text-align: center; padding: 3rem; color: var(--text-muted);">
-        <span class="pulse-dot"></span> Loading real-time Azure DevOps task coverage...
+      <td colspan="12" style="text-align: center; padding: 3rem;">
+        <div style="color: var(--text-muted); margin-bottom: 1rem;">🔄 Streaming real-time Azure DevOps task coverage...</div>
+        <div style="width: 200px; height: 4px; background: var(--border-color); border-radius: 2px; margin: 0 auto; overflow: hidden;">
+          <div id="loadProgressBar" style="width: 0%; height: 100%; background: var(--primary); transition: width 0.3s ease;"></div>
+        </div>
+        <div id="loadProgressText" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem;">Starting...</div>
       </td>
     </tr>
   `;
@@ -1359,31 +1579,78 @@ async function loadExplorer() {
   if (usersParam) params.append('users', usersParam);
 
   try {
-    const res = await fetch(`/api/explorer?${params.toString()}`);
-    const json = await res.json();
-    if (!json.success) {
+    const streamUrl = `/api/explorer/stream?${params.toString()}`;
+    const eventSource = new EventSource(streamUrl);
+    let lastUpdateTime = Date.now();
+
+    eventSource.addEventListener('message', (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        const now = Date.now();
+        const shouldUpdate = now - lastUpdateTime > 100; // Update UI at most every 100ms
+
+        if (msg.type === 'started') {
+          document.getElementById('loadProgressBar').style.width = '5%';
+          document.getElementById('loadProgressText').textContent = '📊 Initializing...';
+          lastUpdateTime = now;
+        } else if (msg.type === 'progress') {
+          if (shouldUpdate || msg.progress >= 90) {
+            const progressBar = document.getElementById('loadProgressBar');
+            if (progressBar) {
+              progressBar.style.width = (msg.progress || 50) + '%';
+            }
+            const progressText = document.getElementById('loadProgressText');
+            if (progressText) {
+              progressText.textContent = `${msg.message} (${msg.progress || 50}%)`;
+            }
+            lastUpdateTime = now;
+          }
+        } else if (msg.type === 'complete') {
+          eventSource.close();
+          appState.explorerData = msg.data;
+
+          // Animate to 100%
+          const progressBar = document.getElementById('loadProgressBar');
+          if (progressBar) progressBar.style.width = '100%';
+
+          // Short delay to show completion, then render
+          setTimeout(() => {
+            if (msg.data.dateRange) {
+              document.getElementById('explorerStartDate').value = msg.data.dateRange.startDate;
+              document.getElementById('explorerEndDate').value = msg.data.dateRange.endDate;
+            }
+
+            document.getElementById('explorerLastRefresh').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+
+            renderExplorerSummary(msg.data.summary, msg.data.dateRange);
+            renderExplorerMatrix(msg.data);
+            renderExplorerList(msg.data);
+          }, 200);
+        } else if (msg.type === 'error') {
+          eventSource.close();
+          matrixBody.innerHTML = `
+            <tr>
+              <td colspan="12" style="text-align: center; padding: 2.5rem; color: var(--danger);">
+                ⚠️ Failed to load Task Explorer: ${escapeHtml(msg.error || 'Unknown error')}
+              </td>
+            </tr>
+          `;
+        }
+      } catch (e) {
+        console.error('Failed to parse stream message:', e);
+      }
+    });
+
+    eventSource.addEventListener('error', (e) => {
+      eventSource.close();
       matrixBody.innerHTML = `
         <tr>
           <td colspan="12" style="text-align: center; padding: 2.5rem; color: var(--danger);">
-            ⚠️ Failed to load Task Explorer: ${escapeHtml(json.error || 'Unknown error')}
+            ⚠️ Stream connection lost: Check server connection
           </td>
         </tr>
       `;
-      return;
-    }
-
-    appState.explorerData = json.data;
-
-    if (json.data.dateRange) {
-      document.getElementById('explorerStartDate').value = json.data.dateRange.startDate;
-      document.getElementById('explorerEndDate').value = json.data.dateRange.endDate;
-    }
-
-    document.getElementById('explorerLastRefresh').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
-
-    renderExplorerSummary(json.data.summary, json.data.dateRange);
-    renderExplorerMatrix(json.data);
-    renderExplorerList(json.data);
+    });
   } catch (err) {
     matrixBody.innerHTML = `
       <tr>
@@ -1776,11 +2043,6 @@ function openDateInspectModal(dateIso) {
   modal.classList.add('active');
 }
 
-function closeDateInspectModal() {
-  const modal = document.getElementById('dateInspectModal');
-  if (modal) modal.classList.remove('active');
-}
-
 function openUserInspectModal(userKey) {
   const modal = document.getElementById('userInspectModal');
   const userRow = appState.explorerData?.matrix?.find(
@@ -1854,11 +2116,6 @@ function openUserInspectModal(userKey) {
   `;
 
   modal.classList.add('active');
-}
-
-function closeUserInspectModal() {
-  const modal = document.getElementById('userInspectModal');
-  if (modal) modal.classList.remove('active');
 }
 
 // Single Cell & Batch Missing Task Creation
@@ -1961,3 +2218,55 @@ async function createMissingInRange() {
   }
 }
 
+
+async function handleSettingsSubmit(e) {
+  e.preventDefault();
+  
+  const payload = {
+    organization: document.getElementById('settingOrg').value,
+    project: document.getElementById('settingProject').value,
+    timezone: document.getElementById('settingTimezone').value,
+    thursdayMode: document.getElementById('settingThursdayMode').value,
+    startTime: document.getElementById('settingStartTime').value
+  };
+
+  try {
+    const res = await fetch('/api/config/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    
+    const json = await res.json();
+    if (json.success) {
+      alert('Settings saved successfully!');
+      loadAll();
+    } else {
+      alert('Error saving settings: ' + json.error);
+    }
+  } catch (err) {
+    alert('Failed to save settings: ' + err.message);
+  }
+}
+
+async function testConnection() {
+  const btn = document.getElementById('btnTestConn');
+  const originalText = btn.innerHTML;
+  btn.innerHTML = 'Testing...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/status');
+    const json = await res.json();
+    if (json.success && json.data.connected && json.data.projectValid && json.data.workItemTypeValid) {
+      alert('Connection successful! ADO Project is valid.');
+    } else {
+      alert('Connection issues found. Check API Status:\n' + JSON.stringify(json.data, null, 2));
+    }
+  } catch (err) {
+    alert('Test Connection Failed: ' + err.message);
+  } finally {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+  }
+}

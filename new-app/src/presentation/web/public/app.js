@@ -160,6 +160,32 @@ function escapeHtml(str) {
   }[m]));
 }
 
+let previousActiveElement = null;
+
+function showModal(selector, focusSelector) {
+  const modal = $(selector);
+  if (!modal) return;
+  previousActiveElement = document.activeElement;
+  modal.classList.add('open');
+  if (focusSelector) {
+    setTimeout(() => $(focusSelector)?.focus(), 50);
+  } else {
+    setTimeout(() => {
+      const first = modal.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      first?.focus();
+    }, 50);
+  }
+}
+
+function hideModal(target) {
+  const modal = typeof target === 'string' ? $(target) : target;
+  if (modal) modal.classList.remove('open');
+  if (previousActiveElement && typeof previousActiveElement.focus === 'function') {
+    try { previousActiveElement.focus(); } catch {}
+    previousActiveElement = null;
+  }
+}
+
 function formatDateShort(iso) {
   if (!iso) return '—';
   try {
@@ -204,10 +230,11 @@ function switchView(view) {
   if (vs) vs.textContent = subtitle;
 
   location.hash = view;
+  const forceFresh = Boolean(state.isDataDirty);
   if (view === 'dashboard') refreshDashboard();
-  if (view === 'burndown') refreshBurndown();
-  if (view === 'mywork') refreshMyWork();
-  if (view === 'explorer') refreshExplorer();
+  if (view === 'burndown') refreshBurndown({ forceFresh });
+  if (view === 'mywork') refreshMyWork({ forceFresh });
+  if (view === 'explorer') refreshExplorer({ forceFresh });
   if (view === 'planner') {
     renderPlannerPeople();
     runPlanPreview();
@@ -498,17 +525,18 @@ function renderOverviewCharts(data) {
 }
 
 /* ------------------------------------------------------------- daily burndown */
-async function refreshBurndown() {
+async function refreshBurndown(options = {}) {
   const selector = $('#burndownMonthSelector');
   if (selector && !selector.value) {
     const now = new Date();
     const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     selector.value = ym;
   }
-  loadBurndownMonth();
+  loadBurndownMonth(options);
 }
 
-async function loadBurndownMonth() {
+async function loadBurndownMonth(options = {}) {
+  const forceFresh = options.forceFresh === true;
   const container = $('#burndownMatrixContainer');
   if (!container) return;
   const ym = $('#burndownMonthSelector')?.value;
@@ -520,7 +548,7 @@ async function loadBurndownMonth() {
   const end = `${ym}-${String(lastDay).padStart(2, '0')}`;
   const url = `/explorer?startDate=${start}&endDate=${end}`;
 
-  if (!state.burndownData) {
+  if (!state.burndownData || forceFresh) {
     container.innerHTML = `
       <div style="padding:20px;">
         <div class="skeleton-row skeleton" style="height:44px; margin-bottom:12px;"></div>
@@ -533,7 +561,8 @@ async function loadBurndownMonth() {
 
   try {
     const data = await api.get(url, {
-      swr: true,
+      swr: !forceFresh,
+      forceFresh,
       maxAgeMs: 45000,
       abortKey: 'burndown-query',
       onStale: (stale) => {
@@ -613,20 +642,36 @@ function renderBurndownTable(data) {
 }
 
 /* ----------------------------------------------------------------- my work */
-async function refreshMyWork() {
-  const cfg = await ensureConfig();
+async function refreshMyWork(options = {}) {
+  const forceFresh = options.forceFresh === true;
+  const cfg = await ensureConfig(forceFresh);
   const select = $('#myWorkPersonSelect');
-  if (select && select.children.length === 0) {
-    select.innerHTML = '';
-    cfg.people.filter(p => p.enabled !== false).forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.key;
-      opt.textContent = `${p.name} (${p.assignedTo})`;
-      select.append(opt);
-    });
+  const activePeople = cfg.people.filter(p => p.enabled !== false);
+
+  if (select) {
+    const currentVal = select.value;
+    const currentOptionKeys = Array.from(select.options).map(o => o.value);
+    const activeKeys = activePeople.map(p => p.key);
+
+    if (currentOptionKeys.join(',') !== activeKeys.join(',')) {
+      select.innerHTML = '';
+      activePeople.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.key;
+        opt.textContent = `${p.name} (${p.assignedTo})`;
+        select.append(opt);
+      });
+      if (options.targetKey && activeKeys.includes(options.targetKey)) {
+        select.value = options.targetKey;
+      } else if (activeKeys.includes(currentVal)) {
+        select.value = currentVal;
+      }
+    } else if (options.targetKey && activeKeys.includes(options.targetKey)) {
+      select.value = options.targetKey;
+    }
   }
 
-  const personKey = select?.value || cfg.people[0]?.key;
+  const personKey = select?.value || activePeople[0]?.key;
   if (!personKey) {
     $('#myWorkContainer').innerHTML = '<p class="muted">No configured team members.</p>';
     return;
@@ -635,7 +680,7 @@ async function refreshMyWork() {
   const url = `/explorer?preset=current_month&users=${encodeURIComponent(personKey)}`;
   const container = $('#myWorkContainer');
   if (container) {
-    const cached = state.cache.get(url);
+    const cached = !forceFresh ? state.cache.get(url) : null;
     if (!cached) {
       container.innerHTML = `
         <div style="padding:16px;">
@@ -648,7 +693,8 @@ async function refreshMyWork() {
 
   try {
     const data = await api.get(url, {
-      swr: true,
+      swr: !forceFresh,
+      forceFresh,
       maxAgeMs: 30000,
       abortKey: 'mywork-query',
       onStale: (stale) => renderMyWorkContent(stale, personKey),
@@ -664,7 +710,14 @@ function renderMyWorkContent(data, personKey) {
   const container = $('#myWorkContainer');
   if (!container) return;
 
-  const myTasks = (data.detailedTasks || []).filter(t => t.person.key === personKey && t.taskId);
+  const targetKey = String(personKey || '').trim().toLowerCase();
+  const myTasks = (data.detailedTasks || []).filter(t => 
+    t.taskId && (
+      t.person?.key?.toLowerCase() === targetKey ||
+      t.person?.assignedTo?.toLowerCase() === targetKey ||
+      t.person?.name?.toLowerCase() === targetKey
+    )
+  );
   if (!myTasks.length) {
     container.innerHTML = '<p class="muted">No tasks found for this member in the current month.</p>';
     return;
@@ -700,8 +753,9 @@ function renderMyWorkContent(data, personKey) {
 }
 
 /* ------------------------------------------------------------ task explorer */
-async function refreshExplorer() {
-  const cfg = await ensureConfig();
+async function refreshExplorer(options = {}) {
+  const forceFresh = options.forceFresh === true;
+  const cfg = await ensureConfig(forceFresh);
   renderExplorerUserPills(cfg);
 
   const preset = $('#explorerPreset')?.value || 'today_to_next_thursday';
@@ -718,7 +772,7 @@ async function refreshExplorer() {
   }
 
   const matrixWrap = $('#explorerMatrixWrap');
-  if (matrixWrap && !state.explorerData) {
+  if (matrixWrap && (!state.explorerData || forceFresh)) {
     matrixWrap.innerHTML = `
       <div style="padding:24px;">
         <div class="skeleton-row skeleton" style="height:44px; margin-bottom:12px;"></div>
@@ -731,7 +785,8 @@ async function refreshExplorer() {
 
   try {
     const data = await api.get(`/explorer?${query}`, {
-      swr: true,
+      swr: !forceFresh,
+      forceFresh,
       maxAgeMs: 30000,
       abortKey: 'explorer-query',
       onStale: (stale) => {
@@ -766,9 +821,12 @@ function renderExplorerUserPills(cfg) {
   if (!container) return;
   const active = cfg.people.filter(p => p.enabled !== false);
 
-  if (state.selectedExplorerKeys.size === 0) {
-    active.forEach(p => state.selectedExplorerKeys.add(p.key));
-  }
+  // Ensure every active person is selected unless explicitly deselected by user
+  active.forEach(p => {
+    if (!state.deselectedExplorerKeys || !state.deselectedExplorerKeys.has(p.key)) {
+      state.selectedExplorerKeys.add(p.key);
+    }
+  });
 
   container.innerHTML = '';
   active.forEach(p => {
@@ -776,10 +834,16 @@ function renderExplorerUserPills(cfg) {
     const pill = el('span', {
       class: `user-pill ${on ? 'on' : ''}`,
       onclick: () => {
-        if (state.selectedExplorerKeys.has(p.key)) state.selectedExplorerKeys.delete(p.key);
-        else state.selectedExplorerKeys.add(p.key);
+        if (state.selectedExplorerKeys.has(p.key)) {
+          state.selectedExplorerKeys.delete(p.key);
+          if (!state.deselectedExplorerKeys) state.deselectedExplorerKeys = new Set();
+          state.deselectedExplorerKeys.add(p.key);
+        } else {
+          state.selectedExplorerKeys.add(p.key);
+          if (state.deselectedExplorerKeys) state.deselectedExplorerKeys.delete(p.key);
+        }
         renderExplorerUserPills(cfg);
-        refreshExplorer();
+        refreshExplorer({ forceFresh: true });
       },
     }, [
       el('span', {}, p.name),
@@ -896,6 +960,16 @@ function renderExplorerList(items) {
   tbody.innerHTML = '';
 
   filtered.forEach(t => {
+    let actionEl = document.createTextNode('—');
+    if (t.url) {
+      actionEl = el('a', { href: t.url, target: '_blank', class: 'btn small ghost' }, 'Open ↗');
+    } else if (t.status === 'MISSING' && t.person?.key && t.dateIso) {
+      actionEl = el('button', {
+        class: 'btn small primary',
+        onclick: () => createSingleCellTask(t.person.key, t.dateIso, t.person.name, t.formattedDate),
+      }, '+ Create');
+    }
+
     const tr = el('tr', {}, [
       el('td', { style: 'font-weight:600;' }, t.formattedDate),
       el('td', {}, t.person.name),
@@ -904,10 +978,23 @@ function renderExplorerList(items) {
       el('td', {}, t.state ? el('span', { class: `state-tag state-${t.state.toLowerCase()}` }, t.state) : '—'),
       el('td', {}, t.completedWork !== undefined ? `${t.completedWork}h` : '—'),
       el('td', {}, badge(t.status)),
-      el('td', {}, t.url ? el('a', { href: t.url, target: '_blank', class: 'btn small ghost' }, 'Open') : '—'),
+      el('td', {}, actionEl),
     ]);
     tbody.append(tr);
   });
+}
+
+async function createSingleCellTask(personKey, dateIso, personName, formattedDate) {
+  try {
+    toast(`Creating task for ${personName || personKey} on ${formattedDate || dateIso}...`, 'ok');
+    const res = await api.post('/tasks/adhoc', { personKey, targetIsoDate: dateIso });
+    toast(`✅ Created Task #${res.task.id} for ${personName || personKey}!`, 'ok');
+    refreshExplorer({ forceFresh: true });
+    runPlanPreview();
+    if (state.currentView === 'mywork') refreshMyWork({ forceFresh: true });
+  } catch (err) {
+    toast(`Failed to create task: ${err.message}`, 'err');
+  }
 }
 
 /* ------------------------------------------------------------- inspect modals */
@@ -943,6 +1030,7 @@ function openDateInspectModal(cell, person) {
   }
 
   const mList = $('#dateInspectMissingList');
+  const createSingleBtn = $('#btnCreateSingleMissingTask');
   if (mList) {
     mList.innerHTML = '';
     if (cell.status === 'MISSING') {
@@ -952,12 +1040,27 @@ function openDateInspectModal(cell, person) {
           ${cell.isEligibleForCreation ? 'This date is within the current creation window and eligible to be created.' : 'This date is outside the rolling window.'}
         </div>
       `;
+      if (createSingleBtn) {
+        createSingleBtn.style.display = 'inline-flex';
+        createSingleBtn.onclick = async () => {
+          createSingleBtn.disabled = true;
+          createSingleBtn.textContent = 'Creating in ADO...';
+          try {
+            await createSingleCellTask(person.key, cell.dateIso, person.name, cell.formattedDate);
+            hideModal('#dateInspectModal');
+          } finally {
+            createSingleBtn.disabled = false;
+            createSingleBtn.textContent = '⚡ Create Task for this Date';
+          }
+        };
+      }
     } else {
       mList.innerHTML = '<p class="muted small">No missing task flagged.</p>';
+      if (createSingleBtn) createSingleBtn.style.display = 'none';
     }
   }
 
-  modal.classList.add('open');
+  showModal('#dateInspectModal', '#btnCloseDateInspectModal');
 }
 
 function openUserInspectModal(row) {
@@ -1003,7 +1106,7 @@ function openUserInspectModal(row) {
     });
   }
 
-  modal.classList.add('open');
+  showModal('#userInspectModal', '#btnCloseUserInspectModal');
 }
 
 /* ----------------------------------------------------------------- planner */
@@ -1018,7 +1121,12 @@ async function renderPlannerPeople() {
     return;
   }
 
-  if (state.selectedKeys.size === 0) active.forEach(p => state.selectedKeys.add(p.key));
+  // Ensure every active person is selected unless explicitly deselected by user
+  active.forEach(p => {
+    if (!state.deselectedKeys || !state.deselectedKeys.has(p.key)) {
+      state.selectedKeys.add(p.key);
+    }
+  });
 
   updatePlannerMemberPill(active.length);
 
@@ -1027,8 +1135,14 @@ async function renderPlannerPeople() {
     const chip = el('label', {
       class: `person-chip ${on ? 'on' : ''}`,
       onclick: () => {
-        if (state.selectedKeys.has(p.key)) state.selectedKeys.delete(p.key);
-        else state.selectedKeys.add(p.key);
+        if (state.selectedKeys.has(p.key)) {
+          state.selectedKeys.delete(p.key);
+          if (!state.deselectedKeys) state.deselectedKeys = new Set();
+          state.deselectedKeys.add(p.key);
+        } else {
+          state.selectedKeys.add(p.key);
+          if (state.deselectedKeys) state.deselectedKeys.delete(p.key);
+        }
         updatePlannerMemberPill(active.length);
         renderPlannerPeople();
         runPlanPreview();
@@ -1363,12 +1477,11 @@ function openConfirmationModal() {
     list.innerHTML = `<li>Evaluate and create pending tasks for: <strong>${keys.length ? keys.join(', ') : 'All enabled team members'}</strong></li>`;
   }
 
-  modal.classList.add('open');
+  showModal('#confirmModal', '#btnConfirmExecute');
 }
 
 async function executeCreation() {
-  const modal = $('#confirmModal');
-  if (modal) modal.classList.remove('open');
+  hideModal('#confirmModal');
 
   const btn = $('#executeBtn');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Creating tasks...'; }
@@ -1453,17 +1566,43 @@ async function loadPeople() {
 async function savePeople() {
   try {
     const res = await api.post('/config/people', { people: state.people });
+    if (!state.config) state.config = { people: [] };
     state.config.people = state.people.map(p => ({ ...p }));
+    
+    // Invalidate caches and reset view caches
     api.invalidateCache();
-    toast('Team members saved successfully', 'ok');
+    state.explorerData = null;
+    state.pendingPlan = null;
+    state.burndownData = null;
+    state.isDataDirty = true;
+
+    // Automatically ensure all active members are selected
+    const active = state.people.filter(p => p.enabled !== false);
+    active.forEach(p => {
+      state.selectedKeys.add(p.key);
+      state.selectedExplorerKeys.add(p.key);
+    });
+
+    toast('Team members saved. Syncing tasks everywhere...', 'ok');
 
     // Update people count KPI
-    const active = state.people.filter(p => p.enabled !== false);
     if ($('#kpiPeople')) $('#kpiPeople').textContent = active.length;
 
-    // Refresh views to show updated members
+    // Refresh views to show updated members and fetch fresh data
     renderPlannerPeople();
     renderExplorerUserPills(state.config);
+    refreshMyWork({ forceFresh: true });
+    runPlanPreview();
+
+    Promise.all([
+      refreshExplorer({ forceFresh: true }),
+      refreshBurndown({ forceFresh: true }),
+      refreshDashboard()
+    ]).then(() => {
+      state.isDataDirty = false;
+      toast('✅ Tasks synchronized across all views', 'ok');
+    }).catch(e => console.warn('Background sync error:', e));
+
   } catch (err) {
     toast(err.message, 'err');
   }
@@ -1479,7 +1618,8 @@ function openAddPersonModal() {
   $('#personRoleInput').value = '';
   if ($('#personTitlePrefixInput')) $('#personTitlePrefixInput').value = '';
   $('#personSourceIdInput').value = '';
-  modal.classList.add('open');
+  if ($('#personGithubInput')) $('#personGithubInput').value = '';
+  showModal('#personModal', '#personKeyInput');
 }
 
 async function savePersonFromModal() {
@@ -1490,6 +1630,7 @@ async function savePersonFromModal() {
   const role = $('#personRoleInput').value.trim();
   const titlePrefix = $('#personTitlePrefixInput')?.value.trim();
   const sourceTaskId = $('#personSourceIdInput').value.trim();
+  const githubUsername = $('#personGithubInput')?.value?.trim();
 
   if (!key || !name || !assignedTo) {
     toast('Key, Name, and Assigned To are required', 'err');
@@ -1510,13 +1651,14 @@ async function savePersonFromModal() {
     role: role || undefined,
     titlePrefix: titlePrefix || undefined,
     sourceTaskId: sourceTaskId ? Number(sourceTaskId) : undefined,
+    githubUsername: githubUsername || undefined,
     enabled: true,
   };
 
   // Optimistically append to local state and update Team UI immediately
   state.people.push(newMember);
   renderPeople();
-  $('#personModal').classList.remove('open');
+  hideModal('#personModal');
 
   toast(`Adding ${name} and syncing Azure DevOps data...`, 'ok');
 
@@ -1526,37 +1668,41 @@ async function savePersonFromModal() {
     if (!state.config) state.config = { people: [] };
     state.config.people = state.people.map(p => ({ ...p }));
 
-    // Invalidate caches to ensure fresh data across views
+    // Invalidate caches and reset view models to guarantee fresh data across all views
     api.invalidateCache();
+    state.explorerData = null;
+    state.pendingPlan = null;
+    state.burndownData = null;
+    state.isDataDirty = true;
 
-    // Select the new member in Explorer & Planner
+    // Automatically select the new member in Explorer & Planner
     state.selectedKeys.add(key);
     state.selectedExplorerKeys.add(key);
+
+    // Update people count KPI
+    const active = state.people.filter(p => p.enabled !== false);
+    if ($('#kpiPeople')) $('#kpiPeople').textContent = active.length;
 
     // Update planner & explorer user pills
     renderPlannerPeople();
     renderExplorerUserPills(state.config);
 
-    // Update My Work dropdown if present
-    const myWorkSelect = $('#myWorkPersonSelect');
-    if (myWorkSelect) {
-      const opt = document.createElement('option');
-      opt.value = key;
-      opt.textContent = `${name} (${assignedTo})`;
-      myWorkSelect.append(opt);
-    }
+    // Update My Work dropdown and immediately fetch new member's tasks
+    refreshMyWork({ forceFresh: true, targetKey: key });
 
-    // Trigger progressive background fetch for newly added member across Explorer & Planner
+    // Trigger immediate Plan Preview recalculation with new member included
     runPlanPreview();
 
-    // Query explorer specifically for the new member to warm up their data in background
-    api.get(`/explorer?preset=today_to_next_thursday&users=${encodeURIComponent(key)}`, { forceFresh: true }).then(() => {
-      toast(`✅ Data synchronized for ${name}`, 'ok');
-      if (state.currentView === 'explorer') refreshExplorer();
-      if (state.currentView === 'burndown') loadBurndownMonth();
-      if (state.currentView === 'dashboard') refreshDashboard();
+    // Immediately fetch fresh data across all views in parallel
+    Promise.all([
+      refreshExplorer({ forceFresh: true }),
+      refreshBurndown({ forceFresh: true }),
+      refreshDashboard()
+    ]).then(() => {
+      state.isDataDirty = false;
+      toast(`✅ Tasks fetched & synchronized everywhere for ${name}`, 'ok');
     }).catch(e => {
-      console.warn(`Initial sync for ${key}:`, e);
+      console.warn(`Sync for ${key}:`, e);
     });
 
   } catch (err) {
@@ -1644,6 +1790,36 @@ async function refreshScheduler() {
     if ($('#schedAutoStartCheck')) {
       $('#schedAutoStartCheck').checked = Boolean(s.autoStart);
     }
+
+    // EOD auto-close fields
+    const eodEnabled = s.autoCloseEnabled !== false;
+    if ($('#eodStatusPill')) {
+      $('#eodStatusPill').textContent = eodEnabled ? '🟢 Enabled' : '⚪ Disabled';
+      $('#eodStatusPill').style.color = eodEnabled ? 'var(--ok)' : 'var(--muted)';
+    }
+    if ($('#eodWindowDisplay')) {
+      $('#eodWindowDisplay').textContent = `${s.autoCloseStartTime || '18:15'} – ${s.autoCloseEndTime || '18:45'}`;
+    }
+    if ($('#eodNextDisplay')) {
+      $('#eodNextDisplay').textContent = s.nextAutoClose ? new Date(s.nextAutoClose).toLocaleString() : '—';
+    }
+    if ($('#eodLastDisplay')) {
+      if (s.lastAutoClose) {
+        const res = s.lastAutoCloseResult ? s.lastAutoCloseResult.toUpperCase() : 'DONE';
+        $('#eodLastDisplay').textContent = `${res} (${new Date(s.lastAutoClose).toLocaleTimeString()})`;
+      } else {
+        $('#eodLastDisplay').textContent = 'No runs yet';
+      }
+    }
+    if ($('#eodStartTimeInput') && document.activeElement !== $('#eodStartTimeInput')) {
+      $('#eodStartTimeInput').value = s.autoCloseStartTime || '18:15';
+    }
+    if ($('#eodEndTimeInput') && document.activeElement !== $('#eodEndTimeInput')) {
+      $('#eodEndTimeInput').value = s.autoCloseEndTime || '18:45';
+    }
+    if ($('#eodEnableCheck')) {
+      $('#eodEnableCheck').checked = eodEnabled;
+    }
   } catch (err) {
     toast(err.message, 'err');
   }
@@ -1673,6 +1849,20 @@ async function saveSchedulerConfig() {
   }
 }
 
+async function saveEodSchedulerConfig() {
+  try {
+    const autoCloseStartTime = $('#eodStartTimeInput')?.value?.trim() || '18:15';
+    const autoCloseEndTime = $('#eodEndTimeInput')?.value?.trim() || '18:45';
+    const autoClose = Boolean($('#eodEnableCheck')?.checked);
+
+    await api.post('/scheduler/config', { autoClose, autoCloseStartTime, autoCloseEndTime });
+    toast('EOD Auto-close settings saved successfully', 'ok');
+    refreshScheduler();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
 async function runSchedulerNow() {
   try {
     toast('Triggering immediate scheduler execution...');
@@ -1688,6 +1878,83 @@ async function runSchedulerNow() {
   }
 }
 
+async function triggerEodClosure(dryRun = false) {
+  const modal = $('#eodModal');
+  const summaryEl = $('#eodModalSummary');
+  const tbody = $('#eodModalTable tbody');
+  const executeBtn = $('#btnExecuteEodConfirmed');
+  const title = $('#eodModalTitle');
+
+  if (title) title.textContent = dryRun ? 'End-of-Day Task Closure Preview (Dry Run)' : 'Closing Today Tasks...';
+  if (executeBtn) executeBtn.style.display = dryRun ? 'inline-block' : 'none';
+
+  showModal('#eodModal', '#btnCloseEodModal');
+  if (summaryEl) summaryEl.innerHTML = '<span class="muted">Loading candidate tasks and fetching GitHub PR deliverables...</span>';
+  if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="muted" style="text-align:center; padding:24px;">Analyzing tasks for today...</td></tr>';
+
+  try {
+    const res = await api.post('/tasks/close-today', { dryRun });
+    state.lastEodResult = res;
+
+    if (summaryEl) {
+      summaryEl.innerHTML = '';
+      summaryEl.append(
+        el('div', { class: 'stat-chip' }, [el('b', {}, String(res.totalFound)), el('span', {}, 'Tasks Found')]),
+        el('div', { class: 'stat-chip' }, [el('b', {}, String(res.totalClosed)), el('span', {}, dryRun ? 'Eligible to Close' : 'Closed Successfully')]),
+        el('div', { class: 'stat-chip' }, [el('b', {}, String(res.totalAlreadyClosed)), el('span', {}, 'Already Closed')]),
+        el('div', { class: 'stat-chip' }, [el('b', {}, String(res.totalFailed)), el('span', {}, 'Failed')]),
+      );
+    }
+
+    if (tbody) {
+      tbody.innerHTML = '';
+      if (!res.results || res.results.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="muted" style="text-align:center; padding:24px;">No candidate tasks found for today.</td></tr>';
+      } else {
+        for (const r of res.results) {
+          const prBadge = r.prCount > 0
+            ? el('span', { class: 'pill ok' }, `${r.prCount} PR(s) today`)
+            : el('span', { class: 'pill muted' }, '0 PRs today');
+
+          let statusBadge;
+          if (r.status === 'closed') {
+            statusBadge = el('span', { class: 'pill ok' }, 'Closed');
+          } else if (r.status === 'simulated') {
+            statusBadge = el('span', { class: 'pill', style: 'border:1px dashed var(--accent);' }, 'Ready to Close');
+          } else if (r.status === 'already_closed') {
+            statusBadge = el('span', { class: 'pill muted' }, 'Already Closed');
+          } else {
+            statusBadge = el('span', { class: 'pill danger' }, 'Failed');
+          }
+
+          const tr = el('tr', {}, [
+            el('td', { style: 'font-weight:600;' }, r.personName),
+            el('td', {}, [
+              el('a', { href: getAdoWorkItemUrl(r.taskId), target: '_blank', class: 'ado-link' }, `#${r.taskId} ↗`),
+              el('div', { class: 'muted small' }, r.taskTitle),
+            ]),
+            el('td', {}, el('code', {}, r.githubUsername || '—')),
+            el('td', {}, [
+              el('div', {}, prBadge),
+              el('div', { class: 'muted small', style: 'max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' }, r.summaryText),
+            ]),
+            el('td', {}, String(r.remainingWork ?? 0) + 'h'),
+            el('td', {}, String(r.completedWork ?? 8) + 'h'),
+            el('td', {}, statusBadge),
+          ]);
+          tbody.append(tr);
+        }
+      }
+    }
+
+    toast(dryRun ? `Preview complete: ${res.totalClosed} task(s) ready to close.` : `Successfully closed ${res.totalClosed} task(s).`, 'ok');
+    refreshDashboard();
+  } catch (err) {
+    toast(`EOD closure failed: ${err.message}`, 'err');
+    if (summaryEl) summaryEl.innerHTML = `<span style="color:var(--danger);">Error: ${escapeHtml(err.message)}</span>`;
+  }
+}
+
 /* ----------------------------------------------------------------- settings */
 async function fillSettings() {
   const cfg = await ensureConfig();
@@ -1695,6 +1962,16 @@ async function fillSettings() {
   if ($('#setProject')) $('#setProject').value = cfg.project || '';
   if ($('#setTz')) $('#setTz').value = cfg.timezone || 'Asia/Kolkata';
   if ($('#setStart')) $('#setStart').value = cfg.startTime || '09:30';
+  if ($('#setGhToken')) {
+    $('#setGhToken').value = '';
+    if (cfg.githubToken) {
+      $('#setGhToken').placeholder = `Configured (${cfg.githubToken})`;
+    } else {
+      $('#setGhToken').placeholder = 'ghp_••••••••••••••••';
+    }
+  }
+  if ($('#setGhOrg')) $('#setGhOrg').value = cfg.githubOrg || '';
+  if ($('#setGhSuffix')) $('#setGhSuffix').value = cfg.githubUserSuffix || '_bflghec';
 }
 
 async function saveSettings() {
@@ -1711,6 +1988,64 @@ async function saveSettings() {
     refreshStatus();
   } catch (err) {
     toast(err.message, 'err');
+  }
+}
+
+async function saveGhSettings() {
+  try {
+    const rawToken = $('#setGhToken')?.value?.trim();
+    const body = {
+      githubToken: rawToken && !rawToken.includes('...') ? rawToken : undefined,
+      githubOrg: $('#setGhOrg')?.value?.trim() || undefined,
+      githubUserSuffix: $('#setGhSuffix')?.value?.trim() || '_bflghec',
+    };
+    await api.post('/config/settings', body);
+    state.config = null;
+    toast('GitHub settings saved successfully', 'ok');
+    refreshStatus();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function testGhResolution() {
+  const cfg = await ensureConfig();
+  const defaultEmail = cfg.people?.[0]?.assignedTo || 'yash.somani@bajajfinserv.in';
+  const email = prompt('Enter a corporate email to test GitHub login resolution and PR deliverables:', defaultEmail);
+  if (!email) return;
+
+  const resWrap = $('#ghTestResult');
+  if (resWrap) {
+    resWrap.style.display = 'block';
+    resWrap.innerHTML = '<span class="muted">Testing GitHub user resolution & fetching PRs...</span>';
+  }
+
+  try {
+    const data = await api.get(`/github/test-user?email=${encodeURIComponent(email)}`);
+    if (resWrap) {
+      const d = data.deliverables;
+      resWrap.innerHTML = `
+        <div style="margin-bottom:8px;">
+          <strong>Email:</strong> <code>${escapeHtml(data.email)}</code> &rarr; <strong>Resolved GitHub Login:</strong> <code style="color:var(--brand-glow); font-size:14px;">${escapeHtml(data.username)}</code>
+        </div>
+        <div style="margin-bottom:8px;">
+          <strong>Deliverables:</strong> ${d.isToday ? '<span class="pill ok">' + (d.pullRequests?.length || 0) + ' PR(s) Today (' + d.sourceDate + ')</span>' : '<span class="pill muted">0 PRs Today (' + d.sourceDate + ')</span>'}
+          <span style="margin-left:8px;">${escapeHtml(d.summaryText)}</span>
+        </div>
+        <div style="border-top:1px solid var(--border); padding-top:8px; font-size:12.5px;">
+          <strong>Generated Description Preview:</strong>
+          <div style="background:var(--surface); padding:8px 12px; border-radius:4px; margin-top:4px;">
+            ${d.htmlDescription}
+          </div>
+        </div>
+      `;
+    }
+    toast(`Resolved GitHub login: ${data.username}`, 'ok');
+  } catch (err) {
+    if (resWrap) {
+      resWrap.innerHTML = `<span style="color:var(--danger);">Resolution error: ${escapeHtml(err.message)}</span>`;
+    }
+    toast(`GitHub test failed: ${err.message}`, 'err');
   }
 }
 
@@ -1772,11 +2107,11 @@ async function openAdHocModal(defaultPersonKey, defaultDate) {
   if ($('#adHocDescriptionInput')) $('#adHocDescriptionInput').value = '';
   if ($('#adHocBypassDuplicate')) $('#adHocBypassDuplicate').checked = false;
 
-  modal.classList.add('open');
+  showModal('#adHocModal', '#adHocPersonSelect');
 }
 
 function closeAdHocModal() {
-  $('#adHocModal')?.classList.remove('open');
+  hideModal('#adHocModal');
 }
 
 async function submitAdHocTask() {
@@ -1859,12 +2194,18 @@ function connectLogStream() {
 
       if (term) {
         term.append(document.createTextNode(line));
+        if (term.childNodes.length > 500) {
+          term.removeChild(term.firstChild);
+        }
         term.scrollTop = term.scrollHeight;
       }
       if (drawerBody) {
         const span = document.createElement('div');
         span.textContent = line.trim();
         drawerBody.append(span);
+        if (drawerBody.children.length > 500) {
+          drawerBody.firstElementChild?.remove();
+        }
         drawerBody.scrollTop = drawerBody.scrollHeight;
       }
     } catch {
@@ -1907,8 +2248,8 @@ function wire() {
   $('#planBtn')?.addEventListener('click', runPlanPreview);
   $('#executeBtn')?.addEventListener('click', openConfirmationModal);
   $('#btnConfirmExecute')?.addEventListener('click', executeCreation);
-  $('#btnCancelConfirmModal')?.addEventListener('click', () => $('#confirmModal')?.classList.remove('open'));
-  $('#btnCloseConfirmModal')?.addEventListener('click', () => $('#confirmModal')?.classList.remove('open'));
+  $('#btnCancelConfirmModal')?.addEventListener('click', () => hideModal('#confirmModal'));
+  $('#btnCloseConfirmModal')?.addEventListener('click', () => hideModal('#confirmModal'));
 
   $('#asOf')?.addEventListener('change', runPlanPreview);
   $('#thursdayMode')?.addEventListener('change', runPlanPreview);
@@ -2029,13 +2370,39 @@ function wire() {
     runPlanPreview().then(() => openConfirmationModal());
   });
 
+  // Dismiss modal on backdrop click
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        hideModal(overlay);
+      }
+    });
+  });
+
+  // Global Escape key handler for accessible dialog closing
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const openModal = document.querySelector('.modal-overlay.open');
+      if (openModal) {
+        hideModal(openModal);
+        e.preventDefault();
+        return;
+      }
+      const openDrawer = document.querySelector('.drawer.open');
+      if (openDrawer) {
+        openDrawer.classList.remove('open');
+        e.preventDefault();
+      }
+    }
+  });
+
   // Modals close buttons
-  $('#btnCloseDateInspectModal')?.addEventListener('click', () => $('#dateInspectModal')?.classList.remove('open'));
-  $('#btnCloseDateInspectBtn')?.addEventListener('click', () => $('#dateInspectModal')?.classList.remove('open'));
-  $('#btnCloseUserInspectModal')?.addEventListener('click', () => $('#userInspectModal')?.classList.remove('open'));
-  $('#btnCloseUserInspectBtn')?.addEventListener('click', () => $('#userInspectModal')?.classList.remove('open'));
-  $('#btnClosePersonModal')?.addEventListener('click', () => $('#personModal')?.classList.remove('open'));
-  $('#btnCancelPersonModal')?.addEventListener('click', () => $('#personModal')?.classList.remove('open'));
+  $('#btnCloseDateInspectModal')?.addEventListener('click', () => hideModal('#dateInspectModal'));
+  $('#btnCloseDateInspectBtn')?.addEventListener('click', () => hideModal('#dateInspectModal'));
+  $('#btnCloseUserInspectModal')?.addEventListener('click', () => hideModal('#userInspectModal'));
+  $('#btnCloseUserInspectBtn')?.addEventListener('click', () => hideModal('#userInspectModal'));
+  $('#btnClosePersonModal')?.addEventListener('click', () => hideModal('#personModal'));
+  $('#btnCancelPersonModal')?.addEventListener('click', () => hideModal('#personModal'));
 
   // Team controls
   $('#addPersonBtn')?.addEventListener('click', openAddPersonModal);
@@ -2056,23 +2423,39 @@ function wire() {
   $('#schedToggle')?.addEventListener('change', e => toggleScheduler(e.target.checked));
   $('#schedSaveConfigBtn')?.addEventListener('click', saveSchedulerConfig);
   $('#schedRunNowBtn')?.addEventListener('click', runSchedulerNow);
+  $('#eodSaveConfigBtn')?.addEventListener('click', saveEodSchedulerConfig);
+  $('#eodPreviewBtn')?.addEventListener('click', () => triggerEodClosure(true));
+  $('#eodRunNowBtn')?.addEventListener('click', () => triggerEodClosure(false));
+  $('#btnCloseEodModal')?.addEventListener('click', () => hideModal('#eodModal'));
+  $('#btnCloseEodModalBtn')?.addEventListener('click', () => hideModal('#eodModal'));
+  $('#btnExecuteEodConfirmed')?.addEventListener('click', () => triggerEodClosure(false));
 
   // Settings controls
   $('#saveSettingsBtn')?.addEventListener('click', saveSettings);
   $('#savePatBtn')?.addEventListener('click', savePat);
   $('#testConnBtn')?.addEventListener('click', testConnection);
+  $('#saveGhSettingsBtn')?.addEventListener('click', saveGhSettings);
+  $('#testGhBtn')?.addEventListener('click', testGhResolution);
   $('#btnRunCreationAll')?.addEventListener('click', () => {
     state.selectedKeys.clear();
     executeCreation();
   });
   $('#btnRepairAll')?.addEventListener('click', async () => {
     toast('Repairing incomplete relationships...');
+    const btn = $('#btnRepairAll');
+    if (btn) { btn.disabled = true; btn.textContent = 'Repairing...'; }
     try {
-      const res = await api.post('/tasks/execute', { all: true, dryRun: false });
-      toast('Relations repaired', 'ok');
+      const res = await api.post('/tasks/repair');
+      if (res.total === 0) {
+        toast('No incomplete relations found. Everything is healthy!', 'ok');
+      } else {
+        toast(`Repaired ${res.repaired} of ${res.total} task relation(s).`, res.failed > 0 ? 'warn' : 'ok');
+      }
       refreshJournal();
     } catch (err) {
       toast(err.message, 'err');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '🔧 Repair Relationships'; }
     }
   });
 

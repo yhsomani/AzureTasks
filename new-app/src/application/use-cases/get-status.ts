@@ -3,7 +3,7 @@
  * Returns current system health and configuration status
  */
 
-import { WorkItemRepository, JournalRepository, SchedulerRepository, AppConfig } from '../../domain/ports/repositories.js';
+import { WorkItemRepository, AppConfig, JournalRepository, SchedulerRepository } from '../../domain/ports/repositories.js';
 
 export interface SystemStatusOutput {
   organization: string;
@@ -22,9 +22,9 @@ export interface SystemStatusOutput {
 export class GetSystemStatusUseCase {
   constructor(
     private readonly workItemRepo: WorkItemRepository,
-    private readonly journalRepo: JournalRepository,
-    private readonly schedulerRepo: SchedulerRepository,
-    private readonly config: AppConfig
+    private readonly config: AppConfig,
+    _journalRepo?: JournalRepository,
+    _schedulerRepo?: SchedulerRepository
   ) {}
 
   async execute(): Promise<SystemStatusOutput> {

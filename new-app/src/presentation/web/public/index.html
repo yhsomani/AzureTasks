@@ -438,6 +438,49 @@
             ℹ️ The scheduler evaluates working weekdays (Mon-Fri) and creates upcoming tasks up to the Thursday stop day. Execution is guarded by file lock concurrency protection and recorded in the audit journal.
           </p>
         </article>
+
+        <!-- EOD AUTO-CLOSE CARD -->
+        <article class="card" style="margin-top: 16px;">
+          <header class="card-head">
+            <div>
+              <h2 style="margin:0;">🌙 End-of-Day Task Auto-Closure (6:15 PM – 6:45 PM)</h2>
+              <p class="muted small" style="margin:4px 0 0 0;">Automatically marks today's tasks as Closed with 8h completed, 0h remaining, matched start dates, and PR descriptions.</p>
+            </div>
+            <div class="row gap" style="margin:0; align-items:center;">
+              <button class="btn ghost small" id="eodPreviewBtn">🔍 Preview EOD Closure (Dry Run)</button>
+              <button class="btn primary small" id="eodRunNowBtn">⚡ Close Today's Tasks Now</button>
+            </div>
+          </header>
+
+          <div class="grid cols-4" style="margin-top: 16px;">
+            <div class="mini"><span>Auto-Close Status</span><strong id="eodStatusPill" style="color:var(--ok);">Enabled</strong></div>
+            <div class="mini"><span>Window</span><strong id="eodWindowDisplay">18:15 – 18:45</strong></div>
+            <div class="mini"><span>Next Auto-Close</span><strong id="eodNextDisplay" style="color:var(--brand-glow);">—</strong></div>
+            <div class="mini"><span>Last Auto-Close</span><strong id="eodLastDisplay">No runs yet</strong></div>
+          </div>
+
+          <div class="grid cols-3" style="align-items:flex-end; margin-top: 16px;">
+            <label class="field">
+              <span>Window Start Time (HH:mm)</span>
+              <input type="time" id="eodStartTimeInput" value="18:15" />
+            </label>
+            <label class="field">
+              <span>Window End Time (HH:mm)</span>
+              <input type="time" id="eodEndTimeInput" value="18:45" />
+            </label>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                <input type="checkbox" id="eodEnableCheck" checked />
+                <span>Enable automatic EOD task closure</span>
+              </label>
+              <button class="btn primary" id="eodSaveConfigBtn">💾 Save EOD Settings</button>
+            </div>
+          </div>
+          <div id="eodResultsWrap" style="margin-top: 16px; display: none;">
+            <h4 style="font-size: 13px; margin-bottom: 8px;">Recent EOD Closure Results</h4>
+            <div id="eodResultsList" class="plan-preview"></div>
+          </div>
+        </article>
       </section>
 
       <!-- 9. LOGS VIEW -->
@@ -474,6 +517,22 @@
           <p class="muted small" style="margin-top:6px;">Requires Work Items: Read &amp; Write. Token is stored securely in server .env and scrubbed from logs.</p>
         </article>
 
+        <!-- GITHUB INTEGRATION CARD -->
+        <article class="card">
+          <header class="card-head"><h2>GitHub Integration &amp; EMU Settings</h2></header>
+          <div class="grid cols-3">
+            <label class="field"><span>GitHub Token (PAT)</span><input type="password" id="setGhToken" placeholder="ghp_••••••••••••••••" autocomplete="off" /></label>
+            <label class="field"><span>GitHub Organization</span><input type="text" id="setGhOrg" placeholder="e.g. BFLDevOpsOrg" /></label>
+            <label class="field"><span>Enterprise Suffix</span><input type="text" id="setGhSuffix" placeholder="_bflghec" value="_bflghec" /></label>
+          </div>
+          <div class="row end" style="gap:8px;">
+            <button class="btn ghost" id="testGhBtn">🐙 Test User Resolution &amp; PRs</button>
+            <button class="btn primary" id="saveGhSettingsBtn">Save GitHub Settings</button>
+          </div>
+          <p class="muted small" style="margin-top:6px;">Required to read private PRs for task descriptions. EMU suffix automatically derives GitHub logins from corporate emails (e.g. yash.somani@... &rarr; yash-somani_bflghec).</p>
+          <div id="ghTestResult" style="display:none; margin-top:12px; padding:12px; border-radius:var(--radius-sm); background:var(--surface-hover); font-size:13px;"></div>
+        </article>
+
         <article class="card">
           <header class="card-head"><h2>Maintenance &amp; Utilities</h2></header>
           <div class="row gap">
@@ -501,11 +560,11 @@
   </div>
 
   <!-- DATE INSPECTION MODAL -->
-  <div id="dateInspectModal" class="modal-overlay">
+  <div id="dateInspectModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="dateInspectTitle">
     <div class="modal-card">
       <div class="modal-header">
         <h3 id="dateInspectTitle">Date Details</h3>
-        <button class="icon-btn" id="btnCloseDateInspectModal" style="width:28px; height:28px;">✕</button>
+        <button class="icon-btn" id="btnCloseDateInspectModal" style="width:28px; height:28px;" aria-label="Close dialog">✕</button>
       </div>
       <div class="modal-body">
         <div id="dateInspectSummary" style="margin-bottom: 12px; display:flex; gap:8px; flex-wrap:wrap;"></div>
@@ -514,18 +573,19 @@
         <h4 style="font-size:12px; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px;">Missing Tasks</h4>
         <div id="dateInspectMissingList"></div>
       </div>
-      <div class="modal-footer">
+      <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
+        <button class="btn primary small" id="btnCreateSingleMissingTask" style="display:none;">⚡ Create Task for this Date</button>
         <button class="btn ghost" id="btnCloseDateInspectBtn">Close</button>
       </div>
     </div>
   </div>
 
   <!-- USER INSPECTION MODAL -->
-  <div id="userInspectModal" class="modal-overlay">
+  <div id="userInspectModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="userInspectTitle">
     <div class="modal-card">
       <div class="modal-header">
         <h3 id="userInspectTitle">User Details</h3>
-        <button class="icon-btn" id="btnCloseUserInspectModal" style="width:28px; height:28px;">✕</button>
+        <button class="icon-btn" id="btnCloseUserInspectModal" style="width:28px; height:28px;" aria-label="Close dialog">✕</button>
       </div>
       <div class="modal-body">
         <div id="userInspectSummary" style="margin-bottom: 12px; display:flex; gap:8px; flex-wrap:wrap;"></div>
@@ -539,11 +599,11 @@
   </div>
 
   <!-- TASK CONFIRMATION MODAL -->
-  <div id="confirmModal" class="modal-overlay">
+  <div id="confirmModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>Confirm Task Creation in Azure DevOps</h3>
-        <button class="icon-btn" id="btnCloseConfirmModal" style="width:28px; height:28px;">✕</button>
+        <h3 id="confirmModalTitle">Confirm Task Creation in Azure DevOps</h3>
+        <button class="icon-btn" id="btnCloseConfirmModal" style="width:28px; height:28px;" aria-label="Close dialog">✕</button>
       </div>
       <div class="modal-body">
         <p style="margin-bottom:12px;">You are about to create the following work items:</p>
@@ -560,11 +620,11 @@
   </div>
 
   <!-- ADD / EDIT PERSON MODAL -->
-  <div id="personModal" class="modal-overlay">
+  <div id="personModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="personModalTitle">
     <div class="modal-card">
       <div class="modal-header">
         <h3 id="personModalTitle">Add Team Member</h3>
-        <button class="icon-btn" id="btnClosePersonModal" style="width:28px; height:28px;">✕</button>
+        <button class="icon-btn" id="btnClosePersonModal" style="width:28px; height:28px;" aria-label="Close dialog">✕</button>
       </div>
       <div class="modal-body">
         <form id="personModalForm" onsubmit="return false;">
@@ -584,6 +644,11 @@
             <input type="number" id="personSourceIdInput" placeholder="e.g. 10647986" />
             <span class="muted small">Leave empty to automatically discover latest dated task.</span>
           </label>
+          <label class="field">
+            <span>GitHub Handle (Optional override)</span>
+            <input type="text" id="personGithubInput" placeholder="Leave blank to auto-derive (e.g. first-last_bflghec)" />
+            <span class="muted small">Auto-derived from corporate email if left blank.</span>
+          </label>
         </form>
       </div>
       <div class="modal-footer">
@@ -594,11 +659,11 @@
   </div>
 
   <!-- AD-HOC TASK CREATION MODAL -->
-  <div id="adHocModal" class="modal-overlay">
+  <div id="adHocModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="adHocModalTitle">
     <div class="modal-card" style="max-width: 540px;">
       <div class="modal-header">
         <h3 id="adHocModalTitle">Create Ad-Hoc Task in Azure DevOps</h3>
-        <button class="icon-btn" id="btnCloseAdHocModal" style="width:28px; height:28px;">✕</button>
+        <button class="icon-btn" id="btnCloseAdHocModal" style="width:28px; height:28px;" aria-label="Close dialog">✕</button>
       </div>
       <div class="modal-body">
         <form id="adHocForm" onsubmit="return false;">
@@ -653,6 +718,42 @@
       <div class="modal-footer">
         <button class="btn ghost" id="btnCancelAdHocModal">Cancel</button>
         <button class="btn primary" id="btnSubmitAdHocTask">🚀 Create Task Now</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EOD PREVIEW / CLOSURE MODAL -->
+  <div id="eodModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="eodModalTitle">
+    <div class="modal-card" style="max-width: 820px;">
+      <div class="modal-header">
+        <h3 id="eodModalTitle">End-of-Day Task Closure</h3>
+        <button class="icon-btn" id="btnCloseEodModal" style="width:28px; height:28px;" aria-label="Close dialog">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="eodModalSummary" style="margin-bottom: 12px; display:flex; gap:8px; flex-wrap:wrap;"></div>
+        <div class="table-wrap" style="max-height: 420px; overflow-y:auto;">
+          <table class="table" id="eodModalTable">
+            <thead>
+              <tr>
+                <th>Member</th>
+                <th>Task ID &amp; Title</th>
+                <th>GitHub User</th>
+                <th>PR Deliverables</th>
+                <th>Remaining</th>
+                <th>Completed</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div style="background:rgba(0,120,212,0.1); border:1px solid rgba(0,120,212,0.3); padding:10px 14px; border-radius:var(--radius-sm); margin-top:14px; font-size:12.5px; color:var(--text);">
+          ℹ️ Planned Start and Actual Start dates are matched. Completed work is set to 8h and Remaining work to 0h. The generated task description contains clickable PR links and statuses to avoid rule validation errors.
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
+        <button class="btn primary" id="btnExecuteEodConfirmed" style="display:none;">⚡ Execute EOD Closure in Azure DevOps</button>
+        <button class="btn ghost" id="btnCloseEodModalBtn">Close</button>
       </div>
     </div>
   </div>

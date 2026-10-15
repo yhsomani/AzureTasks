@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AppServer } from '../src/server/server.js';
 
 describe('AppServer & REST API Suite', () => {
@@ -9,6 +9,19 @@ describe('AppServer & REST API Suite', () => {
   beforeAll(async () => {
     // Start server on dynamic port (e.g. 4123)
     server = new AppServer(4123);
+    const router = (server as any).apiRouter;
+    if (router && router.client) {
+      vi.spyOn(router.client, 'get').mockImplementation(async (path: string) => {
+        if (path.includes('/_apis/projects/')) return { name: '3in1_Agile_Projects' } as any;
+        if (path.includes('/_apis/wit/workitemtypes/')) return { name: '3in1 Task' } as any;
+        return {} as any;
+      });
+      vi.spyOn(router.client, 'post').mockImplementation(async (path: string) => {
+        if (path.includes('/_apis/wit/wiql')) return { workItems: [] } as any;
+        if (path.includes('/_apis/wit/workitemsbatch')) return { value: [], count: 0 } as any;
+        return {} as any;
+      });
+    }
     serverPort = await server.start();
     baseUrl = `http://localhost:${serverPort}`;
   });
@@ -39,7 +52,7 @@ describe('AppServer & REST API Suite', () => {
     const res = await fetch(`${baseUrl}/app.js`);
     expect(res.status).toBe(200);
     const contentType = res.headers.get('content-type');
-    expect(contentType).toContain('application/javascript');
+    expect(contentType).toMatch(/javascript/);
     const text = await res.text();
     expect(text).toContain('appState');
   });

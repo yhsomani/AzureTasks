@@ -66,9 +66,13 @@ export function matchesPerson(assignedToVal: unknown, person: PersonConfig): boo
   const targetName = person.name.toLowerCase().trim();
 
   // Match by uniqueName / email (exact or case-insensitive)
+  const targetUserPart = targetEmail.split('@')[0];
   if (identity.uniqueName) {
     const identityEmail = identity.uniqueName.toLowerCase().trim();
     if (identityEmail === targetEmail) {
+      return true;
+    }
+    if (targetUserPart && identityEmail.split('@')[0] === targetUserPart) {
       return true;
     }
   }
@@ -81,6 +85,12 @@ export function matchesPerson(assignedToVal: unknown, person: PersonConfig): boo
     }
     // Check if displayName contains name (e.g. "Yash Somani (BFL)" contains "Yash Somani")
     if (identityDisplay.includes(targetName) && targetName.length >= 3) {
+      return true;
+    }
+    if (targetName.includes(identityDisplay) && identityDisplay.length >= 3) {
+      return true;
+    }
+    if (targetUserPart && identityDisplay.includes(targetUserPart) && targetUserPart.length >= 4) {
       return true;
     }
   }

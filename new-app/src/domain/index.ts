@@ -12,6 +12,7 @@ export * from './value-objects/date-window.js';
 
 // Services
 export * from './services/task-services.js';
+export * from './services/github-service.js';
 
 // Ports (interfaces)
 export * from './ports/repositories.js';

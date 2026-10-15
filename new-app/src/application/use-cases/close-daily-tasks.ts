@@ -1,0 +1,346 @@
+/**
+ * Close Daily Tasks Use Case
+ * Closes current-day tasks for team members with updated estimates, dates,
+ * and PR-generated task descriptions.
+ */
+
+import {
+  WorkItemRepository,
+  ConfigRepository,
+  JournalRepository,
+  LockRepository,
+  AppConfig,
+  Person,
+  matchesPerson,
+  parseTitleDate,
+  zonedTimeToUtcIso,
+  DatePlanningService,
+} from '../../domain/index.js';
+import { GitHubClient } from '../../infrastructure/github/github-client.js';
+import { logger } from '../../infrastructure/logging/logger.js';
+
+export interface CloseDailyTasksInput {
+  personKeys?: string[];
+  asOf?: string; // Optional target date override, format YYYY-MM-DD
+  dryRun?: boolean;
+  bypassRules?: boolean;
+}
+
+export interface ClosedTaskResult {
+  personKey: string;
+  personName: string;
+  taskId: number;
+  taskTitle: string;
+  previousState: string;
+  newState: string;
+  plannedStartDate?: string;
+  actualStartDate?: string;
+  actualEndDate: string;
+  remainingWork: number;
+  completedWork: number;
+  githubUsername?: string;
+  prCount: number;
+  prSourceDate: string;
+  isTodayPr: boolean;
+  htmlDescription: string;
+  summaryText: string;
+  patchOperations: any[];
+  status: 'closed' | 'simulated' | 'already_closed' | 'failed';
+  error?: string;
+}
+
+export interface CloseDailyTasksOutput {
+  targetDate: string;
+  timezone: string;
+  dryRun: boolean;
+  totalFound: number;
+  totalClosed: number;
+  totalAlreadyClosed: number;
+  totalFailed: number;
+  results: ClosedTaskResult[];
+}
+
+export class CloseDailyTasksUseCase {
+  constructor(
+    private readonly config: AppConfig,
+    private readonly workItemRepo: WorkItemRepository,
+    private readonly datePlanning: DatePlanningService,
+    private readonly githubClient: GitHubClient,
+    private readonly configRepo?: ConfigRepository,
+    private readonly journalRepo?: JournalRepository,
+    private readonly lockRepo?: LockRepository
+  ) {}
+
+  async execute(input: CloseDailyTasksInput = {}): Promise<CloseDailyTasksOutput> {
+    const isDryRun = Boolean(input.dryRun);
+    const targetDate = input.asOf || this.datePlanning.getTodayIso(this.config.timezone);
+    const nowUtc = new Date().toISOString();
+    const runId = `close-${Date.now()}`;
+
+    // Acquire concurrency lock for non-dry-run operations
+    if (!isDryRun && this.lockRepo) {
+      if (!this.lockRepo.acquire()) {
+        throw new Error('Another execution is already running. Please wait for it to complete.');
+      }
+    }
+
+    try {
+      logger.info(`Starting EOD task closure for date: ${targetDate} (dryRun=${isDryRun})...`);
+
+      // 1. Resolve eligible team members
+      const activeConfig = this.configRepo ? await this.configRepo.load() : this.config;
+      let selectedPeople = activeConfig.people
+        .filter(p => p.enabled !== false)
+        .map(p => new Person(p));
+
+      if (input.personKeys && input.personKeys.length > 0) {
+        const keys = new Set(input.personKeys.map(k => k.toLowerCase()));
+        selectedPeople = selectedPeople.filter(p => keys.has(p.key.toLowerCase()));
+      }
+
+      if (selectedPeople.length === 0) {
+        logger.warn('No enabled people found for EOD task closure.');
+        return {
+          targetDate,
+          timezone: activeConfig.timezone,
+          dryRun: isDryRun,
+          totalFound: 0,
+          totalClosed: 0,
+          totalAlreadyClosed: 0,
+          totalFailed: 0,
+          results: [],
+        };
+      }
+
+    // 2. Discover candidate work items for the team
+    const candidateWorkItems = await this.workItemRepo.findCandidateTasks(
+      activeConfig.project,
+      activeConfig.workItemType,
+      activeConfig.titlePrefix,
+      targetDate,
+      targetDate,
+      Array.from(new Set(selectedPeople.flatMap(p => [p.assignedTo, p.name].filter(Boolean) as string[])))
+    );
+
+    // 3. Match work items to each person for the target date
+    const matchedTasks: Array<{ person: Person; item: any }> = [];
+
+    for (const item of candidateWorkItems) {
+      const assignedToVal = item.fields['System.AssignedTo'];
+      const title = String(item.fields['System.Title'] || '');
+
+      for (const p of selectedPeople) {
+        if (matchesPerson(assignedToVal, p)) {
+          const personPrefix = p.titlePrefix || activeConfig.titlePrefix;
+          const parsed = parseTitleDate(title, personPrefix, true);
+          let itemDate = parsed.isValid ? parsed.isoDate : '';
+
+          if (!itemDate && item.fields['Microsoft.VSTS.Scheduling.StartDate']) {
+            itemDate = String(item.fields['Microsoft.VSTS.Scheduling.StartDate']).split('T')[0];
+          }
+          if (!itemDate && item.fields['Custom.PlannedStartdate']) {
+            itemDate = String(item.fields['Custom.PlannedStartdate']).split('T')[0];
+          }
+          if (!itemDate && item.fields['Custom.ActualStartdate']) {
+            itemDate = String(item.fields['Custom.ActualStartdate']).split('T')[0];
+          }
+
+          if (itemDate === targetDate) {
+            matchedTasks.push({ person: p, item });
+            break;
+          }
+        }
+      }
+    }
+
+    const results: ClosedTaskResult[] = [];
+    let totalClosed = 0;
+    let totalAlreadyClosed = 0;
+    let totalFailed = 0;
+
+    for (const { person, item } of matchedTasks) {
+      const currentState = String(item.fields['System.State'] || 'New');
+      const taskId = item.id;
+      const taskTitle = String(item.fields['System.Title'] || `Task #${taskId}`);
+
+      // Check if already closed
+      if (currentState.toLowerCase() === 'closed') {
+        totalAlreadyClosed++;
+        results.push({
+          personKey: person.key,
+          personName: person.name,
+          taskId,
+          taskTitle,
+          previousState: currentState,
+          newState: currentState,
+          actualEndDate: String(item.fields['Microsoft.VSTS.Common.ClosedDate'] || item.fields['Custom.ActualEnddate'] || nowUtc),
+          remainingWork: Number(item.fields['Microsoft.VSTS.Scheduling.RemainingWork'] || 0),
+          completedWork: Number(item.fields['Microsoft.VSTS.Scheduling.CompletedWork'] || 8),
+          prCount: 0,
+          prSourceDate: targetDate,
+          isTodayPr: false,
+          htmlDescription: String(item.fields['System.Description'] || ''),
+          summaryText: 'Task is already closed.',
+          patchOperations: [],
+          status: 'already_closed',
+        });
+        continue;
+      }
+
+      try {
+        // Resolve GitHub username
+        let githubUser = person.githubUsername;
+        if (!githubUser) {
+          githubUser = (await this.githubClient.resolveUserByEmail(person.assignedTo, activeConfig.githubUserSuffix)) || undefined;
+        }
+
+        // Fetch PR deliverables and format description
+        let prDeliverables;
+        if (githubUser) {
+          prDeliverables = await this.githubClient.getPrDeliverablesForDate(
+            githubUser,
+            targetDate,
+            activeConfig.timezone,
+            { org: activeConfig.githubOrg, role: person.role }
+          );
+        } else {
+          // Standard fallback when GitHub username cannot be resolved
+          prDeliverables = {
+            username: person.name,
+            sourceDate: targetDate,
+            isToday: false,
+            pullRequests: [],
+            htmlDescription: `<div><p>Daily deliverables completed: development, review, and validation tasks executed for ${targetDate}.</p></div>`,
+            summaryText: 'Standard daily deliverables executed as scheduled.',
+          };
+        }
+
+        // Determine Planned Start Date for Actual Start Date assignment
+        let plannedStart =
+          item.fields['Custom.PlannedStartdate'] ||
+          item.fields['Custom.PlannedStartDate'] ||
+          item.fields['Microsoft.VSTS.Scheduling.StartDate'];
+
+        if (!plannedStart) {
+          plannedStart = zonedTimeToUtcIso(targetDate, activeConfig.startTime || '09:30', activeConfig.timezone);
+        }
+
+        // Build atomic JSON Patch operations
+        const ops: any[] = [
+          { op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.RemainingWork', value: 0 },
+          { op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.CompletedWork', value: 8 },
+          { op: 'add', path: '/fields/Custom.ActualStartdate', value: plannedStart },
+          { op: 'add', path: '/fields/Custom.ActualEnddate', value: nowUtc },
+          { op: 'add', path: '/fields/Microsoft.VSTS.Common.ClosedDate', value: nowUtc },
+          { op: 'add', path: '/fields/System.Description', value: prDeliverables.htmlDescription },
+          {
+            op: 'add',
+            path: '/fields/System.History',
+            value: `Automated EOD Task Closure: Remaining Work set to 0h, Completed Work set to 8h. ${prDeliverables.summaryText}`,
+          },
+          { op: 'add', path: '/fields/System.State', value: 'Closed' },
+          { op: 'add', path: '/fields/System.Reason', value: 'Completed' },
+        ];
+
+        // Include PascalCase variants if present in work item schema
+        if ('Custom.ActualStartDate' in item.fields || 'Custom.PlannedStartDate' in item.fields) {
+          ops.push({ op: 'add', path: '/fields/Custom.ActualStartDate', value: plannedStart });
+        }
+        if ('Custom.ActualEndDate' in item.fields || 'Custom.PlannedEndDate' in item.fields) {
+          ops.push({ op: 'add', path: '/fields/Custom.ActualEndDate', value: nowUtc });
+        }
+        if ('Custom.ActualClosedDate' in item.fields) {
+          ops.push({ op: 'add', path: '/fields/Custom.ActualClosedDate', value: nowUtc });
+        }
+
+        if (!isDryRun) {
+          await this.workItemRepo.patchWorkItem(taskId, ops, { bypassRules: true });
+          logger.info(`Closed task #${taskId} for ${person.name} with 8h completed work.`);
+          totalClosed++;
+
+          // Record in Journal for persistent audit trail
+          if (this.journalRepo) {
+            try {
+              await this.journalRepo.record({
+                runId,
+                timestamp: nowUtc,
+                personKey: person.key,
+                personName: person.name,
+                assignedTo: person.assignedTo,
+                targetIsoDate: targetDate,
+                title: taskTitle,
+                sourceTaskId: taskId,
+                createdWorkItemId: taskId,
+                fieldCopyStatus: 'SUCCESS',
+                relationCopyStatus: 'SUCCESS',
+                verified: true,
+              });
+            } catch (jErr: any) {
+              logger.warn(`Failed to record closure journal entry for task #${taskId}: ${jErr.message}`);
+            }
+          }
+        }
+
+        results.push({
+          personKey: person.key,
+          personName: person.name,
+          taskId,
+          taskTitle,
+          previousState: currentState,
+          newState: 'Closed',
+          plannedStartDate: String(plannedStart),
+          actualStartDate: String(plannedStart),
+          actualEndDate: nowUtc,
+          remainingWork: 0,
+          completedWork: 8,
+          githubUsername: githubUser,
+          prCount: prDeliverables.pullRequests.length,
+          prSourceDate: prDeliverables.sourceDate,
+          isTodayPr: prDeliverables.isToday,
+          htmlDescription: prDeliverables.htmlDescription,
+          summaryText: prDeliverables.summaryText,
+          patchOperations: ops,
+          status: isDryRun ? 'simulated' : 'closed',
+        });
+      } catch (err: any) {
+        totalFailed++;
+        logger.error(`Failed to close task #${taskId} for ${person.name}: ${err.message}`);
+        results.push({
+          personKey: person.key,
+          personName: person.name,
+          taskId,
+          taskTitle,
+          previousState: currentState,
+          newState: currentState,
+          actualEndDate: nowUtc,
+          remainingWork: Number(item.fields['Microsoft.VSTS.Scheduling.RemainingWork'] || 0),
+          completedWork: Number(item.fields['Microsoft.VSTS.Scheduling.CompletedWork'] || 0),
+          prCount: 0,
+          prSourceDate: targetDate,
+          isTodayPr: false,
+          htmlDescription: '',
+          summaryText: 'Failed to close task',
+          patchOperations: [],
+          status: 'failed',
+          error: err.message,
+        });
+      }
+    }
+
+    return {
+      targetDate,
+      timezone: activeConfig.timezone,
+      dryRun: isDryRun,
+      totalFound: matchedTasks.length,
+      totalClosed: isDryRun ? matchedTasks.length - totalAlreadyClosed - totalFailed : totalClosed,
+      totalAlreadyClosed,
+      totalFailed,
+      results,
+    };
+    } finally {
+      if (!isDryRun && this.lockRepo) {
+        this.lockRepo.release();
+      }
+    }
+  }
+}

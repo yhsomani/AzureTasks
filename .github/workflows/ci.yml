@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  validate-new-app:
+    name: Validate new-app (Hexagonal / Production)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: new-app
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: new-app/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Typecheck TypeScript
+        run: npm run typecheck
+
+      - name: Run Linter
+        run: npm run lint
+
+      - name: Run Tests with Coverage
+        run: npm run test:coverage
+
+      - name: Verify Build
+        run: npm run build
+
+  validate-legacy:
+    name: Validate Legacy (Reference Baseline)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: Legacy
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: Legacy/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Typecheck TypeScript
+        run: npm run typecheck
+
+      - name: Run Tests
+        run: npm test

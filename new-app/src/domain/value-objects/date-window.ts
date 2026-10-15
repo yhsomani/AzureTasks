@@ -126,7 +126,7 @@ export function zonedTimeToUtcIso(isoDate: string, hhmm: string, timeZone: strin
  * Core business logic - pure function, no side effects
  */
 export function planCreationDates(input: DatePlanInput): DatePlan {
-  const { todayIso, latestExistingTaskIso, latestExistingTaskId, existingTasksMap, titlePrefix, thursdayMode, skipWeekends, stopDayOfWeek } = input;
+  const { todayIso, latestExistingTaskIso, existingTasksMap, titlePrefix, thursdayMode, skipWeekends, stopDayOfWeek } = input;
 
   const nextThursdayIso = getNextThursdayIso(todayIso, thursdayMode, stopDayOfWeek);
   const plannedDates: PlannedDate[] = [];

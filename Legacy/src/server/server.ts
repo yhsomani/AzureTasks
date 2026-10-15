@@ -44,12 +44,13 @@ export class AppServer {
   private configureRoutes() {
     // API Routes
     this.app.use('/api', this.apiRouter.getRouter());
+    this.app.use('/api/{*splat}', (req, res) => res.status(404).json({ success: false, error: 'API route not found' }));
 
     // Static Frontend
     this.app.use(express.static(this.staticDir));
 
     // SPA Fallback
-    this.app.get('*', (req, res) => {
+    this.app.get('/{*splat}', (req, res) => {
       const indexPath = path.join(this.staticDir, 'index.html');
       if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);

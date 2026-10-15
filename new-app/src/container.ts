@@ -15,6 +15,9 @@ import { GetSystemStatusUseCase, SystemStatusOutput } from './application/use-ca
 import { ConfigUseCases } from './application/use-cases/config.js';
 import { RepairRelationsUseCase } from './application/use-cases/repair-relations.js';
 import { ExploreTasksUseCase, ExploreTasksInput, ExploreTasksOutput } from './application/use-cases/explore-tasks.js';
+import { CloseDailyTasksUseCase, CloseDailyTasksInput, CloseDailyTasksOutput } from './application/use-cases/close-daily-tasks.js';
+import { GitHubClient } from './infrastructure/github/github-client.js';
+import { DatePlanningService } from './domain/index.js';
 import { AppConfig } from './domain/ports/repositories.js';
 import { logger } from './infrastructure/logging/logger.js';
 
@@ -26,6 +29,8 @@ export interface App {
   getStatus: GetSystemStatusUseCase;
   configUseCases: ConfigUseCases;
   repairRelations: RepairRelationsUseCase;
+  closeDailyTasks: CloseDailyTasksUseCase;
+  githubClient: GitHubClient;
   journal: FileJournalRepository;
   scheduler: NodeSchedulerRepository;
 }
@@ -34,12 +39,21 @@ export interface App {
  * Build the application container.
  * The PAT is read from the environment; the config is loaded from disk.
  */
-export async function buildApp(configFilePath?: string): Promise<App> {
+export async function buildApp(
+  configFilePath?: string,
+  options: { autoStartScheduler?: boolean } = {}
+): Promise<App> {
   const configRepo = new FileConfigRepository(configFilePath);
   const config = await configRepo.load();
 
   const pat = process.env.AZURE_DEVOPS_PAT?.trim() || '';
   if (pat) logger.registerSecret(pat);
+
+  const ghToken = (config.githubToken || process.env.GITHUB_TOKEN || process.env.GH_PAT)?.trim() || '';
+  if (ghToken) logger.registerSecret(ghToken);
+
+  const authSecret = process.env.API_AUTH_TOKEN?.trim() || '';
+  if (authSecret) logger.registerSecret(authSecret);
 
   // Pass the live config object (not a snapshot) so organization/baseUrl edits
   // take effect without a restart; the PAT is resolved from the environment at
@@ -50,13 +64,30 @@ export async function buildApp(configFilePath?: string): Promise<App> {
   const journalRepo = new FileJournalRepository();
   const lockRepo = new FileLockRepository();
   const schedulerRepo = new NodeSchedulerRepository(config, configRepo);
+  const datePlanning = new DatePlanningService();
+
+  const githubClient = new GitHubClient({
+    get token() { return config.githubToken || process.env.GITHUB_TOKEN || process.env.GH_PAT; },
+    get org() { return config.githubOrg || process.env.GITHUB_ORG; },
+    apiUrl: config.githubApiUrl,
+    get userSuffix() { return config.githubUserSuffix ?? process.env.GITHUB_USER_SUFFIX ?? '_bflghec'; },
+  });
 
   const createTasks = new CreateTasksUseCase(workItemRepo, journalRepo, lockRepo, config);
   const planTasks = new PlanTasksUseCase(workItemRepo, config);
   const exploreTasks = new ExploreTasksUseCase(workItemRepo, config);
-  const getStatus = new GetSystemStatusUseCase(workItemRepo, journalRepo, schedulerRepo, config);
+  const getStatus = new GetSystemStatusUseCase(workItemRepo, config);
   const configUseCases = new ConfigUseCases(configRepo, config);
   const repairRelations = new RepairRelationsUseCase(workItemRepo, journalRepo);
+  const closeDailyTasks = new CloseDailyTasksUseCase(
+    config,
+    workItemRepo,
+    datePlanning,
+    githubClient,
+    configRepo,
+    journalRepo,
+    lockRepo
+  );
 
   // Wire scheduler to run task creation
   schedulerRepo.setScheduleFunction(async () => {
@@ -66,8 +97,19 @@ export async function buildApp(configFilePath?: string): Promise<App> {
     }
   });
 
-  // Auto-start scheduler if configured
-  if (config.schedulerEnabled || config.schedulerAutoStart) {
+  // Wire scheduler to run EOD task auto-closure
+  schedulerRepo.setAutoCloseFunction(async () => {
+    logger.info('Scheduler: executing automated EOD task closure...');
+    const result = await closeDailyTasks.execute({ bypassRules: true });
+    logger.info(`Scheduler EOD closure finished: ${result.totalClosed} closed, ${result.totalAlreadyClosed} already closed, ${result.totalFailed} failed.`);
+    if (result.totalFailed > 0) {
+      throw new Error(`${result.totalFailed} task(s) failed during auto-closure`);
+    }
+  });
+
+  // Auto-start scheduler if configured and not explicitly suppressed
+  const shouldAutoStart = options.autoStartScheduler !== false && (config.schedulerEnabled || config.schedulerAutoStart);
+  if (shouldAutoStart) {
     logger.info('Auto-starting persistent scheduler on boot...');
     schedulerRepo.start();
   }
@@ -80,6 +122,8 @@ export async function buildApp(configFilePath?: string): Promise<App> {
     getStatus,
     configUseCases,
     repairRelations,
+    closeDailyTasks,
+    githubClient,
     journal: journalRepo,
     scheduler: schedulerRepo,
   };
@@ -94,4 +138,6 @@ export type {
   ExploreTasksInput,
   ExploreTasksOutput,
   SystemStatusOutput,
+  CloseDailyTasksInput,
+  CloseDailyTasksOutput,
 };

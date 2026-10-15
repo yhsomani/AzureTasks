@@ -42,26 +42,23 @@
 
   <!-- Navigation Tabs -->
   <div class="nav-tabs-wrapper">
-    <nav class="nav-tabs">
-      <button class="nav-tab-btn active" data-tab="overview">
+    <nav class="nav-tabs" role="tablist">
+      <button class="nav-tab-btn active" role="tab" aria-selected="true" data-tab="overview">
         📈 Overview
       </button>
-      <button class="nav-tab-btn" data-tab="burndown">
+      <button class="nav-tab-btn" role="tab" aria-selected="false" data-tab="burndown">
         📅 Daily Burndown
       </button>
-      <button class="nav-tab-btn" data-tab="mywork">
+      <button class="nav-tab-btn" role="tab" aria-selected="false" data-tab="mywork">
         👨‍💻 My Work
       </button>
-      <button class="nav-tab-btn" data-tab="team">
+      <button class="nav-tab-btn" role="tab" aria-selected="false" data-tab="team">
         👥 Team Insights
       </button>
-      <button class="nav-tab-btn" data-tab="explorer">
+      <button class="nav-tab-btn" role="tab" aria-selected="false" data-tab="explorer">
         🔍 Task Explorer
       </button>
-      <button class="nav-tab-btn" data-tab="audit">
-        📜 Activity &amp; Audit
-      </button>
-      <button class="nav-tab-btn" data-tab="settings">
+      <button class="nav-tab-btn" role="tab" aria-selected="false" data-tab="settings">
         ⚙️ Settings
       </button>
     </nav>
@@ -154,6 +151,39 @@
         </div>
       </div>
 
+      <!-- Task Matrix -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>👥 Team Task Matrix - Daily Assignment Plan</span>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <button id="btnRefreshMatrix" class="btn btn-secondary btn-sm" title="Refresh task matrix">
+              🔄 Refresh
+            </button>
+            <button id="btnSimulateWindow" class="btn btn-secondary btn-sm" title="Simulate next creation window">
+              🔮 Simulate Window
+            </button>
+          </div>
+        </div>
+        <div class="panel-body" style="overflow-x: auto;">
+          <table class="matrix-table" style="width: 100%; border-collapse: collapse; margin-bottom: 1rem;">
+            <thead>
+              <tr id="matrixHeaderRow" style="background-color: var(--bg-secondary); border-bottom: 2px solid var(--border-color);">
+                <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Team Member</th>
+              </tr>
+            </thead>
+            <tbody id="matrixBody" style="background-color: var(--bg-primary);">
+              <tr>
+                <td colspan="7" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+                  Loading task matrix...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Upcoming Plan Details -->
       <div class="panel">
         <div class="panel-header">
@@ -202,7 +232,7 @@
             <span>👨‍💻 My Work</span>
           </div>
         </div>
-        <div class="panel-body">
+        <div class="panel-body" id="myWorkContainer">
            <p>Personalized view coming soon...</p>
         </div>
       </div>
@@ -456,43 +486,6 @@
 
     <!-- TAB 3: DAILY BURNDOWN MATRIX -->
     
-    <!-- TAB: ACTIVITY & AUDIT -->
-    <section id="tab-audit" class="tab-pane">
-      <div class="panel">
-        <div class="panel-header">
-          <div class="panel-title">
-            <span>📜 Activity &amp; Audit Timeline</span>
-          </div>
-          <div style="display: flex; gap: 0.5rem; align-items: center;">
-            <a href="/api/journal/export?format=csv" download="task-journal.csv" class="btn btn-secondary btn-sm" style="text-decoration: none;">
-              📥 Export CSV
-            </a>
-            <a href="/api/journal/export?format=json" download="task-journal.json" class="btn btn-secondary btn-sm" style="text-decoration: none;">
-              📥 Export JSON
-            </a>
-          </div>
-        </div>
-        <div class="panel-body">
-           <div class="table-container">
-             <table class="data-table">
-               <thead>
-                 <tr>
-                   <th>Timestamp</th>
-                   <th>Operation</th>
-                   <th>Status</th>
-                   <th>User</th>
-                   <th>Work Item ID</th>
-                   <th>Details</th>
-                 </tr>
-               </thead>
-               <tbody id="auditListBody">
-                 <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Loading audit logs...</td></tr>
-               </tbody>
-             </table>
-           </div>
-        </div>
-      </div>
-    </section>
 
 <section id="tab-settings" class="tab-pane">
       <div class="panel" style="max-width: 680px; margin: 0 auto;">
@@ -550,6 +543,22 @@
                 💾 Save Settings
               </button>
             </div>
+          </form>
+
+          <!-- Maintenance Section -->
+          <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+            <h4 style="margin-bottom: 1rem;">Maintenance & Utilities</h4>
+            <div style="display: flex; gap: 0.75rem;">
+              <button type="button" id="btnRunCreation" class="btn btn-primary">
+                ⚡ Run Task Creation (All People)
+              </button>
+              <button type="button" id="btnRepairAll" class="btn btn-secondary">
+                🔧 Repair Relationships
+              </button>
+            </div>
+            <small style="display: block; margin-top: 0.75rem; color: var(--text-muted);">
+              Repair: Fixes incomplete child-link relationships from previous executions.
+            </small>
           </form>
         </div>
       </div>

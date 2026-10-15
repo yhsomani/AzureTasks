@@ -30,13 +30,18 @@ class Logger {
     const trimmed = secret.trim();
     if (!trimmed) return;
     this.secrets.push(trimmed);
-    // Also scrub the base64 encoding (used in the auth header)
+    this.secrets.push(`token ${trimmed}`);
+    this.secrets.push(`Bearer ${trimmed}`);
+    // Also scrub base64 encodings (used in auth headers)
     try {
-      const b64 = Buffer.from(`:${trimmed}`).toString('base64');
-      this.secrets.push(b64);
+      this.secrets.push(Buffer.from(trimmed).toString('base64'));
+      this.secrets.push(Buffer.from(`:${trimmed}`).toString('base64'));
+      this.secrets.push(Buffer.from(`admin:${trimmed}`).toString('base64'));
     } catch {
       // ignore
     }
+    // Sort longer patterns first to prevent partial token scrubbing
+    this.secrets.sort((a, b) => b.length - a.length);
   }
 
   private scrub(message: string): string {

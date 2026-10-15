@@ -34,3 +34,58 @@
 - Verified clean build (`npm run build`) and asset synchronization to `dist/`.
 - Updated `new-app/docs/FEATURE_PARITY.md`, `new-app/docs/TEST_RESULTS.md`, and `new-app/docs/PRODUCTION_READINESS.md`.
 - All PRD tasks marked 100% complete. Parity verified.
+
+## Iteration 4: Dynamic Team Member Synchronization & Naming Conventions
+- Root-caused member task fetching failures across both `new-app` and `Legacy`:
+  1. ADO tasks commonly use colon-separated (`12 October : ...`) and date-first titles. Flexible parser now extracts dates from colon, hyphen, pipe, and full/abbreviated month names.
+  2. Fallback to `Custom.PlannedStartdate` and `Custom.ActualStartdate` added when standard scheduling start date is absent.
+  3. WIQL queries now filter by team member identities (`[System.AssignedTo] IN (...)`), ensuring tasks are retrieved regardless of title prefix differences.
+- Implemented immediate multi-view cache invalidation and forced re-fetch (`{ forceFresh: true }`) for Explorer, Planner, My Work, and Burndown upon saving/adding team members.
+- Validated with live Azure DevOps API against active team members (Yash Mutatkar, Shubham Bugade, Yash Somani, Vishal Shinde17, Karan Dham, Ajinkya Lendikar).
+
+## Iteration 5: 1-Click Ad-Hoc Task Creation & Complete End-to-End Delivery
+- Wired 1-click single task creation (`#btnCreateSingleMissingTask`) into Date Inspect Modal for any flagged missing date.
+- Added direct "+ Create" action button in Detailed Task Explorer list for missing days.
+- Synchronized codebases (`new-app` and `Legacy`). Verified clean builds and passed all 122 tests in `new-app` and all 75 tests in `Legacy`.
+- Daemon server running healthy on port 3000. All release gates verified.
+
+## Iteration 6: Automated EOD Task Auto-Closure & GitHub PR Integration
+- Added `CloseDailyTasksUseCase` with automated EOD task closure (6:15 PM – 6:45 PM IST weekday randomizer).
+- Guaranteed strict same-day execution (5-second catch-up upon daemon startup if booted past window; never defers to next day).
+- Azure DevOps work item patch: Remaining Work set to 0h, Completed Work set to 8h, Planned and Actual start dates matched, actual end dates recorded, and State transitioned to 'Closed'.
+- Integrated GitHub REST client with enterprise EMU username derivation (`_bflghec`) and Pull Request fetching (`type:pr author:<login> org:3in1-AppFrontEnd`).
+- Automatic HTML task description formatting with clickable PR links, statuses, and fallback descriptions when no PRs were filed.
+
+## Iteration 7: Master Multi-Agent Codebase Audit & Hardening
+- Executed comprehensive 13-role Multi-Agent Software Company audit across Architecture, UX, Backend, Database, Security, QA, Accessibility, Reliability, DevOps, and Documentation.
+- Fixed P0 DOM tree nesting defect in `index.html` where unclosed `#adHocModal` tags trapped `#eodModal` inside the ad-hoc card.
+- Implemented WCAG 2.2 AA accessibility standards across all 6 application modals (`role="dialog"`, `aria-modal="true"`, `aria-labelledby`, global `Escape` keyboard dismissal, backdrop click closing, and autofocus).
+- Hardened secret scrubbing in `logger.ts` and `container.ts` for `GITHUB_TOKEN`, `API_AUTH_TOKEN`, and `AZURE_DEVOPS_PAT`.
+- Added concurrency mutual exclusion locking and `JournalRepository` persistence to `CloseDailyTasksUseCase`.
+- Authored dedicated unit test suite for `GitHubClient` (`github-client.test.ts`), elevating statement coverage from 0% to 95.54%.
+- Fixed all ESLint warnings. Verified 17 test suites, 167/167 tests passing (100%), and clean production build. Final verdict: PASS.
+
+## Iteration 8: Master Audit Execution, Hardening & Zero-Regression Release
+- Resolved Settings Persistence Gap: `FileConfigRepository.saveSettings()` now persists `githubOrg`, `githubUserSuffix`, `githubApiUrl`, `autoClose`, `autoCloseStartTime`, and `autoCloseEndTime`. Added `saveEnvVariable()` to write `GITHUB_TOKEN` directly into `.env` with restrictive `0600` permissions.
+- Hardened Secret Exposure: Masked `githubToken` in `ConfigUseCases.getConfig()` (`ghp_••••...••••`) so cleartext secrets are never returned via GET. Registered runtime token updates in `POST /config/settings` with `logger.registerSecret()` for real-time redaction across SSE streams and server logs.
+- Dynamic GitHub Configuration: Refactored `GitHubClient` with dynamic getters for `token`, `defaultOrg`, and `defaultUserSuffix`, enabling instant runtime updates without process restarts.
+- Strict Content Security Policy (CSP): Enforced restrictive HTTP CSP headers in `server.ts` guarding against unauthorized origins and XSS.
+- Work Item Disambiguation: Added loop termination (`break`) in `CloseDailyTasksUseCase` candidate task matching to prevent work items from being double-attributed to multiple users.
+- Frontend Polish & WCAG Focus Restoration:
+  - Corrected DOM text node rendering bug in `triggerEodClosure()` so PR and status badges render as styled elements rather than raw HTML markup.
+  - Standardized modal management with `showModal()` and `hideModal()`, restoring keyboard focus to the triggering element upon dialog dismissal.
+  - Implemented memory capping at 500 lines for the live terminal (`#term`) and slide-over drawer (`#drawerBody`).
+  - Added masked placeholder display for GitHub token in settings UI to avoid overwriting existing tokens with empty values.
+- Verification Suite:
+  - Added unit test coverage for token masking and settings persistence in `config-use-cases.test.ts`.
+## Iteration 9: Multidisciplinary Engineering Council Audit, Runtime Hardening & Release Verification
+- Completed comprehensive 13-role Multi-Agent Software Company codebase audit (CTO, PM, Architect, Frontend/UX, Backend, Database/Data Integrity, Security, QA, Accessibility, Performance, DevOps, Documentation, and Independent Reviewer).
+- Real-Time Runtime Synchronization: Hardened `FileConfigRepository.saveEnvVariable()` to immediately update in-memory `process.env[key] = value` upon disk write, eliminating stale environment variables without requiring process restarts.
+- Configuration Schema Extension: Added `workItemType` and `titlePrefix` to `SaveSettingsInput` interface and mapped them to `this.config` in `ConfigUseCases.saveSettings()`.
+- Secret Scrubbing Hardening: Expanded `Logger.registerSecret()` with raw Base64 token encoding and `admin:${token}` Basic auth patterns, preventing credential exposure in logged network requests or headers.
+- Test Suite & Regression Verification: Added test coverage in `config-use-cases.test.ts`. Verified all 17 test suites (171 tests) passing in `new-app` and 14 test suites (75 tests) passing in `Legacy`.
+- Build & Lint Gate: Passed strict TypeScript type checking (`tsc --noEmit`), ESLint with 0 warnings/errors, and clean production build synced to `dist/`.
+- Live Daemon Verification: Verified active daemon server on port 3000, 100% daily task coverage across all 6 active team members in Azure DevOps, and healthy scheduler daemon. Final verdict: PASS.
+
+
+

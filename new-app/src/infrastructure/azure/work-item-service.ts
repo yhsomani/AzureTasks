@@ -11,7 +11,6 @@ import {
   Person, 
   CreatedTask,
   parseTitleDate,
-  addDays,
   matchesPerson
 } from '../../domain/index.js';
 
@@ -171,9 +170,9 @@ export class AzureWorkItemService implements WorkItemRepository {
     }
 
     // Query candidate work items targeting the discovery people directly in Azure DevOps
-    const assignedEmails = discoveryPeople
-      .map(p => `'${this.escapeWiql(p.assignedTo)}'`)
-      .join(', ');
+    const assignedEmails = Array.from(
+      new Set(discoveryPeople.flatMap(p => [p.assignedTo, p.name].filter(Boolean) as string[]))
+    ).map(id => `'${this.escapeWiql(id)}'`).join(', ');
 
     let wiql = `
       SELECT [System.Id], [System.Title], [System.AssignedTo], [System.CreatedDate]
@@ -421,7 +420,7 @@ export class AzureWorkItemService implements WorkItemRepository {
       for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
         const chunk = ids.slice(i, i + CHUNK_SIZE).join(',');
         const batchResult = await this.client.get<WorkItemBatchResult>(
-          `/${project}/_apis/wit/workitems?ids=${chunk}&fields=System.Id,System.Title,System.State,System.AssignedTo,System.CreatedDate,System.ChangedDate,Microsoft.VSTS.Scheduling.StartDate,Microsoft.VSTS.Scheduling.CompletedWork,Microsoft.VSTS.Scheduling.RemainingWork,Microsoft.VSTS.Scheduling.OriginalEstimate&api-version=7.0`
+          `/${project}/_apis/wit/workitems?ids=${chunk}&fields=System.Id,System.Title,System.State,System.AssignedTo,System.CreatedDate,System.ChangedDate,System.Description,Microsoft.VSTS.Scheduling.StartDate,Microsoft.VSTS.Scheduling.CompletedWork,Microsoft.VSTS.Scheduling.RemainingWork,Microsoft.VSTS.Scheduling.OriginalEstimate,Custom.PlannedStartdate,Custom.PlannedStartDate,Custom.ActualStartdate,Custom.ActualStartDate,Custom.PlannedEnddate,Custom.ActualEnddate,Custom.ActualEndDate,Microsoft.VSTS.Common.ClosedDate,Custom.ActualClosedDate&api-version=7.0`
         );
         if (batchResult.value) {
           workItems.push(...batchResult.value);
@@ -450,7 +449,8 @@ export class AzureWorkItemService implements WorkItemRepository {
     try {
       const result = await this.client.post<WorkItem>(
         `/${project}/_apis/wit/workitems/$${encodeURIComponent(workItemType)}?api-version=7.0`,
-        fieldOps
+        fieldOps,
+        { headers: { 'Content-Type': 'application/json-patch+json' } }
       );
 
       return {
@@ -505,7 +505,8 @@ export class AzureWorkItemService implements WorkItemRepository {
 
         await this.client.patch(
           `/_apis/wit/workitems/${targetId}?api-version=7.0`,
-          [relBody]
+          [relBody],
+          { headers: { 'Content-Type': 'application/json-patch+json' } }
         );
         copiedCount++;
       } catch {
@@ -540,6 +541,19 @@ export class AzureWorkItemService implements WorkItemRepository {
       return this.getWorkItem(result.workItems[0].id);
     }
     return null;
+  }
+
+  async patchWorkItem(
+    id: number,
+    fieldOps: any[],
+    options?: { bypassRules?: boolean }
+  ): Promise<WorkItem> {
+    const qs = options?.bypassRules ? '?bypassRules=true&api-version=7.0' : '?api-version=7.0';
+    return await this.client.patch<WorkItem>(
+      `/_apis/wit/workitems/${id}${qs}`,
+      fieldOps,
+      { headers: { 'Content-Type': 'application/json-patch+json' } }
+    );
   }
 
   private escapeWiql(value: string): string {

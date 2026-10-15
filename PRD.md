@@ -33,3 +33,14 @@ This document defines the discrete task backlog for bringing `new-app` to comple
 - [x] Task 3.1: Write automated tests in `new-app/tests/unit` and `new-app/tests/integration` covering `explore-tasks.ts` and explorer API endpoints.
 - [x] Task 3.2: Verify full build (`npm run build`), typecheck (`npm run typecheck`), and tests (`npm test`) in `new-app`.
 - [x] Task 3.3: Update documentation in `new-app/docs/FEATURE_PARITY.md`, `ARCHITECTURE.md`, `TEST_RESULTS.md`, and `PRODUCTION_READINESS.md`.
+
+### Milestone 4: Multi-POD Title Intelligence & Instant Member Synchronization
+- [x] Task 4.1: Engineer resilient date parser in `new-app/src/domain/entities/task.ts` and `Legacy/src/date/parser.ts` supporting colon, hyphen, pipe, full month names, and start-of-title dates.
+- [x] Task 4.2: Add candidate work item query filtering by team member identities (`[System.AssignedTo] IN (...)`) and scheduling date fallbacks (`Custom.PlannedStartdate`, `Custom.ActualStartdate`).
+- [x] Task 4.3: Implement immediate multi-view cache invalidation and forced re-fetch (`{ forceFresh: true }`) for Explorer, Planner, My Work, and Burndown upon saving or adding team members.
+
+### Milestone 5: 1-Click Task Creation & UI Action Workflows
+- [x] Task 5.1: Wire 1-click single task creation (`#btnCreateSingleMissingTask`) into Date Inspect Modal for any flagged missing date.
+- [x] Task 5.2: Add direct "+ Create" action button in Detailed Task Explorer list for missing days.
+- [x] Task 5.3: Ensure comprehensive task redirection links to Azure DevOps exist across Explorer, My Work, Burndown, and inspection modals.
+- [x] Task 5.4: Execute end-to-end verification, typechecks, and test suites across all 122 tests in `new-app` and 75 tests in `Legacy`.

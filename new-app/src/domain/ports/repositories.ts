@@ -94,6 +94,15 @@ export interface WorkItemRepository {
     targetId: number,
     copyableTypes: string[]
   ): Promise<{ copiedCount: number; failedCount: number; totalRelations: number }>;
+
+  /**
+   * Update fields of an existing work item via JSON Patch
+   */
+  patchWorkItem(
+    id: number,
+    fieldOps: any[],
+    options?: { bypassRules?: boolean }
+  ): Promise<WorkItem>;
 }
 
 /**
@@ -123,6 +132,9 @@ export interface AppConfig {
   thursdayMode: 'CURRENT' | 'FOLLOWING';
   defaultState: string;
   autoClose: boolean;
+  autoCloseStartTime?: string;
+  autoCloseEndTime?: string;
+  lastAutoClose?: string;
   copyEstimates: boolean;
   resetActualWork: boolean;
   maxRetries: number;
@@ -131,6 +143,10 @@ export interface AppConfig {
   schedulerEnabled?: boolean;
   schedulerAutoStart?: boolean;
   scheduleTime?: string;
+  githubToken?: string;
+  githubOrg?: string;
+  githubUserSuffix?: string;
+  githubApiUrl?: string;
   people: PersonConfig[];
 }
 
@@ -180,8 +196,17 @@ export interface SchedulerRepository {
   start(persist?: boolean): void | Promise<void>;
   stop(persist?: boolean): void | Promise<void>;
   setSchedule(cron: string, timezone: string): void;
-  configure?(options: { startTime?: string; timezone?: string; autoStart?: boolean }): Promise<void>;
+  configure?(options: {
+    startTime?: string;
+    timezone?: string;
+    autoStart?: boolean;
+    autoClose?: boolean;
+    autoCloseStartTime?: string;
+    autoCloseEndTime?: string;
+  }): Promise<void>;
   triggerRunNow?(): Promise<{ success: boolean; message: string }>;
+  setAutoCloseFunction?(fn: () => Promise<void>): void;
+  triggerAutoCloseNow?(): Promise<{ success: boolean; message: string }>;
 }
 
 export interface SchedulerStatus {
@@ -192,6 +217,12 @@ export interface SchedulerStatus {
   autoStart?: boolean;
   lastRun?: string;
   lastRunResult?: 'success' | 'failure' | 'partial';
+  autoCloseEnabled?: boolean;
+  autoCloseStartTime?: string;
+  autoCloseEndTime?: string;
+  nextAutoClose?: string;
+  lastAutoClose?: string;
+  lastAutoCloseResult?: 'success' | 'failure' | 'partial';
 }
 
 /**

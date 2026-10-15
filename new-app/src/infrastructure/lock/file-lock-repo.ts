@@ -18,20 +18,6 @@ export class FileLockRepository implements LockRepository {
   }
 
   acquire(): boolean {
-    // Check for existing lock
-    if (fs.existsSync(this.lockPath)) {
-      const lockInfo = this.getLockInfo();
-      if (lockInfo && !lockInfo.stale) {
-        return false; // Active lock held by another process
-      }
-      // Stale lock - remove and proceed
-      if (lockInfo?.stale) {
-        console.warn('Removing stale execution lock from PID', lockInfo.pid);
-        this.release();
-      }
-    }
-
-    // Create new lock
     const lockInfo: LockInfo = {
       pid: process.pid,
       acquiredAt: new Date().toISOString(),
@@ -39,10 +25,28 @@ export class FileLockRepository implements LockRepository {
     };
 
     try {
-      fs.writeFileSync(this.lockPath, JSON.stringify(lockInfo, null, 2), 'utf-8');
+      // Atomic write using exclusive flag 'wx' (fails if file already exists)
+      fs.writeFileSync(this.lockPath, JSON.stringify(lockInfo, null, 2), { encoding: 'utf-8', flag: 'wx' });
       return true;
-    } catch {
-      return false;
+    } catch (err: any) {
+      if (err.code !== 'EEXIST') return false;
+
+      // File exists - check if the holding process is dead or lock expired
+      const existing = this.getLockInfo();
+      if (!existing || existing.stale) {
+        if (existing?.stale) {
+          console.warn('Removing stale execution lock from PID', existing.pid);
+        }
+        this.release();
+        // Retry atomic acquisition once
+        try {
+          fs.writeFileSync(this.lockPath, JSON.stringify(lockInfo, null, 2), { encoding: 'utf-8', flag: 'wx' });
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      return false; // Active lock held by an alive process
     }
   }
 

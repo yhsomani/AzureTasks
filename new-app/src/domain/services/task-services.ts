@@ -4,26 +4,23 @@
  */
 
 import { WorkItemRepository } from '../ports/repositories.js';
-import { Person, PersonConfig } from '../entities/person.js';
+import { Person } from '../entities/person.js';
 import { 
   WorkItem, 
   DiscoveredTask, 
   CreatedTask,
   filterCopyableRelations,
-  WorkItemRelation,
-  parseTitleDate
+  COPYABLE_RELATION_TYPES
 } from '../entities/task.js';
 import { 
   planCreationDates, 
   DatePlan, 
-  DatePlanInput, 
   PlannedDate,
   getTodayIso,
   getNextThursdayIso,
   validateNotPastDate,
   zonedTimeToUtcIso
 } from '../value-objects/date-window.js';
-import { COPYABLE_RELATION_TYPES } from '../entities/task.js';
 
 /**
  * Task Discovery Service
@@ -115,6 +112,7 @@ export interface BuildFieldOpsInput {
   targetIsoDate: string;
   assignedTo: string;
   startTime: string;
+  endTime?: string;
   timezone: string;
   copyEstimates: boolean;
   resetActualWork: boolean;
@@ -123,7 +121,7 @@ export interface BuildFieldOpsInput {
 
 export class FieldCopyService {
   buildFieldPatchOperations(input: BuildFieldOpsInput): FieldPatchOperation[] {
-    const { sourceWorkItem, newTitle, targetIsoDate, assignedTo, startTime, timezone, copyEstimates, resetActualWork, defaultState } = input;
+    const { sourceWorkItem, newTitle, targetIsoDate, assignedTo, startTime, endTime, timezone, copyEstimates, resetActualWork, defaultState } = input;
     const ops: FieldPatchOperation[] = [];
 
     // Title override (mandatory)
@@ -135,9 +133,36 @@ export class FieldCopyService {
     // State
     ops.push({ op: 'add', path: '/fields/System.State', value: defaultState });
 
-    // Start Date - 09:30 wall-clock in the configured timezone, stored as UTC
-    const startDateTime = zonedTimeToUtcIso(targetIsoDate, startTime, timezone);
+    // Start Date - default 09:30 wall-clock in configured timezone, stored as UTC
+    const resolvedStartTime = startTime || '09:30';
+    const startDateTime = zonedTimeToUtcIso(targetIsoDate, resolvedStartTime, timezone);
     ops.push({ op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.StartDate', value: startDateTime });
+
+    // End Date - default 18:30 (9 hours after start time for standard working day), stored as UTC
+    let resolvedEndTime = endTime || process.env.END_TIME;
+    if (!resolvedEndTime) {
+      const [startHourStr, startMinStr] = resolvedStartTime.split(':');
+      const startH = parseInt(startHourStr, 10) || 9;
+      const startM = parseInt(startMinStr, 10) || 30;
+      if (startH < 15) {
+        resolvedEndTime = `${String(startH + 9).padStart(2, '0')}:${String(startM).padStart(2, '0')}`;
+      } else {
+        resolvedEndTime = '23:59';
+      }
+    }
+    const endDateTime = zonedTimeToUtcIso(targetIsoDate, resolvedEndTime, timezone);
+
+    // Explicitly set Custom planned start and end dates (ensures Planned Start Date <= Planned End Date)
+    ops.push({ op: 'add', path: '/fields/Custom.PlannedStartdate', value: startDateTime });
+    ops.push({ op: 'add', path: '/fields/Custom.PlannedEnddate', value: endDateTime });
+
+    // Support PascalCase variants if present on source
+    if ('Custom.PlannedStartDate' in sourceWorkItem.fields) {
+      ops.push({ op: 'add', path: '/fields/Custom.PlannedStartDate', value: startDateTime });
+    }
+    if ('Custom.PlannedEndDate' in sourceWorkItem.fields) {
+      ops.push({ op: 'add', path: '/fields/Custom.PlannedEndDate', value: endDateTime });
+    }
 
     // Copy estimates if enabled
     if (copyEstimates) {
@@ -165,10 +190,7 @@ export class FieldCopyService {
       ops.push({ op: 'add', path: '/fields/System.IterationPath', value: iterationPath });
     }
 
-    // Copy custom fields (exclude system-managed and read-only fields).
-    // Mirrors the legacy SYSTEM_EXCLUDED_FIELDS list: copying read-only fields
-    // such as System.Watermark / System.TeamProject / System.AreaId causes Azure
-    // to reject the create payload.
+    // Excluded fields that should never be copied as stale historical values
     const excludedFields = new Set([
       // Identity, versioning and structural (read-only / derived)
       'System.Id', 'System.Rev', 'System.Watermark', 'System.TeamProject',
@@ -190,22 +212,56 @@ export class FieldCopyService {
       'Microsoft.VSTS.Common.ClosedDate', 'Microsoft.VSTS.Common.ClosedBy',
       'Microsoft.VSTS.Common.ResolvedDate', 'Microsoft.VSTS.Common.ResolvedBy',
       'Microsoft.VSTS.Common.ResolvedReason', 'Microsoft.VSTS.Common.StateChangeDate',
-      // Scheduling (handled explicitly or intentionally not carried over)
+      // Scheduling & date fields handled explicitly above
       'Microsoft.VSTS.Scheduling.StartDate', 'Microsoft.VSTS.Scheduling.FinishDate',
       'Microsoft.VSTS.Scheduling.TargetDate',
       'Microsoft.VSTS.Scheduling.OriginalEstimate', 'Microsoft.VSTS.Scheduling.RemainingWork',
       'Microsoft.VSTS.Scheduling.CompletedWork', 'Microsoft.VSTS.Scheduling.Effort',
+      'Custom.PlannedStartdate', 'Custom.PlannedStartDate',
+      'Custom.PlannedEnddate', 'Custom.PlannedEndDate',
+      'Custom.ActualStartdate', 'Custom.ActualStartDate',
+      'Custom.ActualEnddate', 'Custom.ActualEndDate',
     ]);
 
     for (const [key, value] of Object.entries(sourceWorkItem.fields)) {
-      if (value == null) continue;
+      if (value == null || value === '') continue;
       if (excludedFields.has(key)) continue;
-      if (key.startsWith('WEF_') || key.startsWith('Custom.')) continue;
-      
-      // Only copy scalar values and simple objects
-      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-        ops.push({ op: 'add', path: `/fields/${key}`, value });
+      if (key.startsWith('WEF_')) continue;
+
+      const lowerKey = key.toLowerCase();
+      // Ensure no date fields copy stale past dates from the source task
+      if (
+        lowerKey.includes('plannedstart') ||
+        lowerKey.includes('plannedend') ||
+        lowerKey.includes('plannedfinish') ||
+        lowerKey.includes('actualstart') ||
+        lowerKey.includes('actualend')
+      ) {
+        continue;
       }
+      
+      // Resolve value (scalars or identity objects with uniqueName/displayName)
+      let resolvedValue = value;
+      if (typeof value === 'object' && value !== null) {
+        if ('uniqueName' in value && typeof (value as any).uniqueName === 'string') {
+          resolvedValue = (value as any).uniqueName;
+        } else if ('displayName' in value && typeof (value as any).displayName === 'string') {
+          resolvedValue = (value as any).displayName;
+        } else {
+          continue;
+        }
+      }
+
+      if (typeof resolvedValue === 'string' || typeof resolvedValue === 'number' || typeof resolvedValue === 'boolean') {
+        ops.push({ op: 'add', path: `/fields/${key}`, value: resolvedValue });
+      }
+    }
+
+    // Ensure GenAI Enabled is provided if required by Azure DevOps process rules
+    const hasGenAi = ops.some(op => op.path.toLowerCase().includes('genai'));
+    if (!hasGenAi) {
+      const defaultGenAi = process.env.DEFAULT_GENAI_ENABLED || 'No';
+      ops.push({ op: 'add', path: '/fields/Custom.GenAIEnabled', value: defaultGenAi });
     }
 
     return ops;
@@ -311,6 +367,7 @@ export interface TaskExecutionContext {
   workItemType: string;
   titlePrefix: string;
   startTime: string;
+  endTime?: string;
   timezone: string;
   copyEstimates: boolean;
   resetActualWork: boolean;
@@ -337,6 +394,7 @@ export class TaskExecutionService {
       targetIsoDate: plannedDate.isoDate,
       assignedTo: person.assignedTo,
       startTime: context.startTime,
+      endTime: context.endTime,
       timezone: context.timezone,
       copyEstimates: context.copyEstimates,
       resetActualWork: context.resetActualWork,

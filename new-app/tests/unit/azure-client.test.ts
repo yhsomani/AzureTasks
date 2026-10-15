@@ -74,4 +74,52 @@ describe('AzureDevOpsClient', () => {
       else process.env.AZURE_DEVOPS_PAT = prev;
     }
   });
+
+  it('sends application/json-patch+json Content-Type on PATCH requests by default', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const client = new AzureDevOpsClient({ organization: 'org', pat: 'x' });
+
+    await client.patch('/_apis/wit/workitems/123?api-version=7.0', [{ op: 'add', path: '/fields/System.Title', value: 'Test' }]);
+
+    const headers = fetchSpy.mock.calls[0][1]?.headers as Record<string, string>;
+    expect(headers['Content-Type']).toBe('application/json-patch+json');
+  });
+
+  it('sends application/json-patch+json Content-Type on work item creation POST requests', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const client = new AzureDevOpsClient({ organization: 'org', pat: 'x' });
+
+    await client.post('/Proj/_apis/wit/workitems/$Task?api-version=7.0', [{ op: 'add', path: '/fields/System.Title', value: 'Test' }]);
+
+    const headers = fetchSpy.mock.calls[0][1]?.headers as Record<string, string>;
+    expect(headers['Content-Type']).toBe('application/json-patch+json');
+  });
+
+  it('sends application/json Content-Type on standard POST requests', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const client = new AzureDevOpsClient({ organization: 'org', pat: 'x' });
+
+    await client.post('/Proj/_apis/wit/wiql?api-version=7.0', { query: 'SELECT [System.Id] FROM WorkItems' });
+
+    const headers = fetchSpy.mock.calls[0][1]?.headers as Record<string, string>;
+    expect(headers['Content-Type']).toBe('application/json');
+  });
+
+  it('allows overriding Content-Type in request options', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const client = new AzureDevOpsClient({ organization: 'org', pat: 'x' });
+
+    await client.post('/custom', { foo: 'bar' }, { headers: { 'Content-Type': 'application/custom+json' } });
+
+    const headers = fetchSpy.mock.calls[0][1]?.headers as Record<string, string>;
+    expect(headers['Content-Type']).toBe('application/custom+json');
+  });
 });

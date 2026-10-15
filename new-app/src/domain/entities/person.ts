@@ -12,6 +12,7 @@ export interface PersonConfig {
   pod?: string;          // Team or POD name
   role?: string;         // Role in the company
   titlePrefix?: string;  // Optional custom or POD-specific title prefix override (e.g. "3in1_PWA_FD_Services |")
+  githubUsername?: string; // Optional GitHub handle override (e.g. "octocat")
 }
 
 export interface PersonIdentity {
@@ -67,16 +68,20 @@ export function matchesPerson(assignedToVal: unknown, person: PersonConfig | Per
 
   const targetEmail = person.assignedTo.toLowerCase().trim();
   const targetName = person.name.toLowerCase().trim();
+  const targetUserPart = targetEmail.split('@')[0];
 
   if (identity.uniqueName) {
     const identityEmail = identity.uniqueName.toLowerCase().trim();
     if (identityEmail === targetEmail) return true;
+    if (targetUserPart && identityEmail.split('@')[0] === targetUserPart) return true;
   }
 
   if (identity.displayName) {
     const identityDisplay = identity.displayName.toLowerCase().trim();
     if (identityDisplay === targetName || identityDisplay === targetEmail) return true;
     if (identityDisplay.includes(targetName) && targetName.length >= 3) return true;
+    if (targetName.includes(identityDisplay) && identityDisplay.length >= 3) return true;
+    if (targetUserPart && identityDisplay.includes(targetUserPart) && targetUserPart.length >= 4) return true;
   }
 
   return false;
@@ -123,6 +128,7 @@ export class Person {
   readonly pod?: string;
   readonly role?: string;
   readonly titlePrefix?: string;
+  readonly githubUsername?: string;
 
   constructor(config: PersonConfig) {
     const validation = validatePerson(config);
@@ -138,6 +144,7 @@ export class Person {
     this.pod = config.pod;
     this.role = config.role;
     this.titlePrefix = config.titlePrefix;
+    this.githubUsername = config.githubUsername;
   }
 
   /**
@@ -164,6 +171,7 @@ export class Person {
       pod: this.pod,
       role: this.role,
       titlePrefix: this.titlePrefix,
+      githubUsername: this.githubUsername,
     };
   }
 }

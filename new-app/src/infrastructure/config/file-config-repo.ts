@@ -79,6 +79,7 @@ export class FileConfigRepository implements ConfigRepository {
         ...overrides,
         stopDayOfWeek,
         thursdayMode,
+        lastAutoClose: parsed.lastAutoClose,
         people,
       };
     } catch (err: any) {
@@ -106,6 +107,8 @@ export class FileConfigRepository implements ConfigRepository {
       thursdayMode: config.thursdayMode,
       defaultState: config.defaultState,
       autoClose: config.autoClose,
+      autoCloseStartTime: config.autoCloseStartTime ?? '18:15',
+      autoCloseEndTime: config.autoCloseEndTime ?? '18:45',
       copyEstimates: config.copyEstimates,
       resetActualWork: config.resetActualWork,
       maxRetries: config.maxRetries,
@@ -114,6 +117,9 @@ export class FileConfigRepository implements ConfigRepository {
       schedulerEnabled: config.schedulerEnabled ?? false,
       schedulerAutoStart: config.schedulerAutoStart ?? false,
       scheduleTime: config.scheduleTime ?? config.startTime ?? '09:30',
+      githubToken: config.githubToken,
+      githubOrg: config.githubOrg,
+      githubApiUrl: config.githubApiUrl,
       people: config.people,
     };
 
@@ -153,11 +159,26 @@ export class FileConfigRepository implements ConfigRepository {
     if (settings.schedulerEnabled !== undefined) currentData.schedulerEnabled = settings.schedulerEnabled;
     if (settings.schedulerAutoStart !== undefined) currentData.schedulerAutoStart = settings.schedulerAutoStart;
     if (settings.scheduleTime !== undefined) currentData.scheduleTime = settings.scheduleTime;
+    if (settings.autoClose !== undefined) currentData.autoClose = settings.autoClose;
+    if (settings.autoCloseStartTime !== undefined) currentData.autoCloseStartTime = settings.autoCloseStartTime;
+    if (settings.autoCloseEndTime !== undefined) currentData.autoCloseEndTime = settings.autoCloseEndTime;
+    if (settings.lastAutoClose !== undefined) currentData.lastAutoClose = settings.lastAutoClose;
+    if (settings.githubOrg !== undefined) currentData.githubOrg = settings.githubOrg;
+    if (settings.githubUserSuffix !== undefined) currentData.githubUserSuffix = settings.githubUserSuffix;
+    if (settings.githubApiUrl !== undefined) currentData.githubApiUrl = settings.githubApiUrl;
 
     fs.writeFileSync(this.configPath, JSON.stringify(currentData, null, 2), 'utf-8');
+
+    if (settings.githubToken) {
+      this.saveEnvVariable('GITHUB_TOKEN', settings.githubToken.trim());
+    }
   }
 
   async savePat(pat: string): Promise<void> {
+    this.saveEnvVariable('AZURE_DEVOPS_PAT', pat);
+  }
+
+  private saveEnvVariable(key: string, value: string): void {
     let envContent = '';
     if (fs.existsSync(this.envPath)) {
       envContent = fs.readFileSync(this.envPath, 'utf-8');
@@ -165,19 +186,21 @@ export class FileConfigRepository implements ConfigRepository {
 
     const lines = envContent.split('\n');
     let found = false;
+    const prefix = `${key}=`;
     const newLines = lines.map(l => {
-      if (l.trim().startsWith('AZURE_DEVOPS_PAT=')) {
+      if (l.trim().startsWith(prefix)) {
         found = true;
-        return `AZURE_DEVOPS_PAT="${pat}"`;
+        return `${key}="${value}"`;
       }
       return l;
     });
 
     if (!found) {
-      newLines.push(`AZURE_DEVOPS_PAT="${pat}"`);
+      newLines.push(`${key}="${value}"`);
     }
 
     fs.writeFileSync(this.envPath, newLines.join('\n').trim() + '\n', 'utf-8');
+    process.env[key] = value;
     try {
       // Restrict permissions on the secret-bearing file (best effort; no-op on Windows)
       fs.chmodSync(this.envPath, 0o600);
@@ -208,6 +231,25 @@ export class FileConfigRepository implements ConfigRepository {
           case 'AZURE_DEVOPS_PAT':
             // PAT handled separately
             break;
+          case 'GITHUB_TOKEN':
+          case 'GH_PAT':
+            overrides.githubToken = value;
+            break;
+          case 'GITHUB_ORG':
+            overrides.githubOrg = value;
+            break;
+          case 'GITHUB_USER_SUFFIX':
+            overrides.githubUserSuffix = value;
+            break;
+          case 'AUTO_CLOSE':
+            overrides.autoClose = value.toLowerCase() === 'true';
+            break;
+          case 'AUTO_CLOSE_START_TIME':
+            overrides.autoCloseStartTime = value;
+            break;
+          case 'AUTO_CLOSE_END_TIME':
+            overrides.autoCloseEndTime = value;
+            break;
         }
       }
     }
@@ -230,7 +272,9 @@ export class FileConfigRepository implements ConfigRepository {
       stopDayOfWeek: 4,
       thursdayMode: 'CURRENT',
       defaultState: 'New',
-      autoClose: false,
+      autoClose: true,
+      autoCloseStartTime: '18:15',
+      autoCloseEndTime: '18:45',
       copyEstimates: true,
       resetActualWork: true,
       maxRetries: 3,

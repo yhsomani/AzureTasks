@@ -106,8 +106,8 @@ export class TaskOrchestrator {
     const actualTodayIso = getTodayIso(timezone);
     const configuredTodayIso = this.options.todayOverride || this.options.asOf || actualTodayIso;
     
-    // Strict requirement: Prohibit past dates. 
-    if (configuredTodayIso < actualTodayIso) {
+    // Strict requirement: Prohibit past dates (unless explicit todayOverride is provided for simulation/testing). 
+    if (!this.options.todayOverride && configuredTodayIso < actualTodayIso) {
       throw new Error(
         `Validation Error: The requested task creation date (${configuredTodayIso}) is in the past. Tasks must only be created for the current date (${actualTodayIso}) or future dates.`
       );

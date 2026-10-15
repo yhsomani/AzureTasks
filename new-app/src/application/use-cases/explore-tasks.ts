@@ -278,7 +278,7 @@ export class ExploreTasksUseCase {
       this.config.titlePrefix,
       startDate,
       endDate,
-      selectedPeople.map(p => p.assignedTo)
+      Array.from(new Set(selectedPeople.flatMap(p => [p.assignedTo, p.name].filter(Boolean) as string[])))
     );
 
     // Index work items by Person Key -> Date ISO -> WorkItem[]
@@ -297,9 +297,17 @@ export class ExploreTasksUseCase {
           const parsed = parseTitleDate(title, personPrefix, true);
           let itemDate = parsed.isValid ? parsed.isoDate : '';
 
-          // Secondary fallback: Microsoft.VSTS.Scheduling.StartDate
+          // Secondary fallback: Microsoft.VSTS.Scheduling.StartDate, Custom.PlannedStartdate, Custom.ActualStartdate
           if (!itemDate && item.fields['Microsoft.VSTS.Scheduling.StartDate']) {
             const rawStart = String(item.fields['Microsoft.VSTS.Scheduling.StartDate']);
+            itemDate = rawStart.split('T')[0];
+          }
+          if (!itemDate && item.fields['Custom.PlannedStartdate']) {
+            const rawStart = String(item.fields['Custom.PlannedStartdate']);
+            itemDate = rawStart.split('T')[0];
+          }
+          if (!itemDate && item.fields['Custom.ActualStartdate']) {
+            const rawStart = String(item.fields['Custom.ActualStartdate']);
             itemDate = rawStart.split('T')[0];
           }
 

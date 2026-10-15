@@ -19,6 +19,7 @@ Legend: ✅ implemented · 🔁 improved implementation (superior capability) ·
 | `POST /tasks/execute` | `POST /api/tasks/execute` | ✅ | Concurrency-locked execution |
 | `GET /explorer` | `GET /api/explorer` | ✅ | Full date range presets, custom start/end, member filtering, work hours |
 | `POST /explorer/create-missing` | `POST /api/explorer/create-missing` | ✅ | Creation of missing tasks in date range |
+| — | `POST /api/tasks/repair` | ✅ | Re-copy missing relations on partially-copied tasks |
 | `GET /journal` | `GET /api/journal` | ✅ | Adds `?limit` |
 | `GET /journal/export` | `GET /api/journal/export` | ✅ | `format=csv\|json` |
 | `GET /scheduler` | `GET /api/scheduler` | ✅ | |

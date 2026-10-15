@@ -9,12 +9,18 @@ import * as dotenv from 'dotenv';
 import { buildApp } from './container.js';
 import { logger } from './infrastructure/logging/logger.js';
 import { AppServer } from './presentation/api/server.js';
-import { formatTitleDate } from './domain/value-objects/date-window.js';
 
 dotenv.config();
 
+if (process.env.ALLOW_INSECURE_TLS === 'true') {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  logger.warn('CAUTION: TLS certificate validation has been explicitly disabled via ALLOW_INSECURE_TLS=true.');
+} else if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
+  logger.warn('CAUTION: TLS certificate validation has been disabled via NODE_TLS_REJECT_UNAUTHORIZED=0.');
+}
+
 interface CliOptions {
-  command: 'run' | 'plan' | 'serve' | 'daemon' | 'repair' | 'help';
+  command: 'run' | 'plan' | 'serve' | 'daemon' | 'repair' | 'close-today' | 'help';
   personKeys?: string[];
   all?: boolean;
   dryRun?: boolean;
@@ -34,7 +40,7 @@ function parseArgs(args: string[]): CliOptions {
   // First positional token can be a command
   const first = args[0];
   if (!first.startsWith('-')) {
-    if (['run', 'plan', 'serve', 'daemon', 'repair', 'help'].includes(first)) {
+    if (['run', 'plan', 'serve', 'daemon', 'repair', 'close-today', 'help'].includes(first)) {
       opts.command = first as CliOptions['command'];
       args = args.slice(1);
     }
@@ -120,6 +126,7 @@ COMMANDS:
   plan                Preview task creation (dry-run)
   daemon              Run the automated weekday scheduler
   repair              Repair incomplete relationship copies
+  close-today         Close today's tasks for team members with PR descriptions
   help                Show this help
 
 OPTIONS:
@@ -153,7 +160,8 @@ async function main(): Promise<void> {
 
   logger.setVerbose(!!opts.verbose);
 
-  const app = await buildApp(opts.configFile);
+  const autoStartScheduler = opts.command === 'serve' || opts.command === 'daemon';
+  const app = await buildApp(opts.configFile, { autoStartScheduler });
 
   switch (opts.command) {
     case 'serve': {
@@ -163,6 +171,9 @@ async function main(): Promise<void> {
         exploreTasks: app.exploreTasks,
         getStatus: app.getStatus,
         config: app.configUseCases,
+        repairRelations: app.repairRelations,
+        closeDailyTasks: app.closeDailyTasks,
+        githubClient: app.githubClient,
         journal: app.journal,
         scheduler: app.scheduler,
       }, opts.port ?? parseInt(process.env.PORT || '3000', 10));
@@ -171,10 +182,10 @@ async function main(): Promise<void> {
     }
 
     case 'daemon': {
-      logger.info('Starting scheduler daemon (weekdays at 09:30)...');
+      logger.info('Starting scheduler daemon (weekdays: morning creation + evening auto-close)...');
       app.scheduler.start();
       const status = app.scheduler.getStatus();
-      logger.info(`Scheduler running. Next run: ${status.nextRun ?? 'pending'} (${status.timezone})`);
+      logger.info(`Scheduler running. Next run: ${status.nextRun ?? 'pending'}, Next auto-close: ${status.nextAutoClose ?? 'pending'} (${status.timezone})`);
       const shutdown = () => {
         logger.info('Stopping scheduler...');
         app.scheduler.stop();
@@ -183,6 +194,36 @@ async function main(): Promise<void> {
       process.on('SIGINT', shutdown);
       process.on('SIGTERM', shutdown);
       return;
+    }
+
+    case 'close-today': {
+      const isDryRun = !!opts.dryRun;
+      logger.info(`Running EOD task closure (dryRun=${isDryRun})...`);
+      const output = await app.closeDailyTasks.execute({
+        personKeys: opts.personKeys,
+        asOf: opts.asOf,
+        dryRun: isDryRun,
+        bypassRules: true,
+      });
+
+      console.log('\n===================================================');
+      console.log(isDryRun ? 'EOD TASK CLOSURE PREVIEW (DRY RUN)' : 'EOD TASK CLOSURE SUMMARY');
+      console.log('===================================================');
+      console.log(`Target Date        : ${output.targetDate} (${output.timezone})`);
+      console.log(`Tasks Found        : ${output.totalFound}`);
+      console.log(`Tasks Closed       : ${output.totalClosed}`);
+      console.log(`Already Closed     : ${output.totalAlreadyClosed}`);
+      console.log(`Failed             : ${output.totalFailed}`);
+      console.log('---------------------------------------------------');
+      for (const r of output.results) {
+        console.log(`[${r.status.toUpperCase()}] ${r.personName} #${r.taskId} — ${r.taskTitle} (PRs: ${r.prCount} today)`);
+      }
+      console.log('===================================================\n');
+
+      if (output.totalFailed > 0) {
+        process.exit(1);
+      }
+      process.exit(0);
     }
 
     case 'plan':
@@ -198,9 +239,9 @@ async function main(): Promise<void> {
       });
       printSummary(result, isDryRun);
       if (result.totalTaskFailureCount > 0 || result.totalSourceFailureCount > 0) {
-        process.exitCode = 1;
+        process.exit(1);
       }
-      return;
+      process.exit(0);
     }
 
     case 'repair': {
@@ -210,7 +251,7 @@ async function main(): Promise<void> {
       if (report.total === 0) {
         logger.info('No incomplete relations found.');
         console.log('Nothing to repair.');
-        return;
+        process.exit(0);
       }
 
       console.log('\n===================================================');
@@ -231,9 +272,9 @@ async function main(): Promise<void> {
       console.log('===================================================\n');
 
       if (report.failed > 0 || report.partial > 0) {
-        process.exitCode = 1;
+        process.exit(1);
       }
-      return;
+      process.exit(0);
     }
   }
 }

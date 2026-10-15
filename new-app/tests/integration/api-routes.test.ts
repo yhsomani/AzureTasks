@@ -39,6 +39,9 @@ function makeDeps(): ApiDependencies {
       saveSettings: vi.fn(async () => ({ message: 'ok' })),
       savePat: vi.fn(async () => ({ message: 'ok', patMasked: 'abcd...wxyz' })),
     },
+    repairRelations: {
+      execute: vi.fn(async () => ({ total: 1, repaired: 1, partial: 0, failed: 0, skipped: 0, rows: [] })),
+    },
     journal: {
       record: vi.fn(async () => {}),
       getEntries: vi.fn(async () => []),
@@ -54,6 +57,30 @@ function makeDeps(): ApiDependencies {
       setSchedule: vi.fn(),
       configure: vi.fn(async () => {}),
       triggerRunNow: vi.fn(async () => ({ success: true, message: 'Executed' })),
+      triggerAutoCloseNow: vi.fn(async () => ({ success: true, message: 'Auto-close executed' })),
+    },
+    closeDailyTasks: {
+      execute: vi.fn(async () => ({
+        targetDate: '2026-10-15',
+        timezone: 'Asia/Kolkata',
+        dryRun: false,
+        totalFound: 1,
+        totalClosed: 1,
+        totalAlreadyClosed: 0,
+        totalFailed: 0,
+        results: [],
+      })),
+    },
+    githubClient: {
+      resolveUserByEmail: vi.fn(async () => 'test_user'),
+      getPrDeliverablesForDate: vi.fn(async () => ({
+        username: 'test_user',
+        sourceDate: '2026-10-15',
+        isToday: true,
+        pullRequests: [],
+        htmlDescription: '<p>PRs</p>',
+        summaryText: 'PRs found',
+      })),
     },
   } as unknown as ApiDependencies;
 }
@@ -143,6 +170,15 @@ describe('API routes', () => {
     }));
   });
 
+  it('POST /api/tasks/repair delegates to repairRelations use case', async () => {
+    const res = await json('/api/tasks/repair', { method: 'POST' });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.repaired).toBe(1);
+    expect(deps.repairRelations?.execute).toHaveBeenCalled();
+  });
+
   it('GET /api/explorer delegates to exploreTasks use case with query params', async () => {
     const res = await json('/api/explorer?preset=current_month&users=p1,p2');
     expect(res.status).toBe(200);
@@ -213,6 +249,39 @@ describe('API routes', () => {
     const body = await res.json();
     expect(body.success).toBe(true);
     expect((deps.scheduler.triggerRunNow as any)).toHaveBeenCalled();
+  });
+
+  it('POST /api/tasks/close-today delegates to closeDailyTasks use case', async () => {
+    const res = await json('/api/tasks/close-today', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dryRun: false, asOf: '2026-10-15' }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(deps.closeDailyTasks?.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ dryRun: false, asOf: '2026-10-15' })
+    );
+  });
+
+  it('POST /api/scheduler/trigger-autoclose triggers auto-close immediately', async () => {
+    const res = await json('/api/scheduler/trigger-autoclose', {
+      method: 'POST',
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect((deps.scheduler.triggerAutoCloseNow as any)).toHaveBeenCalled();
+  });
+
+  it('GET /api/github/test-user resolves user and returns deliverables', async () => {
+    const res = await json('/api/github/test-user?email=test%40org.com');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.username).toBe('test_user');
+    expect(deps.githubClient?.resolveUserByEmail).toHaveBeenCalledWith('test@org.com');
   });
 
   it('GET /api/logs/stream responds as an SSE stream', async () => {

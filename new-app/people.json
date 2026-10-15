@@ -6,12 +6,27 @@
   "startTime": "09:30",
   "timezone": "Asia/Kolkata",
   "thursdayMode": "CURRENT",
+  "githubOrg": "3in1-AppFrontEnd",
+  "githubUserSuffix": "_bflghec",
   "people": [
     {
       "key": "yash_somani",
       "name": "Yash Somani",
       "assignedTo": "yash.somani@bajajfinserv.in",
-      "pod": "108_My Account Part 2",
+      "role": "Dev On-Role",
+      "enabled": true
+    },
+    {
+      "key": "yash_mutatkar",
+      "name": "Yash Mutatkar",
+      "assignedTo": "yash.mutatkar@bajajfinserv.in",
+      "role": "Dev On-Role",
+      "enabled": true
+    },
+    {
+      "key": "shubham_bugade",
+      "name": "Shubham Bugade",
+      "assignedTo": "shubham.bugade@bajajfinserv.in",
       "role": "Dev On-Role",
       "enabled": true
     },
@@ -24,21 +39,27 @@
       "enabled": true
     },
     {
-      "key": "Vishal Shinde17",
-      "name": "Vishal Shinde17",
-      "assignedTo": "vishal.shinde17@bajajfinserv.in",
+      "key": "mukul_ramteke",
+      "name": "Mukul Ramteke",
+      "assignedTo": "mukul.ramteke@bajajfinserv.in",
+      "pod": "107_My Account Part 1",
       "role": "SDM",
       "enabled": true
     },
     {
-      "key": "Karan_Dham",
-      "name": "Karan Dham",
-      "assignedTo": "karan.dham@bajajfinserv.in",
-      "role": "Dev On-Role",
+      "key": "vishal_shinde",
+      "name": "Vishal Shinde17",
+      "assignedTo": "vishal.shinde17@bajajfinserv.in",
+      "pod": "105_FD Dep Mandate and DNC",
+      "role": "SDM",
       "enabled": true
     }
   ],
   "schedulerEnabled": true,
   "scheduleTime": "09:45",
-  "schedulerAutoStart": true
+  "schedulerAutoStart": true,
+  "autoClose": true,
+  "autoCloseStartTime": "18:15",
+  "autoCloseEndTime": "18:45",
+  "lastAutoClose": "2026-10-15T17:33:45.316Z"
 }

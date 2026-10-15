@@ -48,7 +48,21 @@ export class AppServer {
   }
 
   private configure(): void {
-    this.app.use(cors());
+    // Security headers
+    this.app.use((_req, res, next) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+      res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+      res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=()');
+      res.setHeader(
+        'Content-Security-Policy',
+        "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.github.com;"
+      );
+      next();
+    });
+
+    const allowedOrigin = process.env.CORS_ORIGIN?.trim();
+    this.app.use(cors(allowedOrigin ? { origin: allowedOrigin } : undefined));
 
     // Auth (optional): set API_AUTH_TOKEN to require a login. CORS runs first so
     // preflight OPTIONS is answered before the credential check.
@@ -67,10 +81,13 @@ export class AppServer {
     // API
     this.app.use('/api', createApiRouter(this.deps));
 
-    // Static UI
+    // Static UI: in development, prioritize src directory so edits take effect immediately
     const publicDir = path.resolve(process.cwd(), 'src/presentation/web/public');
     const distPublicDir = path.resolve(process.cwd(), 'dist/presentation/web/public');
-    const staticDir = fs.existsSync(distPublicDir) ? distPublicDir : publicDir;
+    const isProd = process.env.NODE_ENV === 'production';
+    const staticDir = (isProd && fs.existsSync(distPublicDir)) || !fs.existsSync(publicDir)
+      ? (fs.existsSync(distPublicDir) ? distPublicDir : publicDir)
+      : publicDir;
 
     this.app.use(express.static(staticDir));
 

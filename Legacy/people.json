@@ -14,5 +14,10 @@
       "role": "SDM",
       "enabled": true
     }
-  ]
+  ],
+  "timezone": "Asia/Kolkata",
+  "thursdayMode": "FOLLOWING",
+  "startTime": "09:30",
+  "organization": "BFLDevOpsOrg",
+  "project": "3in1_Agile_Projects"
 }

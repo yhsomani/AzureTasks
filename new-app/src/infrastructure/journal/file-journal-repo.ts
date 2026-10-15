@@ -48,7 +48,7 @@ export class FileJournalRepository implements JournalRepository {
       entries = entries.slice(-MAX_ENTRIES);
     }
 
-    fs.writeFileSync(this.journalPath, JSON.stringify(entries, null, 2), 'utf-8');
+    this.writeEntriesAtomically(entries);
   }
 
   async getEntries(limit?: number): Promise<JournalEntry[]> {
@@ -109,7 +109,7 @@ export class FileJournalRepository implements JournalRepository {
       verified: status === 'SUCCESS',
       error: note || entries[index].error,
     };
-    fs.writeFileSync(this.journalPath, JSON.stringify(entries, null, 2), 'utf-8');
+    this.writeEntriesAtomically(entries);
     return true;
   }
 
@@ -158,6 +158,12 @@ export class FileJournalRepository implements JournalRepository {
   async exportJson(): Promise<string> {
     const entries = await this.getEntries();
     return JSON.stringify(entries, null, 2);
+  }
+
+  private writeEntriesAtomically(entries: JournalEntry[]): void {
+    const tmpPath = `${this.journalPath}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(entries, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, this.journalPath);
   }
 
   private async rotateIfNeeded(): Promise<void> {

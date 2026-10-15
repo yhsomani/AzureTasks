@@ -15,6 +15,14 @@ export interface SaveSettingsInput {
   startTime?: string;
   organization?: string;
   project?: string;
+  workItemType?: string;
+  titlePrefix?: string;
+  githubToken?: string;
+  githubOrg?: string;
+  githubUserSuffix?: string;
+  autoClose?: boolean;
+  autoCloseStartTime?: string;
+  autoCloseEndTime?: string;
 }
 
 export interface SavePatInput {
@@ -28,7 +36,12 @@ export class ConfigUseCases {
   ) {}
 
   async getConfig(): Promise<AppConfig> {
-    return this.config;
+    const ghToken = (this.config.githubToken || process.env.GITHUB_TOKEN || process.env.GH_PAT)?.trim() || '';
+    const maskedGh = ghToken ? `${ghToken.slice(0, 4)}...${ghToken.slice(-4)}` : undefined;
+    return {
+      ...this.config,
+      githubToken: maskedGh,
+    };
   }
 
   async savePeople(input: SavePeopleInput): Promise<{ message: string; people: PersonConfig[] }> {
@@ -40,8 +53,11 @@ export class ConfigUseCases {
     const seenIdentities = new Set<string>();
     const seenKeys = new Set<string>();
     for (const p of input.people) {
-      if (!p.key?.trim() || !p.name?.trim() || !p.assignedTo?.trim()) {
-        throw new Error('Each person must have non-empty key, name and assignedTo fields.');
+      if (!p.name?.trim() || !p.assignedTo?.trim()) {
+        throw new Error('Each person must have non-empty name and assignedTo fields.');
+      }
+      if (!p.key?.trim()) {
+        p.key = (p.name || p.assignedTo).trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
       }
       const key = p.key.trim();
       if (seenKeys.has(key)) {
@@ -73,6 +89,12 @@ export class ConfigUseCases {
     if (input.startTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.startTime)) {
       throw new Error(`Invalid startTime "${input.startTime}". Expected HH:MM (24-hour).`);
     }
+    if (input.autoCloseStartTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.autoCloseStartTime)) {
+      throw new Error(`Invalid autoCloseStartTime "${input.autoCloseStartTime}". Expected HH:MM (24-hour).`);
+    }
+    if (input.autoCloseEndTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.autoCloseEndTime)) {
+      throw new Error(`Invalid autoCloseEndTime "${input.autoCloseEndTime}". Expected HH:MM (24-hour).`);
+    }
 
     await this.configRepo.saveSettings(input);
 
@@ -81,6 +103,17 @@ export class ConfigUseCases {
     if (input.startTime) this.config.startTime = input.startTime;
     if (input.organization) this.config.organization = input.organization;
     if (input.project) this.config.project = input.project;
+    if (input.workItemType) this.config.workItemType = input.workItemType;
+    if (input.titlePrefix) this.config.titlePrefix = input.titlePrefix;
+    if (input.githubToken !== undefined && input.githubToken.trim()) {
+      this.config.githubToken = input.githubToken.trim();
+      process.env.GITHUB_TOKEN = input.githubToken.trim();
+    }
+    if (input.githubOrg !== undefined) this.config.githubOrg = input.githubOrg;
+    if (input.githubUserSuffix !== undefined) this.config.githubUserSuffix = input.githubUserSuffix;
+    if (input.autoClose !== undefined) this.config.autoClose = input.autoClose;
+    if (input.autoCloseStartTime !== undefined) this.config.autoCloseStartTime = input.autoCloseStartTime;
+    if (input.autoCloseEndTime !== undefined) this.config.autoCloseEndTime = input.autoCloseEndTime;
 
     return { message: 'Settings saved successfully.', config: this.config };
   }

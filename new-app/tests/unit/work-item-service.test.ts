@@ -48,3 +48,77 @@ describe('AzureWorkItemService.getExistingTasksForPerson', () => {
     expect(client.wiql).toContain("[System.WorkItemType] = 'Task'");
   });
 });
+
+describe('AzureWorkItemService.createWorkItemWithReconciliation', () => {
+  it('passes application/json-patch+json content type to client.post', async () => {
+    let capturedOptions: any = null;
+    let capturedPath = '';
+    const fakeClient = {
+      baseUrl: 'https://dev.azure.com',
+      organization: 'test-org',
+      async post<T>(path: string, _body: any, options?: any): Promise<T> {
+        capturedPath = path;
+        capturedOptions = options;
+        return {
+          id: 1234,
+          fields: {
+            'System.Title': 'Task Title',
+            'Microsoft.VSTS.Scheduling.StartDate': '2026-10-19T00:00:00Z',
+          },
+        } as T;
+      },
+    };
+
+    const svc = new AzureWorkItemService(fakeClient as any);
+    const result = await svc.createWorkItemWithReconciliation(
+      'TestProject',
+      'Task',
+      [{ op: 'add', path: '/fields/System.Title', value: 'Task Title' }],
+      { title: 'Task Title', assignedTo: 'user@test.com' }
+    );
+
+    expect(result.id).toBe(1234);
+    expect(capturedPath).toContain('/TestProject/_apis/wit/workitems/$Task');
+    expect(capturedOptions?.headers?.['Content-Type']).toBe('application/json-patch+json');
+  });
+});
+
+describe('AzureWorkItemService.copyRelations', () => {
+  it('passes application/json-patch+json content type to client.patch', async () => {
+    let capturedOptions: any = null;
+    let capturedPath = '';
+    const fakeClient = {
+      baseUrl: 'https://dev.azure.com',
+      organization: 'test-org',
+      async patch<T>(path: string, _body: any, options?: any): Promise<T> {
+        capturedPath = path;
+        capturedOptions = options;
+        return { id: 5678 } as T;
+      },
+    };
+
+    const svc = new AzureWorkItemService(fakeClient as any);
+    const sourceWorkItem = {
+      id: 111,
+      rev: 1,
+      fields: {},
+      relations: [
+        {
+          rel: 'System.LinkTypes.Hierarchy-Reverse',
+          url: 'https://dev.azure.com/test-org/TestProject/_apis/wit/workitems/99',
+          attributes: { isLocked: false },
+        },
+      ],
+    };
+
+    const result = await svc.copyRelations(
+      sourceWorkItem,
+      5678,
+      ['System.LinkTypes.Hierarchy-Reverse']
+    );
+
+    expect(result.copiedCount).toBe(1);
+    expect(capturedPath).toContain('/_apis/wit/workitems/5678');
+    expect(capturedOptions?.headers?.['Content-Type']).toBe('application/json-patch+json');
+  });
+});

@@ -74,18 +74,64 @@ export function formatFullTitle(titlePrefix: string, date: Date | string): strin
  */
 export function parseDateFromTitle(
   title: string,
-  referenceDate?: Date | string
+  referenceDate?: Date | string,
+  allowAnyPrefix = false
 ): ParsedDateInfo | null {
   if (!title) return null;
 
-  // Regex matches: "3in1_PWA_MyAccount | <D> <MMM>" with flexible whitespace
-  const match = title.trim().match(/^3in1_PWA_MyAccount\s*\|\s*(\d{1,2})\s+([A-Za-z]{3,9})$/i);
-  if (!match) {
-    return null;
+  let dayStr = '';
+  let monthStr = '';
+
+  if (!allowAnyPrefix) {
+    const match = title.trim().match(/^3in1_PWA_MyAccount\s*\|\s*(\d{1,2})\s+([A-Za-z]{3,9})$/i);
+    if (!match) {
+      return null;
+    }
+    dayStr = match[1];
+    monthStr = match[2].toLowerCase();
+  } else {
+    // 1. Segments split by pipe or colon
+    const segments = title.trim().split(/[|:]/).map(s => s.trim());
+    for (const seg of segments) {
+      const match = seg.match(/^(?:([A-Za-z]{3,9})[ -]+(\d{1,2})|(\d{1,2})[ -]+([A-Za-z]{3,9}))$/i);
+      if (match) {
+        const m = (match[1] || match[4]).toLowerCase();
+        if (MONTH_MAP[m]) {
+          monthStr = m;
+          dayStr = match[2] || match[3];
+          break;
+        }
+      }
+    }
+
+    // 2. Start of title with date (e.g. "12 October : ...", "12 Oct - ...", "October 12 : ...")
+    if (!monthStr) {
+      const startMatch = title.trim().match(/^\s*(?:([A-Za-z]{3,9})[ -]+(\d{1,2})|(\d{1,2})[ -]+([A-Za-z]{3,9}))(?:\s*[:\-|]|\s+|$)/i);
+      if (startMatch) {
+        const m = (startMatch[1] || startMatch[4]).toLowerCase();
+        if (MONTH_MAP[m]) {
+          monthStr = m;
+          dayStr = startMatch[2] || startMatch[3];
+        }
+      }
+    }
+
+    // 3. Fallback: anywhere in title word boundary month + day or day + month
+    if (!monthStr) {
+      const anyMatch = title.trim().match(/\b(?:([A-Za-z]{3,9})[ -]+(\d{1,2})|(\d{1,2})[ -]+([A-Za-z]{3,9}))\b/i);
+      if (anyMatch) {
+        const m = (anyMatch[1] || anyMatch[4]).toLowerCase();
+        if (MONTH_MAP[m]) {
+          monthStr = m;
+          dayStr = anyMatch[2] || anyMatch[3];
+        }
+      }
+    }
   }
 
-  const dayStr = match[1];
-  const monthStr = match[2].toLowerCase();
+  if (!monthStr || !dayStr) {
+    return null;
+  }
 
   const day = parseInt(dayStr, 10);
   const month = MONTH_MAP[monthStr];

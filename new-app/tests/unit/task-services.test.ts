@@ -29,6 +29,11 @@ const sourceItem: WorkItem = {
     'Custom.MyField': 'should-not-copy',
     'WEF_ABC': 'should-not-copy',
     'Company.CustomNote': 'keep-me',
+    'Custom.PlannedStartdate': '2026-10-01T04:00:00Z',
+    'Custom.PlannedEnddate': '2026-10-01T13:00:00Z',
+    'Custom.ActualStartdate': '2026-10-01T05:00:00Z',
+    'Custom.ActualEnddate': '2026-10-01T14:00:00Z',
+    'Custom.DeliveryOwner': { displayName: 'John Lead', uniqueName: 'john.lead@company.com' },
   },
 };
 
@@ -97,11 +102,74 @@ describe('FieldCopyService: buildFieldPatchOperations', () => {
     }
   });
 
-  it('skips custom/WEF prefixed fields but copies other custom fields', () => {
+  it('copies custom fields (including Custom.*) while skipping internal WEF_ fields', () => {
     const paths = ops.map(o => o.path);
-    expect(paths).not.toContain('/fields/Custom.MyField');
+    expect(paths).toContain('/fields/Custom.MyField');
     expect(paths).not.toContain('/fields/WEF_ABC');
     expect(paths).toContain('/fields/Company.CustomNote');
+  });
+
+  it('ensures GenAI Enabled is present in patch ops', () => {
+    const genAiOp = ops.find(o => o.path.toLowerCase().includes('genai'));
+    expect(genAiOp).toBeDefined();
+    expect(genAiOp?.value).toBe('No');
+  });
+
+  it('sets Custom.PlannedStartdate and Custom.PlannedEnddate to target date with start < end', () => {
+    const plannedStart = byPath('/fields/Custom.PlannedStartdate')?.value as string;
+    const plannedEnd = byPath('/fields/Custom.PlannedEnddate')?.value as string;
+    expect(plannedStart).toBe('2026-10-08T04:00:00.000Z'); // 09:30 IST
+    expect(plannedEnd).toBe('2026-10-08T13:00:00.000Z');   // 18:30 IST
+    expect(new Date(plannedStart).getTime()).toBeLessThan(new Date(plannedEnd).getTime());
+  });
+
+  it('never copies stale planned dates or actual dates from source task', () => {
+    const paths = ops.map(o => o.path);
+    // Old dates from Oct 1 must NOT be copied
+    expect(byPath('/fields/Custom.PlannedEnddate')?.value).not.toBe('2026-10-01T13:00:00Z');
+    expect(paths).not.toContain('/fields/Custom.ActualStartdate');
+    expect(paths).not.toContain('/fields/Custom.ActualEnddate');
+  });
+
+  it('flattens complex identity objects in custom fields to uniqueName or displayName', () => {
+    expect(byPath('/fields/Custom.DeliveryOwner')?.value).toBe('john.lead@company.com');
+  });
+
+  it('handles late-day start time without wrapping to next day or violating start <= end', () => {
+    const opsLate = svc.buildFieldPatchOperations({
+      sourceWorkItem: sourceItem,
+      newTitle: 't',
+      targetIsoDate: '2026-10-08',
+      assignedTo: 'x@b.com',
+      startTime: '16:00',
+      timezone: 'Asia/Kolkata',
+      copyEstimates: false,
+      resetActualWork: false,
+      defaultState: 'New',
+    });
+    const startVal = opsLate.find(o => o.path === '/fields/Custom.PlannedStartdate')?.value as string;
+    const endVal = opsLate.find(o => o.path === '/fields/Custom.PlannedEnddate')?.value as string;
+    expect(new Date(startVal).getTime()).toBeLessThan(new Date(endVal).getTime());
+  });
+
+  it('respects an explicit endTime when provided', () => {
+    const opsCustomEnd = svc.buildFieldPatchOperations({
+      sourceWorkItem: sourceItem,
+      newTitle: 't',
+      targetIsoDate: '2026-10-08',
+      assignedTo: 'x@b.com',
+      startTime: '09:00',
+      endTime: '17:00',
+      timezone: 'Asia/Kolkata',
+      copyEstimates: false,
+      resetActualWork: false,
+      defaultState: 'New',
+    });
+    const startVal = opsCustomEnd.find(o => o.path === '/fields/Custom.PlannedStartdate')?.value as string;
+    const endVal = opsCustomEnd.find(o => o.path === '/fields/Custom.PlannedEnddate')?.value as string;
+    expect(startVal).toBe('2026-10-08T03:30:00.000Z');
+    expect(endVal).toBe('2026-10-08T11:30:00.000Z');
+    expect(new Date(startVal).getTime()).toBeLessThan(new Date(endVal).getTime());
   });
 
   it('honors copyEstimates=false and resetActualWork=false', () => {

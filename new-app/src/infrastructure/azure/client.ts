@@ -71,12 +71,18 @@ export class AzureDevOpsClient {
     }
 
     const url = `${this.baseUrl}/${this.organization}${path}`;
-    const headers = {
+    const customHeaders = options.headers || {};
+    const headers: Record<string, string> = {
       'Authorization': this.authHeader,
-      'Content-Type': 'application/json',
       'Accept': 'application/json',
-      ...options.headers,
+      'Content-Type': 'application/json',
+      ...customHeaders,
     };
+    for (const key of Object.keys(customHeaders)) {
+      if (key.toLowerCase() === 'content-type' && key !== 'Content-Type') {
+        delete headers['Content-Type'];
+      }
+    }
 
     let lastError: Error | null = null;
     
@@ -173,28 +179,49 @@ export class AzureDevOpsClient {
   /**
    * GET request
    */
-  async get<T>(path: string): Promise<T> {
-    return this.request<T>(path, { method: 'GET' });
+  async get<T>(path: string, options: Omit<RequestOptions, 'method'> = {}): Promise<T> {
+    return this.request<T>(path, { ...options, method: 'GET' });
   }
 
   /**
    * POST request
    */
-  async post<T>(path: string, body: any): Promise<T> {
-    return this.request<T>(path, { method: 'POST', body });
+  async post<T>(
+    path: string,
+    body: any,
+    options: Omit<RequestOptions, 'method' | 'body'> = {}
+  ): Promise<T> {
+    const isWorkItemCreate = path.includes('/_apis/wit/workitems/$');
+    const headers = isWorkItemCreate
+      ? { 'Content-Type': 'application/json-patch+json', ...options.headers }
+      : options.headers;
+
+    return this.request<T>(path, { ...options, method: 'POST', body, headers });
   }
 
   /**
    * PATCH request
    */
-  async patch<T>(path: string, body: any): Promise<T> {
-    return this.request<T>(path, { method: 'PATCH', body });
+  async patch<T>(
+    path: string,
+    body: any,
+    options: Omit<RequestOptions, 'method' | 'body'> = {}
+  ): Promise<T> {
+    return this.request<T>(path, {
+      ...options,
+      method: 'PATCH',
+      body,
+      headers: {
+        'Content-Type': 'application/json-patch+json',
+        ...options.headers,
+      },
+    });
   }
 
   /**
    * Delete request
    */
-  async delete<T>(path: string): Promise<T> {
-    return this.request<T>(path, { method: 'DELETE' });
+  async delete<T>(path: string, options: Omit<RequestOptions, 'method'> = {}): Promise<T> {
+    return this.request<T>(path, { ...options, method: 'DELETE' });
   }
 }

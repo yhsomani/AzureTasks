@@ -7,7 +7,7 @@ import { WorkItemRepository, AppConfig } from '../../domain/ports/repositories.j
 import { Person } from '../../domain/entities/person.js';
 import { DiscoveredTask, extractTitlePrefix } from '../../domain/entities/task.js';
 import { TaskDiscoveryService, DuplicateDetector, DatePlanningService } from '../../domain/services/task-services.js';
-import { PlannedDate, validateNotPastDate } from '../../domain/value-objects/date-window.js';
+import { validateNotPastDate } from '../../domain/value-objects/date-window.js';
 import { PersonExecutionPlan } from './create-tasks.js';
 
 export interface PlanTasksInput {

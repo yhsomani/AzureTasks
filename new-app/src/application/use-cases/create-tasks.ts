@@ -5,7 +5,7 @@
 
 import * as readline from 'node:readline/promises';
 import { WorkItemRepository, JournalRepository, LockRepository, AppConfig } from '../../domain/ports/repositories.js';
-import { Person, PersonConfig } from '../../domain/entities/person.js';
+import { Person } from '../../domain/entities/person.js';
 import { 
   DiscoveredTask, 
   WorkItem, 
@@ -20,15 +20,10 @@ import {
   RelationCopyService,
   DatePlanningService,
   TaskExecutionService,
-  TaskExecutionContext,
-  FieldPatchOperation
+  TaskExecutionContext
 } from '../../domain/services/task-services.js';
 import { 
-  planCreationDates, 
-  DatePlan, 
   PlannedDate,
-  getTodayIso,
-  getNextThursdayIso,
   validateNotPastDate,
   formatTitleDate
 } from '../../domain/value-objects/date-window.js';
