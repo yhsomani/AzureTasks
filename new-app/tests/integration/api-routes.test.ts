@@ -149,6 +149,56 @@ describe('API routes', () => {
     expect(typeof onProgress).toBe('function');
   });
 
+  it('rejects implicit all-member creation for an omitted or empty selection', async () => {
+    vi.mocked(deps.createTasks.execute).mockClear();
+    for (const input of [{}, { personKeys: [] }, { personKeys: 'p1' }]) {
+      const response = await json('/api/tasks/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      expect(response.status).toBe(400);
+    }
+    expect(deps.createTasks.execute).not.toHaveBeenCalled();
+  });
+
+  it('allows an intentional all-member creation only with all=true', async () => {
+    vi.mocked(deps.createTasks.execute).mockClear();
+    const response = await json('/api/tasks/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ all: true }),
+    });
+    expect(response.status).toBe(200);
+    expect(deps.createTasks.execute).toHaveBeenCalledWith(expect.objectContaining({
+      all: true,
+    }), expect.any(Function));
+  });
+
+  it('rejects an empty explicit task-planning selection rather than planning for everyone', async () => {
+    vi.mocked(deps.planTasks.execute).mockClear();
+    const response = await json('/api/tasks/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personKeys: [] }),
+    });
+    expect(response.status).toBe(400);
+    expect(deps.planTasks.execute).not.toHaveBeenCalled();
+  });
+
+  it('rejects implicit all-member Explorer create-missing execution', async () => {
+    vi.mocked(deps.createTasks.execute).mockClear();
+    for (const input of [{}, { personKeys: [] }]) {
+      const response = await json('/api/explorer/create-missing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      expect(response.status).toBe(400);
+    }
+    expect(deps.createTasks.execute).not.toHaveBeenCalled();
+  });
+
   it('POST /api/tasks/adhoc creates a custom single task', async () => {
     const res = await json('/api/tasks/adhoc', {
       method: 'POST',
