@@ -101,6 +101,13 @@ try {
     assert.equal(new URL(page.url()).hash, '#' + view, 'hash route: ' + view);
   }
 
+  await page.locator('.nav-item[data-view="explorer"]').click();
+  await page.locator('#explorerDeselectAllBtn').click();
+  await page.locator('#explorerUserPills button.user-pill[aria-pressed="false"]').waitFor();
+  assert.match(await page.locator('#explorerMatrixWrap').textContent(), /Select at least one team member/);
+  await page.locator('#explorerSelectAllBtn').click();
+  await page.locator('#explorerUserPills button.user-pill[aria-pressed="true"]').waitFor();
+
   await page.locator('.nav-item[data-view="planner"]').click();
   const memberButton = page.locator('#personPicker button.person-chip');
   await memberButton.waitFor();
