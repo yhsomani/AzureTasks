@@ -37,7 +37,7 @@ The server reads `AZURE_DEVOPS_PAT` and `GITHUB_TOKEN` from the environment. Req
 
 ## Documentation and navigation
 
-See [Feature inventory and user journey](docs/FEATURE_INVENTORY.md), [Architecture](docs/ARCHITECTURE.md), [Workflows](docs/WORKFLOWS.md), [Design system](docs/DESIGN_SYSTEM.md), and [Production readiness](docs/PRODUCTION_READINESS.md).
+See [UI redesign audit and user journeys](docs/UX_REDESIGN.md), [Feature inventory](docs/FEATURE_INVENTORY.md), [Architecture](docs/ARCHITECTURE.md), [Workflows](docs/WORKFLOWS.md), [Design system](docs/DESIGN_SYSTEM.md), and [Production readiness](docs/PRODUCTION_READINESS.md).
 
 This directory is the **only supported application** in the repository. No other application subtree is needed to build, test, or run it.
 
