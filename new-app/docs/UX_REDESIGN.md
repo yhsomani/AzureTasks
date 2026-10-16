@@ -96,15 +96,15 @@ Expected: errors are distinguishable from empty results, and repair actions are 
 
 | Area | Code change | Static/runtime coverage | Live/browser evidence |
 |---|---|---|---|
-| Shared navigation & breadcrumb | Implemented | CI UI shell contracts / VM navigation harness | Not run locally |
+| Shared navigation & breadcrumb | Implemented | VM harness + Chromium across ten routes | Browser CI passed (synthetic fixture) |
 | Dashboard guidance and contextual links | Implemented | UI shell contract tests | Not run locally |
-| Planner safe preview / scoped creation | Implemented | CI UI shell contracts | Live Azure not exercised |
-| Task Explorer inspection controls | Implemented | CI UI shell contracts and VM harness | Keyboard walkthrough outstanding |
+| Planner safe preview / scoped creation | Implemented | VM race regression + Chromium keyboard/cancellation tests | Browser CI passed; live Azure not exercised |
+| Task Explorer inspection controls | Implemented | CI contract tests and Explorer selection browser journey | Browser CI passed; screen-reader review outstanding |
 | My Work / Burndown | Existing views preserved + shared responsive shell | Existing regression tests | Visual review outstanding |
 | Team / Settings | Existing forms retained + shared shell | Existing regression tests | Field-by-field browser review outstanding |
 | Scheduler / EOD | Confirmation & preview-first entry | CI UI shell contracts | Live operation not exercised |
 | Audit / Logs | Confirmed repair + navigation | Existing tests / static checks | Live stream verification outstanding |
-| Modals / responsive | Focus wrap and backdrop | CI UI shell contracts | Device and screen-reader review outstanding |
+| Modals / responsive | Focus wrap and backdrop | Chromium mobile open/close and Escape test | Browser CI passed; device and screen-reader review outstanding |
 | Server-delivered UI | CI smoke implemented | Authenticated HTTP shell, protected route (401), JavaScript syntax and build | Passed in GitHub Actions; real-browser review outstanding |
 
 ## Manual acceptance scenarios
@@ -122,7 +122,7 @@ Expected: errors are distinguishable from empty results, and repair actions are 
 
 ## Remaining limitations and follow-up
 
-Full visual redesign of every individual inner form/table, automated browser journeys, screen-reader validation, manual mobile screenshots, live Azure DevOps data verification, and production performance comparisons remain **unverified** in this repository-only session. The initial delivery focuses on high-impact journey coherence and mutation safety rather than rewriting functional business logic. Before declaring production readiness, complete the manual acceptance scenarios above and review CI on the final commit.
+A complete visual redesign of every individual form/table, screen-reader certification, real Azure DevOps mutation verification, and production performance comparisons remain **unverified**. Targeted real-Chromium journeys, desktop/mobile synthetic-fixture screenshots, and keyboard navigation smoke tests now run in CI in this repository-only session. The initial delivery focuses on high-impact journey coherence and mutation safety rather than rewriting functional business logic. Before declaring production readiness, complete the manual acceptance scenarios above and review CI on the final commit.
 
 **Credentials:** do not reuse any PAT or GitHub token previously posted in chat. Rotate exposed values, keep secrets outside version control, and retain TLS verification.
 
@@ -132,3 +132,17 @@ Full visual redesign of every individual inner form/table, automated browser jou
 - [Merged-main CI run #38941102028](https://github.com/yhsomani/AzureTasks/actions/runs/38941102028) finished successfully on the delivered redesign merge commit.
 - The follow-up navigation regression test executes `switchView('logs')` against a minimal in-memory DOM harness and also verifies that using a single-element selector reproduces the failure. This is not equivalent to Playwright/Cypress browser E2E coverage.
 - **No real Azure DevOps work items were created, closed or repaired** during these checks; no PAT was needed for the CI smoke test.
+
+## Follow-up: state isolation, real-browser checks and Explorer reliability
+
+The next regression-focused iteration addressed three additional root causes:
+
+1. **Dashboard–Planner shared state collision (high impact):** An asynchronous Dashboard all-team preview used `state.pendingPlan`, the same mutable slot that backed Planner confirmation. If the Dashboard request resolved later it could replace the reviewed member/date details. The Dashboard now uses `state.dashboardPlan`; an executable VM regression test reproduced the old race first, then passed after the fix.
+2. **Selection accessibility and correctness (high impact):** Planner chips and Explorer filters were mouse-only labels/spans, so keyboard-only users could not reliably select their task scope. Both now use accessible `button type=button` controls and `aria-pressed`, with focus restoration after re-render. Explorer's Deselect All previously cleared the set but then silently reselected every member, and zero selected keys caused an unfiltered query. All-member fallback is now blocked in the Explorer UI, with explicit empty-selection guidance and reset metrics.
+3. **Misleading empty-data success (medium impact):** A valid empty Explorer matrix rendered an ungrounded “all tasks completely up to date” claim. Empty coverage now displays a no-task-data message instead of inventing a success result.
+
+### Automated evidence
+
+[Browser + full-suite CI, run #38944094953](https://github.com/yhsomani/AzureTasks/actions/runs/38944094953) passed the full suite, TypeScript typecheck, lint, JavaScript syntax, build, server authentication smoke and headless Chromium tests. The browser scenarios cover all ten routes, mobile navigation with backdrop, Planner keyboard selection, no-member mutation guards, confirmation cancellation, Explorer select/deselect behavior and EOD dry-run entry. Screenshots are uploaded as a short-lived `ui-browser-screenshots` workflow artifact and use explicit synthetic fixtures.
+
+**Remaining verification:** production tenant task creation/closure, real-role permission flows, keyboard operation across every form and table, screen-reader audit, visual design review with screenshots on multiple real devices, and performance under slow Azure DevOps responses. Automated fixture tests are **not** proof of live integrations.

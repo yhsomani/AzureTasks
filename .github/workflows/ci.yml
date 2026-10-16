@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main, master, 'feat/**' ]
+    branches: [ main, master, 'feat/**', 'fix/**' ]
   pull_request:
     branches: [ main, master ]
 
@@ -58,3 +58,18 @@ jobs:
           grep -q 'nav-group-label' /tmp/azuretasks-index.html
           grep -q 'function plannerSelectionSignature' /tmp/azuretasks-app.js
           grep -q '.nav-backdrop.open' /tmp/azuretasks-styles.css
+
+      - name: Install isolated browser test dependencies
+        run: |
+          npm install --no-save --package-lock=false playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Browser user journey tests
+        run: node tests/browser/ui-journeys.mjs
+      - name: Upload browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-browser-screenshots
+          path: new-app/artifacts/*.png
+          if-no-files-found: ignore
+          retention-days: 7

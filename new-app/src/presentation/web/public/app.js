@@ -17,6 +17,7 @@ const state = {
   scheduler: null,
   charts: { effort: null, status: null },
   pendingPlan: null,
+  dashboardPlan: null,
   pendingPlanSignature: null,
   planRequestVersion: 0,
   isExecuting: false,
@@ -364,7 +365,7 @@ async function refreshDashboard() {
 
   // 3. Plan Preview: render cached or progressive skeleton
   const dp = $('#dashboardPlan');
-  if (dp && !state.pendingPlan) {
+  if (dp && !state.dashboardPlan) {
     dp.innerHTML = `
       <div class="skeleton-text skeleton" style="width:60%;"></div>
       <div class="skeleton-text skeleton" style="width:85%;"></div>
@@ -372,7 +373,7 @@ async function refreshDashboard() {
     `;
   }
   api.post('/tasks/plan', { all: true }).then(plan => {
-    state.pendingPlan = plan;
+    state.dashboardPlan = plan;
     renderPlanPreview(plan);
   }).catch(err => {
     if (dp) dp.innerHTML = `<p class="muted">${escapeHtml(err.message)}</p>`;
@@ -480,6 +481,10 @@ function renderTimeline(entries) {
 function generateInsights(data) {
   const container = $('#insightsContainer');
   if (!container || !data) return;
+  if (!Array.isArray(data.matrix) || data.matrix.length === 0) {
+    container.textContent = 'No task data for this period. Check the selected dates and Azure DevOps connection.';
+    return;
+  }
 
   const insights = [];
   data.matrix.forEach(row => {
@@ -810,6 +815,20 @@ async function refreshExplorer(options = {}) {
   const forceFresh = options.forceFresh === true;
   const cfg = await ensureConfig(forceFresh);
   renderExplorerUserPills(cfg);
+  if (state.selectedExplorerKeys.size === 0) {
+    state.explorerData = null;
+    const matrix = $('#explorerMatrixWrap');
+    if (matrix) matrix.textContent = 'Select at least one team member to view task coverage.';
+    const timestamp = $('#explorerLastRefresh');
+    if (timestamp) timestamp.textContent = 'No members selected';
+    renderExplorerList([]);
+    renderExplorerKpis({
+      totalSelectedUsers: 0, totalWorkingDates: 0, expectedCombinations: 0,
+      existingCombinations: 0, missingCombinations: 0, duplicateCombinations: 0,
+      overallCoveragePercent: 0, stateCounts: {},
+    });
+    return;
+  }
 
   const preset = $('#explorerPreset')?.value || 'today_to_next_thursday';
   const start = $('#explorerStart')?.value;
@@ -884,7 +903,10 @@ function renderExplorerUserPills(cfg) {
   container.innerHTML = '';
   active.forEach(p => {
     const on = state.selectedExplorerKeys.has(p.key);
-    const pill = el('span', {
+    const pill = el('button', {
+      type: 'button',
+      'aria-pressed': String(on),
+      'data-member-key': p.key,
       class: `user-pill ${on ? 'on' : ''}`,
       onclick: () => {
         if (state.selectedExplorerKeys.has(p.key)) {
@@ -896,6 +918,7 @@ function renderExplorerUserPills(cfg) {
           if (state.deselectedExplorerKeys) state.deselectedExplorerKeys.delete(p.key);
         }
         renderExplorerUserPills(cfg);
+        Array.from(container.querySelectorAll('button.user-pill')).find(button => button.dataset.memberKey === p.key)?.focus();
         refreshExplorer({ forceFresh: true });
       },
     }, [
@@ -1194,9 +1217,12 @@ async function renderPlannerPeople() {
 
   for (const p of active) {
     const on = state.selectedKeys.has(p.key);
-    const chip = el('label', {
+    const chip = el('button', {
+      type: 'button',
+      'aria-pressed': String(on),
+      'data-member-key': p.key,
       class: `person-chip ${on ? 'on' : ''}`,
-      onclick: () => {
+      onclick: async () => {
         if (state.selectedKeys.has(p.key)) {
           state.selectedKeys.delete(p.key);
           if (!state.deselectedKeys) state.deselectedKeys = new Set();
@@ -1206,7 +1232,8 @@ async function renderPlannerPeople() {
           if (state.deselectedKeys) state.deselectedKeys.delete(p.key);
         }
         updatePlannerMemberPill(active.length);
-        renderPlannerPeople();
+        await renderPlannerPeople();
+        Array.from(picker.querySelectorAll('.person-chip')).find(button => button.dataset.memberKey === p.key)?.focus();
         runPlanPreview();
       },
     }, [
@@ -2496,6 +2523,7 @@ function wire() {
   });
   $('#explorerSelectAllBtn')?.addEventListener('click', () => {
     ensureConfig().then(cfg => {
+      state.deselectedExplorerKeys = new Set();
       cfg.people.filter(p => p.enabled !== false).forEach(p => state.selectedExplorerKeys.add(p.key));
       renderExplorerUserPills(cfg);
       refreshExplorer();
@@ -2503,7 +2531,9 @@ function wire() {
   });
   $('#explorerDeselectAllBtn')?.addEventListener('click', () => {
     ensureConfig().then(cfg => {
+      const active = cfg.people.filter(p => p.enabled !== false);
       state.selectedExplorerKeys.clear();
+      state.deselectedExplorerKeys = new Set(active.map(p => p.key));
       renderExplorerUserPills(cfg);
       refreshExplorer();
     });
