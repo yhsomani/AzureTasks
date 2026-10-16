@@ -109,6 +109,13 @@ describe('API routes', () => {
     expect((await res.json()).status).toBe('healthy');
   });
 
+  it('does not grant cross-origin browser access by default', async () => {
+    const res = await json('/api/health', {
+      headers: { Origin: 'https://attacker.example.invalid' },
+    });
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
+  });
+
   it('GET /api/status wraps use-case output', async () => {
     const res = await json('/api/status');
     const body = await res.json();
