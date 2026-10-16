@@ -48,6 +48,27 @@ describe('user journey shell contracts', () => {
     expect(js).toContain('state.planRequestVersion');
   });
 
+  it('makes dashboard contextual links navigate to real sections', () => {
+    expect(html).toContain('data-view-link="planner"');
+    expect(html).toContain('data-view-link="journal"');
+    expect(js).toContain("closest('[data-view-link]')");
+  });
+
+  it('routes a single-day action through single-task creation', () => {
+    expect(js).toContain('openAdHocModal(personKey, isoDate)');
+    const section = js.match(/function runForCell[\\s\\S]*?function renderPlanResults/)?.[0] ?? '';
+    expect(section).not.toContain("api.post('/tasks/execute'");
+  });
+
+  it('requires explicit review for scheduler and EOD operations', () => {
+    expect(js).toContain("window.confirm('Run the scheduled task creation now");
+    expect(js).toContain("$('#eodRunNowBtn')?.addEventListener('click', () => triggerEodClosure(true))");
+  });
+
+  it('exposes matrix inspection actions as keyboard-operable buttons', () => {
+    expect(js).toContain('matrix-cell-action');
+  });
+
   it('manages dialog focus for keyboard users', () => {
     expect(js).toContain('function trapModalFocus(');
     expect(js).toContain("e.key === 'Tab'");
