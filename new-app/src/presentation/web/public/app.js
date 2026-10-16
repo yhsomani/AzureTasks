@@ -1223,45 +1223,74 @@ function updatePlannerMemberPill(totalActive) {
   }
 }
 
+function plannerSelectionSignature() {
+  return JSON.stringify({
+    people: [...state.selectedKeys].sort(),
+    asOf: $('#asOf')?.value || '',
+    thursdayMode: $('#thursdayMode')?.value || 'CURRENT',
+  });
+}
+
+function setPlannerExecuteReady(ready) {
+  const button = $('#executeBtn');
+  if (button) {
+    button.disabled = !ready;
+    button.title = ready ? 'Review exact tasks before creation' : 'Preview pending tasks before creating';
+  }
+}
+
 async function runPlanPreview() {
   const matrixWrap = $('#planMatrixWrap');
   const results = $('#planResults');
   const statusPill = $('#plannerAutoRefreshStatus');
+  const signature = plannerSelectionSignature();
+  const requestVersion = ++state.planRequestVersion;
+  state.pendingPlan = null;
+  state.pendingPlanSignature = null;
+  setPlannerExecuteReady(false);
   if (statusPill) { statusPill.textContent = 'Updating…'; statusPill.className = 'pill warn'; }
 
-  if (matrixWrap && !state.pendingPlan) {
-    matrixWrap.innerHTML = `
-      <div style="padding:20px;">
-        <div class="skeleton-row skeleton" style="height:40px; margin-bottom:12px;"></div>
-        <div class="skeleton-row skeleton"></div>
-        <div class="skeleton-row skeleton"></div>
-      </div>
-    `;
-  }
-  if (results && !state.pendingPlan) {
-    results.innerHTML = `
-      <div style="padding:16px;">
-        <div class="skeleton-text skeleton" style="width:50%;"></div>
-        <div class="skeleton-text skeleton" style="width:80%;"></div>
-      </div>
-    `;
+  if (state.selectedKeys.size === 0) {
+    const message = 'Select at least one team member to preview or create tasks.';
+    if (matrixWrap) matrixWrap.textContent = message;
+    if (results) results.textContent = message;
+    if (statusPill) { statusPill.textContent = 'Select members'; statusPill.className = 'pill warn'; }
+    if ($('#kpiPlanMembers')) $('#kpiPlanMembers').textContent = '0';
+    if ($('#kpiPlanToCreate')) $('#kpiPlanToCreate').textContent = '0';
+    if ($('#kpiPlanExisting')) $('#kpiPlanExisting').textContent = '0';
+    return;
   }
 
+  if (matrixWrap) matrixWrap.innerHTML = '<div style="padding:20px;"><div class="skeleton-row skeleton"></div><div class="skeleton-row skeleton"></div></div>';
+  if (results) results.textContent = 'Checking existing tasks and planned dates…';
+
   try {
-    const keys = [...state.selectedKeys];
     const plan = await api.post('/tasks/plan', {
-      personKeys: keys.length ? keys : undefined,
+      personKeys: [...state.selectedKeys],
       asOf: $('#asOf')?.value || undefined,
       thursdayMode: $('#thursdayMode')?.value || undefined,
     });
+    if (requestVersion !== state.planRequestVersion || signature !== plannerSelectionSignature()) return;
     state.pendingPlan = plan;
+    state.pendingPlanSignature = signature;
     renderPlanMatrix(plan);
     renderPlanResults(plan);
-    if (statusPill) { statusPill.textContent = 'Up to date'; statusPill.className = 'pill ok'; }
+    const count = plan.personPlans.reduce((sum, person) =>
+      sum + (person.plannedDates || []).filter(date => date.status === 'PLANNED').length, 0);
+    setPlannerExecuteReady(count > 0);
+    if (statusPill) {
+      statusPill.textContent = count > 0 ? `${count} pending · ready to review` : 'No pending tasks';
+      statusPill.className = count > 0 ? 'pill warn' : 'pill ok';
+    }
   } catch (err) {
-    if (matrixWrap) matrixWrap.innerHTML = `<p class="muted" style="color:var(--danger); padding:24px;">❌ Matrix error: ${escapeHtml(err.message)}</p>`;
-    if (results) results.innerHTML = `<p class="muted" style="color:var(--danger); padding:16px;">❌ Preview error: ${escapeHtml(err.message)}</p>`;
-    if (statusPill) { statusPill.textContent = 'Error'; statusPill.className = 'pill bad'; }
+    if (requestVersion !== state.planRequestVersion) return;
+    state.pendingPlan = null;
+    state.pendingPlanSignature = null;
+    setPlannerExecuteReady(false);
+    if (matrixWrap) matrixWrap.textContent = `Preview failed: ${err.message}`;
+    if (results) results.textContent = `Preview failed: ${err.message}`;
+    if (statusPill) { statusPill.textContent = 'Preview failed'; statusPill.className = 'pill bad'; }
+    toast(`Could not preview tasks: ${err.message}`, 'err');
   }
 }
 
@@ -1424,22 +1453,9 @@ async function runForMember(personKey, personName) {
   }
 }
 
-async function runForCell(personKey, personName, isoDate, dateStr) {
-  if (!confirm(`Create Azure DevOps task for ${personName || personKey} on ${dateStr} (${isoDate})?`)) return;
-  openConsoleDrawer();
-  try {
-    const res = await api.post('/tasks/execute', {
-      personKeys: [personKey],
-      asOf: isoDate,
-      thursdayMode: $('#thursdayMode')?.value || undefined,
-      dryRun: false,
-    });
-    toast(`Task created for ${personName || personKey} on ${dateStr}`, 'ok');
-    runPlanPreview();
-    refreshDashboard();
-  } catch (err) {
-    toast(`Creation failed: ${err.message}`, 'err');
-  }
+function runForCell(personKey, personName, isoDate) {
+  // A matrix cell represents one date. Never run a multi-day batch from this action.
+  openAdHocModal(personKey, isoDate);
 }
 
 function renderPlanResults(plan) {
@@ -1505,6 +1521,22 @@ function renderPlanResults(plan) {
 }
 
 function openConfirmationModal() {
+  if (state.selectedKeys.size === 0) {
+    toast('Select at least one team member before creating tasks.', 'warn');
+    return;
+  }
+  if (!state.pendingPlan || state.pendingPlanSignature !== plannerSelectionSignature()) {
+    toast('Review an up-to-date plan before executing tasks.', 'warn');
+    runPlanPreview();
+    return;
+  }
+  const plannedCount = state.pendingPlan.personPlans.reduce((sum, person) =>
+    sum + (person.plannedDates || []).filter(date => date.status === 'PLANNED').length, 0);
+  if (plannedCount === 0) {
+    toast('No pending tasks to create for this selection.', 'ok');
+    return;
+  }
+
   const modal = $('#confirmModal');
   const list = $('#confirmTaskList');
   if (!modal || !list) return;
@@ -1533,7 +1565,18 @@ function openConfirmationModal() {
 }
 
 async function executeCreation() {
+  if (state.isExecuting) return;
+  if (state.selectedKeys.size === 0 ||
+      !state.pendingPlan ||
+      state.pendingPlanSignature !== plannerSelectionSignature()) {
+    hideModal('#confirmModal');
+    toast('Review an up-to-date plan before executing tasks.', 'warn');
+    return;
+  }
+  state.isExecuting = true;
   hideModal('#confirmModal');
+  const confirmButton = $('#btnConfirmExecute');
+  if (confirmButton) confirmButton.disabled = true;
 
   const btn = $('#executeBtn');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Creating tasks...'; }
@@ -1555,7 +1598,12 @@ async function executeCreation() {
   } catch (err) {
     toast(err.message, 'err');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Execute creation'; }
+    state.isExecuting = false;
+    state.pendingPlan = null;
+    state.pendingPlanSignature = null;
+    setPlannerExecuteReady(false);
+    if (confirmButton) confirmButton.disabled = false;
+    if (btn) btn.textContent = 'Review & confirm';
   }
 }
 
