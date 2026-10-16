@@ -1,53 +1,47 @@
-# Azure DevOps 3in1 Task Creator
+# 3in1 Task Studio
 
-Two codebases live here:
+The **single supported application** in this repository is [`new-app/`](new-app/), an Azure DevOps task planning, creation, exploration, and automation studio.
 
-| Path | What it is | Status |
-|---|---|---|
-| [`new-app/`](new-app/) | Production rebuild — hexagonal/DDD, TypeScript (ESM, Node ≥ 22), Express 5, dependency-free SPA, CLI + scheduler | ✅ Active. 76 tests green, build clean |
-| [`Legacy/`](Legacy/) | The original implementation, preserved and independently runnable | 🗄️ Reference only |
+## Getting started
 
-`new-app/` has **zero runtime dependency** on `Legacy/`.
-
-## Quick start (new app)
+Requires Node.js 22 or newer.
 
 ```bash
 cd new-app
-npm install
-cp .env.example .env      # set AZURE_DEVOPS_PAT (Work Items: Read & Write)
-npm run dev               # web dashboard at http://localhost:3000
-npm run dev -- plan       # dry run
-npm run dev -- run --all --yes
-npm test
+npm ci
+cp .env.example .env
+# Set a newly issued AZURE_DEVOPS_PAT with the minimum required scope.
+# Keep .env local and never commit or share access tokens.
+npm run dev
 ```
 
-Full setup, configuration, deployment, and rollback: [`new-app/README.md`](new-app/README.md).
+Open http://localhost:3000 to access the dashboard. For a non-mutating planning preview use `npm run dev -- plan`. Run automated tasks only after reviewing the planned changes.
 
-## Quick start (legacy)
+## Quality checks
 
 ```bash
-cd Legacy
-npm install
-npm run ui        # or: npm start / npm run dry-run
+cd new-app
+npm run typecheck
+npm run lint
+npm test
+npm run build
 ```
+
+CI runs these checks for the supported application.
 
 ## Documentation
 
-- **New app** — [`new-app/docs/`](new-app/docs/):
-  [Architecture](new-app/docs/ARCHITECTURE.md) ·
-  [Feature parity](new-app/docs/FEATURE_PARITY.md) ·
-  [Workflows](new-app/docs/WORKFLOWS.md) ·
-  [Design system](new-app/docs/DESIGN_SYSTEM.md) ·
-  [Test results](new-app/docs/TEST_RESULTS.md) ·
-  [Council review](new-app/docs/COUNCIL_REVIEW.md) ·
-  [Production readiness](new-app/docs/PRODUCTION_READINESS.md) ·
-  [Legacy recovery](new-app/docs/LEGACY_RECOVERY.md)
-- **Audit of the original** — [`Docs/`](Docs/):
-  executive summary, comprehensive audit, specialist findings.
+- [Setup, commands, deployment, and security](new-app/README.md)
+- [Current product requirements](new-app/PRD.md)
+- [Feature inventory and navigation](new-app/docs/FEATURE_INVENTORY.md)
+- [Architecture](new-app/docs/ARCHITECTURE.md)
+- [Workflows](new-app/docs/WORKFLOWS.md)
+- [Design system](new-app/docs/DESIGN_SYSTEM.md)
+- [Test evidence](new-app/docs/TEST_RESULTS.md)
+- [Production readiness](new-app/docs/PRODUCTION_READINESS.md)
 
-## History
+Source code, configuration templates, tests, and active documentation are maintained under `new-app/`. Previous implementations and their standalone audits are not part of the supported repository layout.
 
-- `f819fa8` — legacy preserved
-- `1ddbcb7` — greenfield rebuild
-- `5184b4b` — real relation repair
-- `2361532` — UI label fix
+## Security
+
+**Rotate any PAT or GitHub token shared in a chat, log, screenshot, or public repository.** Configure TLS using trusted certificate authorities, not `NODE_TLS_REJECT_UNAUTHORIZED=0`. Restrict web/API access with `API_AUTH_TOKEN` and HTTPS or an authenticating proxy. Do not run unattended work-item mutations until credentials, identities, and selected tasks have been verified.

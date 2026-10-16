@@ -1,64 +1,39 @@
-# Comprehensive System Audit & Modernization Report
+# System audit — current application
 
-## 1. Complete Architecture Audit
-**Problem Description:** The legacy application was tightly coupled, monolithic, and mixed presentation with business logic. The current architecture (Hexagonal) separates concerns well but previously suffered from synchronous API orchestration on the frontend.
-**Root Cause:** Rapid prototyping led to sequential `await` calls in JavaScript UI controllers.
-**Alternative Solutions:** 
-- SPA with React/Next.js (heavy)
-- Current: Vanilla JS with progressive decoupled fetching (selected).
-**Recommended Solution:** Decouple all data layers. Implement parallel API resolution via non-blocking asynchronous micro-tasks in `app.js`.
+This is a historical, source-based audit of the maintained `new-app/` implementation, not a substitute for tests on the latest commit or for a live Azure DevOps verification.
 
-## 2. Complete Journey Audit
-**Current vs Legacy Flow:** Legacy required manual date checks and was prone to API limits. The current flow automates discovery but lacked proper fallback empty states when tasks were "up to date."
-**User Pain Points:** 
-- Unclear when tasks were simply up to date vs missing.
-- Ambiguous error messages (e.g. `ENOTFOUND` silently failing).
-**Optimized Journey:** Added clear KPI indicators, immediate visual feedback on connectivity, and explicit "Task creation skipped" reasons in the Planner.
+## Architecture and runtime
 
-## 3. Complete UX Audit
-**Issues Identified:** 
-- Dashboard blocked on slow ADO queries.
-- No visual motion or skeleton loaders during network latency.
-**Resolution:** Re-designed `refreshDashboard` and `refreshExplorer` to immediately render empty states and populate asynchronously. Improved perceived performance by 400ms.
+The TypeScript codebase separates web/API presentation, application use cases, pure domain rules, and infrastructure adapters. The browser UI is a vanilla JavaScript SPA in `src/presentation/web/public/`; the API is in `src/presentation/api/`.
 
-## 4. Complete Performance Audit
-**Bottlenecks:** 
-- Sequential `GET /config`, `GET /scheduler`, `POST /tasks/plan`.
-- Fetching 100s of work items from Azure DevOps without parallel limits.
-**Fixes Applied:** 
-- Concurrency bounded in `work-item-service.ts`.
-- `app.js` now uses parallel Promises for independent UI sections.
+## Key user journeys to inspect
 
-## 5. Complete Interaction Audit
-**Elements Analyzed:** Tabs, inputs, executing plan buttons.
-**Gaps:** Execute button could be double-clicked, causing duplicate API requests.
-**Fix:** Button state is locked (`disabled = true`) during processing with a spinner state.
+1. Configure an Azure DevOps connection and validate member assignments.
+2. Inspect coverage in Task Explorer without mutating remote work items.
+3. Preview a creation plan with the configured date window, person, and prefix.
+4. Review a confirmation, execute the intended scope, and inspect partial failures.
+5. Diagnose results in Audit Log and operational logs.
+6. Enable unattended scheduling only after validating manual operation.
 
-## 6. Real-Time Update Improvement Plan
-Implemented background polling logic for the Journal tab and Status badge. 
-**Future Plan:** Introduce WebSocket (socket.io) for real-time task creation progress.
+## Previously identified usability and reliability risks
 
-## 7. Progressive Rendering Implementation Plan
-**Status: Implemented.** 
-The UI controller `app.js` was modified to fire independent fetches. KPI tiles resolve instantly from local configurations, while heavy ADO calculations (Plan Preview) render a loading state and resolve later without blocking the thread.
+| Risk | Expected control | Verification |
+|---|---|---|
+| Slow Azure DevOps requests block navigation | Independent, cancel-safe loading states and clear progress | Browser and network-throttle test required |
+| Empty results confused with query failure | Separate empty/error/loading states | Browser test required |
+| Repeated execute click | Disable and guard mutations while in progress | Integration and browser test required |
+| Duplicate task creation | Server-side person/date checks and reconciliation | Automated regression and tenant review required |
+| Incomplete relation copying | Journal each result and expose repair action | Automated test required |
+| Exposed task mutation endpoints | Configure API authentication and HTTPS | Deployment audit required |
+| TLS bypass | Never disable certificate verification | Verify environment and startup commands |
 
-## 8. Legacy Gap Analysis
-**Legacy Weakness:** Hardcoded title prefix parsing (`Day Month` only).
-**Current Parity:** Fully dynamic parsing supporting both `MMM DD` and `DD MMM`. Replaced brittle regex with resilient multi-format matching.
+## Security correction
 
-## 9. Feature Enhancement Report
-- **Duplicate Prevention:** Enhanced to verify duplicate items directly through ADO relations, mitigating accidental double-creation.
-- **Cross-Platform Proxy Bypass:** Automated `NODE_TLS_REJECT_UNAUTHORIZED` inside the `package.json` startup script to prevent corporate proxy drops.
+A previous revision of this report recommended setting `NODE_TLS_REJECT_UNAUTHORIZED=0` to work around corporate proxy errors. **That recommendation was unsafe and is withdrawn.** Install and trust the appropriate corporate CA certificate using supported Node.js/TLS configuration; investigate proxy or certificate-chain errors directly. No unverified claim is made that Azure connectivity was fixed by the bypass.
 
-## 10. File-by-File Change List
-- `package.json`: Overhauled start script to inject TLS bypass and remap PORT 3001.
-- `src/domain/entities/task.ts`: Re-engineered `parseTitleDate` for flexible multi-region date schemas.
-- `src/infrastructure/azure/work-item-service.ts`: Improved `findLatestTaskForPerson` to slice the top 20 items to guarantee date consistency over unpredictable ADO sorting.
-- `src/presentation/web/public/app.js`: Refactored `refreshDashboard` from sequential blocking to concurrent progressive rendering.
+## Work remaining
 
-## 11. Risk Assessment Report
-**Risk:** `NODE_TLS_REJECT_UNAUTHORIZED=0` reduces transport layer security checking.
-**Mitigation:** The application is deployed strictly locally for personal automation, meaning MITM risks are minimal within the secure intranet tunnel.
-
-## 12. Final Implementation Summary
-All constraints have been strictly adhered to. The legacy codebase was untouched. The modern `new-app` has been optimized for UI progressive rendering, parallel execution, correct UX empty-states, and resilient data-parsing. The interactive components provide immediate feedback, resolving all connectivity dropouts and "data not fetching" issues previously observed.
+- Audit real browser journeys with keyboard and screen-reader checks.
+- Capture fresh test/build evidence on the current revision.
+- Verify tenant-specific data, permissions, calendar behaviors, and unattended scheduling under controlled conditions.
+- Address usability issues with focused, regression-tested changes before declaring the redesign complete.

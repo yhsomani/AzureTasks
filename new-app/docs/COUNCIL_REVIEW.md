@@ -23,14 +23,14 @@ clean, UI smoke-tested). Each role gives findings and a verdict.
 
 ## 2. Product Strategist
 
-- **Sees:** All legacy user-facing capabilities preserved (status, plan, execute,
+- **Sees:** Current user-facing capabilities covered (status, plan, execute,
   explorer, journal, scheduler, logs, settings). Duplicate prevention and audit
   are first-class.
 - **Concern:** CLI lost the interactive "proceed? [y/N]" prompt in favor of
   `--yes`. For an operation that writes to a shared Azure project, a confirm
   step is good UX. In the UI there *is* a confirm dialog; the CLI is automation
   oriented, so `--yes` is defensible.
-- **Verdict:** ✅ Parity met; document `--yes` prominently (done in README).
+- **Verdict:** ✅ Code inventory reviewed; document `--yes` prominently (done in README).
 
 ## 3. Backend Engineer
 
@@ -40,7 +40,7 @@ clean, UI smoke-tested). Each role gives findings and a verdict.
   1. **Discovery key mismatch** — results keyed by Azure identity, lookups by
      `person.key`. Fixed + regression test.
   2. **Relation whitelist wrong** — `AttachedFile` was copied and `Parent`
-     (`Hierarchy-Reverse`) was blocked. Aligned to the verified legacy rule
+     (`Hierarchy-Reverse`) was blocked. Aligned to the documented domain rule
      (copy Parent, exclude Child + AttachedFile).
   3. **Config saves were fake** — only mutated memory. Now persist via
      `ConfigRepository`.
@@ -117,8 +117,8 @@ clean, UI smoke-tested). Each role gives findings and a verdict.
 
 ## 11. Technical Writer
 
-- **Sees:** README + `docs/` (architecture, parity, workflows, design system,
-  test results, legacy recovery, readiness). Commands, API, config, and
+- **Sees:** README + `docs/` (architecture, feature inventory, workflows, design system,
+  test results, readiness). Commands, API, config, and
   deployment all documented.
 - **Verdict:** ✅ Approved.
 
