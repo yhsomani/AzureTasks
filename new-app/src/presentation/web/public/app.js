@@ -17,6 +17,7 @@ const state = {
   scheduler: null,
   charts: { effort: null, status: null },
   pendingPlan: null,
+  dashboardPlan: null,
   pendingPlanSignature: null,
   planRequestVersion: 0,
   isExecuting: false,
@@ -364,7 +365,7 @@ async function refreshDashboard() {
 
   // 3. Plan Preview: render cached or progressive skeleton
   const dp = $('#dashboardPlan');
-  if (dp && !state.pendingPlan) {
+  if (dp && !state.dashboardPlan) {
     dp.innerHTML = `
       <div class="skeleton-text skeleton" style="width:60%;"></div>
       <div class="skeleton-text skeleton" style="width:85%;"></div>
@@ -372,7 +373,7 @@ async function refreshDashboard() {
     `;
   }
   api.post('/tasks/plan', { all: true }).then(plan => {
-    state.pendingPlan = plan;
+    state.dashboardPlan = plan;
     renderPlanPreview(plan);
   }).catch(err => {
     if (dp) dp.innerHTML = `<p class="muted">${escapeHtml(err.message)}</p>`;
@@ -1194,9 +1195,12 @@ async function renderPlannerPeople() {
 
   for (const p of active) {
     const on = state.selectedKeys.has(p.key);
-    const chip = el('label', {
+    const chip = el('button', {
+      type: 'button',
+      'aria-pressed': String(on),
+      'data-member-key': p.key,
       class: `person-chip ${on ? 'on' : ''}`,
-      onclick: () => {
+      onclick: async () => {
         if (state.selectedKeys.has(p.key)) {
           state.selectedKeys.delete(p.key);
           if (!state.deselectedKeys) state.deselectedKeys = new Set();
@@ -1206,7 +1210,8 @@ async function renderPlannerPeople() {
           if (state.deselectedKeys) state.deselectedKeys.delete(p.key);
         }
         updatePlannerMemberPill(active.length);
-        renderPlannerPeople();
+        await renderPlannerPeople();
+        Array.from(picker.querySelectorAll('.person-chip')).find(button => button.dataset.memberKey === p.key)?.focus();
         runPlanPreview();
       },
     }, [
