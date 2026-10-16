@@ -80,6 +80,16 @@ describe('user journey shell contracts', () => {
     expect(js).toContain("if (!window.confirm('Repair incomplete task relationships");
   });
 
+  it('prevents EOD closure before a successful fresh dry run', () => {
+    expect(js).toContain('state.eodPreviewReadyAt');
+    expect(js).toContain('Preview EOD closure before executing');
+    expect(js).toContain("if (executeBtn) executeBtn.style.display = 'none'");
+  });
+
+  it('requires explicit consent to bypass ad-hoc duplicate safeguards', () => {
+    expect(js).toContain("payload.bypassDuplicateCheck && !window.confirm(");
+  });
+
   it('manages dialog focus for keyboard users', () => {
     expect(js).toContain('function trapModalFocus(');
     expect(js).toContain("e.key === 'Tab'");
