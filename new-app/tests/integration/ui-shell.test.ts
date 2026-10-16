@@ -24,6 +24,11 @@ describe('user journey shell contracts', () => {
     expect(html).toContain('aria-label="Primary navigation"');
   });
 
+  it('iterates over every navigation button rather than a single element', () => {
+    expect(js).toContain("$('.nav-item').forEach");
+    expect(js).not.toContain("$('.nav-item').forEach");
+  });
+
   it('exposes accessible navigation and responsive dismissal controls', () => {
     expect(html).toContain('id="navBackdrop"');
     expect(html).toContain('aria-controls="sidebar"');
@@ -46,6 +51,48 @@ describe('user journey shell contracts', () => {
     expect(js).toContain('Select at least one team member');
     expect(js).toContain('Review an up-to-date plan before executing');
     expect(js).toContain('state.planRequestVersion');
+  });
+
+  it('makes dashboard contextual links navigate to real sections', () => {
+    expect(html).toContain('data-view-link="planner"');
+    expect(html).toContain('data-view-link="journal"');
+    expect(js).toContain("closest('[data-view-link]')");
+  });
+
+  it('routes a single-day action through single-task creation', () => {
+    expect(js).toContain('openAdHocModal(personKey, isoDate)');
+    const section = js.match(/function runForCell[\s\S]*?function renderPlanResults/)?.[0] ?? '';
+    expect(section).toContain('openAdHocModal(personKey, isoDate)');
+    expect(section).not.toContain("api.post('/tasks/execute'");
+  });
+
+  it('requires explicit review for scheduler and EOD operations', () => {
+    expect(js).toContain("window.confirm('Run the scheduled task creation now");
+    expect(js).toContain("$('#eodRunNowBtn')?.addEventListener('click', () => triggerEodClosure(true))");
+  });
+
+  it('exposes matrix inspection actions as keyboard-operable buttons', () => {
+    expect(js).toContain('matrix-cell-action');
+  });
+
+  it('refreshes the planner after one-off creation instead of calling a nonexistent function', () => {
+    expect(js).not.toContain("state.currentView === 'planner') refreshPlanner()");
+    expect(js).toContain("state.currentView === 'planner') runPlanPreview()");
+  });
+
+  it('requires confirmation for enabling automation and repairing links', () => {
+    expect(js).toContain("if (enable && !window.confirm(");
+    expect(js).toContain("if (!window.confirm('Repair incomplete task relationships");
+  });
+
+  it('prevents EOD closure before a successful fresh dry run', () => {
+    expect(js).toContain('state.eodPreviewReadyAt');
+    expect(js).toContain('Preview EOD closure before executing');
+    expect(js).toContain("if (executeBtn) executeBtn.style.display = 'none'");
+  });
+
+  it('requires explicit consent to bypass ad-hoc duplicate safeguards', () => {
+    expect(js).toContain("payload.bypassDuplicateCheck && !window.confirm(");
   });
 
   it('manages dialog focus for keyboard users', () => {

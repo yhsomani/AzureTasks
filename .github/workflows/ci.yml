@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, 'feat/**' ]
   pull_request:
     branches: [ main, master ]
 
@@ -30,5 +30,31 @@ jobs:
         run: npm run lint
       - name: Test
         run: npm run test:coverage
+      - name: Validate browser script syntax
+        run: node --check src/presentation/web/public/app.js
       - name: Build
         run: npm run build
+      - name: Smoke test HTTP shell and access protection
+        shell: bash
+        run: |
+          set -euo pipefail
+          API_AUTH_TOKEN=ci-smoke NODE_ENV=production PORT=3188 node dist/index.js serve > /tmp/azuretasks-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for attempt in {1..20}; do
+            if curl --silent --fail http://127.0.0.1:3188/api/health > /tmp/azuretasks-health.json; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then cat /tmp/azuretasks-server.log; exit 1; fi
+          status=$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:3188/)
+          test "$status" = 401
+          curl --silent --show-error --fail --user admin:ci-smoke http://127.0.0.1:3188/ > /tmp/azuretasks-index.html
+          curl --silent --show-error --fail --user admin:ci-smoke http://127.0.0.1:3188/app.js > /tmp/azuretasks-app.js
+          curl --silent --show-error --fail --user admin:ci-smoke http://127.0.0.1:3188/styles.css > /tmp/azuretasks-styles.css
+          grep -q 'nav-group-label' /tmp/azuretasks-index.html
+          grep -q 'function plannerSelectionSignature' /tmp/azuretasks-app.js
+          grep -q '.nav-backdrop.open' /tmp/azuretasks-styles.css

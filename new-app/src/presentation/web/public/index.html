@@ -24,37 +24,32 @@
         </div>
       </div>
 
-      <nav class="nav" aria-label="Primary">
-        <button class="nav-item active" data-view="dashboard">
-          <span class="ico" aria-hidden="true">◧</span> Dashboard
-        </button>
-        <button class="nav-item" data-view="burndown">
-          <span class="ico" aria-hidden="true">📅</span> Daily Burndown
-        </button>
-        <button class="nav-item" data-view="mywork">
-          <span class="ico" aria-hidden="true">👨‍💻</span> My Work
-        </button>
-        <button class="nav-item" data-view="explorer">
-          <span class="ico" aria-hidden="true">▦</span> Task Explorer
-        </button>
-        <button class="nav-item" data-view="planner">
-          <span class="ico" aria-hidden="true">▶</span> Planner
-        </button>
-        <button class="nav-item" data-view="people">
-          <span class="ico" aria-hidden="true">☰</span> Team
-        </button>
-        <button class="nav-item" data-view="journal">
-          <span class="ico" aria-hidden="true">▤</span> Audit Log
-        </button>
-        <button class="nav-item" data-view="scheduler">
-          <span class="ico" aria-hidden="true">⏱</span> Scheduler
-        </button>
-        <button class="nav-item" data-view="logs">
-          <span class="ico" aria-hidden="true">≡</span> Logs
-        </button>
-        <button class="nav-item" data-view="settings">
-          <span class="ico" aria-hidden="true">⚙</span> Settings
-        </button>
+      <nav class="nav" aria-label="Primary navigation">
+        <div class="nav-group">
+          <span class="nav-group-label">Overview</span>
+          <button type="button" class="nav-item active" data-view="dashboard"><span class="ico" aria-hidden="true">◫</span><span>Dashboard</span></button>
+          <button type="button" class="nav-item" data-view="mywork"><span class="ico" aria-hidden="true">◉</span><span>My work</span></button>
+        </div>
+        <div class="nav-group">
+          <span class="nav-group-label">Explore work</span>
+          <button type="button" class="nav-item" data-view="explorer"><span class="ico" aria-hidden="true">▦</span><span>Task explorer</span></button>
+          <button type="button" class="nav-item" data-view="burndown"><span class="ico" aria-hidden="true">◷</span><span>Daily burndown</span></button>
+        </div>
+        <div class="nav-group">
+          <span class="nav-group-label">Create & automate</span>
+          <button type="button" class="nav-item" data-view="planner"><span class="ico" aria-hidden="true">▣</span><span>Plan & create</span></button>
+          <button type="button" class="nav-item" data-view="scheduler"><span class="ico" aria-hidden="true">◴</span><span>Scheduler</span></button>
+        </div>
+        <div class="nav-group">
+          <span class="nav-group-label">Manage</span>
+          <button type="button" class="nav-item" data-view="people"><span class="ico" aria-hidden="true">♙</span><span>Team</span></button>
+          <button type="button" class="nav-item" data-view="settings"><span class="ico" aria-hidden="true">⚙</span><span>Settings</span></button>
+        </div>
+        <div class="nav-group">
+          <span class="nav-group-label">Monitor</span>
+          <button type="button" class="nav-item" data-view="journal"><span class="ico" aria-hidden="true">▤</span><span>Audit log</span></button>
+          <button type="button" class="nav-item" data-view="logs"><span class="ico" aria-hidden="true">≡</span><span>Live logs</span></button>
+        </div>
       </nav>
 
       <div class="sidebar-footer">
@@ -66,23 +61,35 @@
       </div>
     </aside>
 
-    <main class="main" id="main">
+    <button type="button" class="nav-backdrop" id="navBackdrop" tabindex="-1" aria-label="Close navigation"></button>
+
+    <main class="main" id="main" tabindex="-1">
       <header class="topbar">
-        <button class="icon-btn menu-btn" id="menuBtn" aria-label="Toggle navigation">☰</button>
-        <div>
-          <h1 id="viewTitle">Dashboard</h1>
+        <button type="button" class="icon-btn menu-btn" id="menuBtn" aria-controls="sidebar" aria-expanded="false" aria-label="Open navigation">☰</button>
+        <div class="page-identity">
+          <p class="breadcrumb" id="viewBreadcrumb">Overview / Dashboard</p>
+          <h1 id="viewTitle" tabindex="-1">Dashboard</h1>
           <p class="subtitle" id="viewSubtitle">Track daily contributions, monitor team workloads, and automate tasks</p>
         </div>
         <div class="topbar-actions">
           <span class="pill" id="orgProjectTag" style="display:flex; align-items:center; gap:6px;">—</span>
           <button class="btn ghost small" id="consoleBtn" title="Toggle Live Console Drawer">💻 Console</button>
           <button class="btn ghost small" id="refreshBtn">Refresh</button>
-          <button class="btn primary small" id="quickRunBtn">New run</button>
+          <button class="btn primary small" id="quickRunBtn">Review plan</button>
         </div>
       </header>
 
       <!-- 1. DASHBOARD VIEW -->
       <section class="view active" id="view-dashboard">
+        <div class="journey-guide" aria-label="Start here">
+          <div class="journey-copy"><strong>Start with a clear task plan</strong><span>Configure your team, inspect coverage, preview changes, and review results.</span></div>
+          <div class="journey-steps">
+            <button type="button" data-view-link="people">1 · Team</button>
+            <button type="button" data-view-link="explorer">2 · Inspect</button>
+            <button type="button" data-view-link="planner">3 · Preview & create</button>
+            <button type="button" data-view-link="journal">4 · Review</button>
+          </div>
+        </div>
         <article class="card" style="margin-bottom: 16px;">
           <header class="card-head"><h2>💡 Smart Insights</h2><span class="pill ok" id="insightsCountBadge">Real-time</span></header>
           <div id="insightsContainer" style="color: var(--text-muted); font-size: 13.5px;"><p>Loading insights...</p></div>
@@ -265,6 +272,7 @@
 
       <!-- 5. PLANNER VIEW -->
       <section class="view" id="view-planner">
+        <div class="workflow-note" role="note"><strong>Preview before creating.</strong> Choose team members and a date window, review what will change, then confirm creation. No remote work items are changed by a preview.</div>
         <!-- Configuration & Controls -->
         <article class="card" style="margin-bottom: 16px;">
           <header class="card-head">
@@ -292,8 +300,8 @@
               </select>
             </label>
             <div style="display:flex; align-items:flex-end; gap:8px;">
-              <button class="btn ghost" id="planBtn" style="flex:1;">🔍 Preview Plan</button>
-              <button class="btn primary" id="executeBtn" style="flex:1;">🚀 Execute Creation</button>
+              <button class="btn ghost" id="planBtn" style="flex:1;">Preview tasks</button>
+              <button class="btn primary" id="executeBtn" style="flex:1;" disabled>Review &amp; confirm</button>
             </div>
           </div>
 
@@ -449,7 +457,7 @@
             </div>
             <div class="row gap" style="margin:0; align-items:center;">
               <button class="btn ghost small" id="eodPreviewBtn">🔍 Preview EOD Closure (Dry Run)</button>
-              <button class="btn primary small" id="eodRunNowBtn">⚡ Close Today's Tasks Now</button>
+              <button class="btn primary small" id="eodRunNowBtn">Review EOD closure</button>
             </div>
           </header>
 
@@ -758,7 +766,7 @@
     </div>
   </div>
 
-  <div class="toast-stack" id="toasts" aria-live="polite"></div>
+  <div class="toast-stack" id="toasts" aria-live="polite" aria-atomic="false"></div>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

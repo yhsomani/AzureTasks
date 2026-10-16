@@ -17,6 +17,9 @@ const state = {
   scheduler: null,
   charts: { effort: null, status: null },
   pendingPlan: null,
+  pendingPlanSignature: null,
+  planRequestVersion: 0,
+  isExecuting: false,
   cache: new Map(), // SWR client-side cache
   abortControllers: new Map(), // Per-key abort controllers for active requests
 };
@@ -186,6 +189,27 @@ function hideModal(target) {
   }
 }
 
+function trapModalFocus(e) {
+  if (e.key !== 'Tab') return;
+  const modal = document.querySelector('.modal-overlay.open');
+  if (!modal) return;
+  const focusable = Array.from(modal.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+    .filter(node => node.getClientRects().length > 0);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (!modal.contains(document.activeElement)) {
+    e.preventDefault();
+    first.focus();
+  } else if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
 function formatDateShort(iso) {
   if (!iso) return '—';
   try {
@@ -217,10 +241,38 @@ const VIEW_META = {
   settings: ['Settings', 'Azure DevOps connection, Personal Access Token, and maintenance'],
 };
 
+const VIEW_GROUPS = {
+  dashboard: 'Overview', mywork: 'Overview',
+  explorer: 'Explore work', burndown: 'Explore work',
+  planner: 'Create & automate', scheduler: 'Create & automate',
+  people: 'Manage', settings: 'Manage',
+  journal: 'Monitor', logs: 'Monitor',
+};
+
+function closeMobileNav(restoreFocus = false) {
+  $('#sidebar')?.classList.remove('open');
+  $('#navBackdrop')?.classList.remove('open');
+  const trigger = $('#menuBtn');
+  trigger?.setAttribute('aria-expanded', 'false');
+  trigger?.setAttribute('aria-label', 'Open navigation');
+  if (restoreFocus) trigger?.focus();
+}
+
+function handleHashNavigation() {
+  const view = decodeURIComponent(location.hash.slice(1) || 'dashboard');
+  switchView(VIEW_META[view] ? view : 'dashboard');
+}
+
 function switchView(view) {
   if (!VIEW_META[view]) view = 'dashboard';
   state.currentView = view;
-  $$('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  $('.nav-item').forEach(b => {
+    const active = b.dataset.view === view;
+    b.classList.toggle('active', active);
+    if (active) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
+  closeMobileNav();
   $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
 
   const [title, subtitle] = VIEW_META[view];
@@ -228,16 +280,16 @@ function switchView(view) {
   const vs = $('#viewSubtitle');
   if (vt) vt.textContent = title;
   if (vs) vs.textContent = subtitle;
-
-  location.hash = view;
+  const breadcrumb = $('#viewBreadcrumb');
+  if (breadcrumb) breadcrumb.textContent = `${VIEW_GROUPS[view]} / ${title}`;
+  if (location.hash !== `#${view}`) location.hash = view;
   const forceFresh = Boolean(state.isDataDirty);
   if (view === 'dashboard') refreshDashboard();
   if (view === 'burndown') refreshBurndown({ forceFresh });
   if (view === 'mywork') refreshMyWork({ forceFresh });
   if (view === 'explorer') refreshExplorer({ forceFresh });
   if (view === 'planner') {
-    renderPlannerPeople();
-    runPlanPreview();
+    renderPlannerPeople().then(runPlanPreview).catch(err => toast(err.message, 'err'));
   }
   if (view === 'people') loadPeople();
   if (view === 'journal') refreshJournal();
@@ -903,9 +955,16 @@ function renderExplorerMatrix(data) {
   const tbody = el('tbody');
   matrix.forEach(row => {
     const tr = el('tr');
-    tr.append(el('td', { class: 'sticky-col', style: 'cursor:pointer;', onclick: () => openUserInspectModal(row) }, [
-      el('div', { style: 'font-weight:600; color:var(--accent);' }, `${row.person.name} ↗`),
-      el('div', { class: 'muted small' }, `${row.stats.createdCount}/${row.stats.totalWorkingDays} (${row.stats.coveragePercent}%)`),
+    tr.append(el('td', { class: 'sticky-col' }, [
+      el('button', {
+        class: 'matrix-cell-action',
+        type: 'button',
+        title: `Inspect tasks assigned to ${row.person.name}`,
+        onclick: () => openUserInspectModal(row),
+      }, [
+        el('span', { style: 'font-weight:600; color:var(--accent);' }, `${row.person.name} ↗`),
+        el('span', { class: 'muted small' }, `${row.stats.createdCount}/${row.stats.totalWorkingDays} (${row.stats.coveragePercent}%)`),
+      ]),
     ]));
 
     dates.forEach(d => {
@@ -915,19 +974,21 @@ function renderExplorerMatrix(data) {
       } else if (cell.status === 'CREATED' || cell.status === 'DUPLICATE') {
         const cls = cell.status === 'DUPLICATE' ? 'cell-duplicate' : 'cell-created';
         const txt = cell.tasks.length > 1 ? `x${cell.tasks.length}` : '✓';
-        const td = el('td', {
-          class: `cell-status ${cls}`,
-          title: `Task #${cell.primaryTask?.id || ''}: ${cell.primaryTask?.title || ''}`,
+        const inspect = el('button', {
+          type: 'button',
+          class: 'matrix-cell-action',
+          title: `Inspect task #${cell.primaryTask?.id || ''} for ${row.person.name}`,
           onclick: () => openDateInspectModal(cell, row.person),
         }, txt);
-        tr.append(td);
+        tr.append(el('td', { class: `cell-status ${cls}` }, inspect));
       } else if (cell.status === 'MISSING') {
-        const td = el('td', {
-          class: 'cell-status cell-missing',
-          title: 'Missing task — eligible for creation',
+        const inspect = el('button', {
+          type: 'button',
+          class: 'matrix-cell-action',
+          title: `Inspect missing task for ${row.person.name}`,
           onclick: () => openDateInspectModal(cell, row.person),
-        }, '—');
-        tr.append(td);
+        }, 'Inspect');
+        tr.append(el('td', { class: 'cell-status cell-missing' }, inspect));
       } else {
         tr.append(el('td', { class: 'cell-status', style: 'opacity:0.3;' }, '·'));
       }
@@ -1117,7 +1178,7 @@ async function renderPlannerPeople() {
   picker.innerHTML = '';
   const active = cfg.people.filter(p => p.enabled !== false);
   if (!active.length) {
-    picker.append(el('p', { class: 'muted' }, 'No enabled team members. Add some in the Team tab.'));
+    picker.append(el('p', { class: 'muted' }, 'No enabled team members. Add members in Team before creating tasks.'));
     return;
   }
 
@@ -1163,7 +1224,7 @@ function updatePlannerMemberPill(totalActive) {
     pill.textContent = `All ${totalActive} selected`;
     pill.className = 'pill ok';
   } else if (count === 0) {
-    pill.textContent = 'None selected (previewing all)';
+    pill.textContent = 'No members selected';
     pill.className = 'pill warn';
   } else {
     pill.textContent = `${count} of ${totalActive} selected`;
@@ -1171,45 +1232,74 @@ function updatePlannerMemberPill(totalActive) {
   }
 }
 
+function plannerSelectionSignature() {
+  return JSON.stringify({
+    people: [...state.selectedKeys].sort(),
+    asOf: $('#asOf')?.value || '',
+    thursdayMode: $('#thursdayMode')?.value || 'CURRENT',
+  });
+}
+
+function setPlannerExecuteReady(ready) {
+  const button = $('#executeBtn');
+  if (button) {
+    button.disabled = !ready;
+    button.title = ready ? 'Review exact tasks before creation' : 'Preview pending tasks before creating';
+  }
+}
+
 async function runPlanPreview() {
   const matrixWrap = $('#planMatrixWrap');
   const results = $('#planResults');
   const statusPill = $('#plannerAutoRefreshStatus');
+  const signature = plannerSelectionSignature();
+  const requestVersion = ++state.planRequestVersion;
+  state.pendingPlan = null;
+  state.pendingPlanSignature = null;
+  setPlannerExecuteReady(false);
   if (statusPill) { statusPill.textContent = 'Updating…'; statusPill.className = 'pill warn'; }
 
-  if (matrixWrap && !state.pendingPlan) {
-    matrixWrap.innerHTML = `
-      <div style="padding:20px;">
-        <div class="skeleton-row skeleton" style="height:40px; margin-bottom:12px;"></div>
-        <div class="skeleton-row skeleton"></div>
-        <div class="skeleton-row skeleton"></div>
-      </div>
-    `;
-  }
-  if (results && !state.pendingPlan) {
-    results.innerHTML = `
-      <div style="padding:16px;">
-        <div class="skeleton-text skeleton" style="width:50%;"></div>
-        <div class="skeleton-text skeleton" style="width:80%;"></div>
-      </div>
-    `;
+  if (state.selectedKeys.size === 0) {
+    const message = 'Select at least one team member to preview or create tasks.';
+    if (matrixWrap) matrixWrap.textContent = message;
+    if (results) results.textContent = message;
+    if (statusPill) { statusPill.textContent = 'Select members'; statusPill.className = 'pill warn'; }
+    if ($('#kpiPlanMembers')) $('#kpiPlanMembers').textContent = '0';
+    if ($('#kpiPlanToCreate')) $('#kpiPlanToCreate').textContent = '0';
+    if ($('#kpiPlanExisting')) $('#kpiPlanExisting').textContent = '0';
+    return;
   }
 
+  if (matrixWrap) matrixWrap.innerHTML = '<div style="padding:20px;"><div class="skeleton-row skeleton"></div><div class="skeleton-row skeleton"></div></div>';
+  if (results) results.textContent = 'Checking existing tasks and planned dates…';
+
   try {
-    const keys = [...state.selectedKeys];
     const plan = await api.post('/tasks/plan', {
-      personKeys: keys.length ? keys : undefined,
+      personKeys: [...state.selectedKeys],
       asOf: $('#asOf')?.value || undefined,
       thursdayMode: $('#thursdayMode')?.value || undefined,
     });
+    if (requestVersion !== state.planRequestVersion || signature !== plannerSelectionSignature()) return;
     state.pendingPlan = plan;
+    state.pendingPlanSignature = signature;
     renderPlanMatrix(plan);
     renderPlanResults(plan);
-    if (statusPill) { statusPill.textContent = 'Up to date'; statusPill.className = 'pill ok'; }
+    const count = plan.personPlans.reduce((sum, person) =>
+      sum + (person.plannedDates || []).filter(date => date.status === 'PLANNED').length, 0);
+    setPlannerExecuteReady(count > 0);
+    if (statusPill) {
+      statusPill.textContent = count > 0 ? `${count} pending · ready to review` : 'No pending tasks';
+      statusPill.className = count > 0 ? 'pill warn' : 'pill ok';
+    }
   } catch (err) {
-    if (matrixWrap) matrixWrap.innerHTML = `<p class="muted" style="color:var(--danger); padding:24px;">❌ Matrix error: ${escapeHtml(err.message)}</p>`;
-    if (results) results.innerHTML = `<p class="muted" style="color:var(--danger); padding:16px;">❌ Preview error: ${escapeHtml(err.message)}</p>`;
-    if (statusPill) { statusPill.textContent = 'Error'; statusPill.className = 'pill bad'; }
+    if (requestVersion !== state.planRequestVersion) return;
+    state.pendingPlan = null;
+    state.pendingPlanSignature = null;
+    setPlannerExecuteReady(false);
+    if (matrixWrap) matrixWrap.textContent = `Preview failed: ${err.message}`;
+    if (results) results.textContent = `Preview failed: ${err.message}`;
+    if (statusPill) { statusPill.textContent = 'Preview failed'; statusPill.className = 'pill bad'; }
+    toast(`Could not preview tasks: ${err.message}`, 'err');
   }
 }
 
@@ -1372,22 +1462,9 @@ async function runForMember(personKey, personName) {
   }
 }
 
-async function runForCell(personKey, personName, isoDate, dateStr) {
-  if (!confirm(`Create Azure DevOps task for ${personName || personKey} on ${dateStr} (${isoDate})?`)) return;
-  openConsoleDrawer();
-  try {
-    const res = await api.post('/tasks/execute', {
-      personKeys: [personKey],
-      asOf: isoDate,
-      thursdayMode: $('#thursdayMode')?.value || undefined,
-      dryRun: false,
-    });
-    toast(`Task created for ${personName || personKey} on ${dateStr}`, 'ok');
-    runPlanPreview();
-    refreshDashboard();
-  } catch (err) {
-    toast(`Creation failed: ${err.message}`, 'err');
-  }
+function runForCell(personKey, personName, isoDate) {
+  // A matrix cell represents one date. Never run a multi-day batch from this action.
+  openAdHocModal(personKey, isoDate);
 }
 
 function renderPlanResults(plan) {
@@ -1453,6 +1530,22 @@ function renderPlanResults(plan) {
 }
 
 function openConfirmationModal() {
+  if (state.selectedKeys.size === 0) {
+    toast('Select at least one team member before creating tasks.', 'warn');
+    return;
+  }
+  if (!state.pendingPlan || state.pendingPlanSignature !== plannerSelectionSignature()) {
+    toast('Review an up-to-date plan before executing tasks.', 'warn');
+    runPlanPreview();
+    return;
+  }
+  const plannedCount = state.pendingPlan.personPlans.reduce((sum, person) =>
+    sum + (person.plannedDates || []).filter(date => date.status === 'PLANNED').length, 0);
+  if (plannedCount === 0) {
+    toast('No pending tasks to create for this selection.', 'ok');
+    return;
+  }
+
   const modal = $('#confirmModal');
   const list = $('#confirmTaskList');
   if (!modal || !list) return;
@@ -1481,7 +1574,18 @@ function openConfirmationModal() {
 }
 
 async function executeCreation() {
+  if (state.isExecuting) return;
+  if (state.selectedKeys.size === 0 ||
+      !state.pendingPlan ||
+      state.pendingPlanSignature !== plannerSelectionSignature()) {
+    hideModal('#confirmModal');
+    toast('Review an up-to-date plan before executing tasks.', 'warn');
+    return;
+  }
+  state.isExecuting = true;
   hideModal('#confirmModal');
+  const confirmButton = $('#btnConfirmExecute');
+  if (confirmButton) confirmButton.disabled = true;
 
   const btn = $('#executeBtn');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Creating tasks...'; }
@@ -1503,7 +1607,12 @@ async function executeCreation() {
   } catch (err) {
     toast(err.message, 'err');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Execute creation'; }
+    state.isExecuting = false;
+    state.pendingPlan = null;
+    state.pendingPlanSignature = null;
+    setPlannerExecuteReady(false);
+    if (confirmButton) confirmButton.disabled = false;
+    if (btn) btn.textContent = 'Review & confirm';
   }
 }
 
@@ -1826,6 +1935,11 @@ async function refreshScheduler() {
 }
 
 async function toggleScheduler(enable) {
+  if (enable && !window.confirm('Enable unattended task creation for the configured members and schedule? Review the selected team and time first.')) {
+    const toggle = $('#schedToggle');
+    if (toggle) toggle.checked = false;
+    return;
+  }
   try {
     const s = await api.post('/scheduler/toggle', { enable, persist: true });
     toast(s.running ? 'Scheduler started (persisted)' : 'Scheduler stopped (persisted)');
@@ -1864,8 +1978,9 @@ async function saveEodSchedulerConfig() {
 }
 
 async function runSchedulerNow() {
+  if (!window.confirm('Run the scheduled task creation now for the configured team? This may create Azure DevOps work items.')) return;
   try {
-    toast('Triggering immediate scheduler execution...');
+    toast('Starting scheduler execution…');
     const res = await api.post('/scheduler/run-now');
     if (res.success) {
       toast(res.message || 'Scheduler executed', 'ok');
@@ -1879,6 +1994,17 @@ async function runSchedulerNow() {
 }
 
 async function triggerEodClosure(dryRun = false) {
+  if (!dryRun) {
+    if (!state.eodPreviewReadyAt || Date.now() - state.eodPreviewReadyAt > 120000) {
+      toast('Preview EOD closure before executing. The preview must be less than two minutes old.', 'warn');
+      triggerEodClosure(true);
+      return;
+    }
+    if (!window.confirm('Close the work items shown in the EOD preview? This updates Azure DevOps immediately.')) return;
+    state.eodPreviewReadyAt = 0;
+  } else {
+    state.eodPreviewReadyAt = 0;
+  }
   const modal = $('#eodModal');
   const summaryEl = $('#eodModalSummary');
   const tbody = $('#eodModalTable tbody');
@@ -1886,7 +2012,7 @@ async function triggerEodClosure(dryRun = false) {
   const title = $('#eodModalTitle');
 
   if (title) title.textContent = dryRun ? 'End-of-Day Task Closure Preview (Dry Run)' : 'Closing Today Tasks...';
-  if (executeBtn) executeBtn.style.display = dryRun ? 'inline-block' : 'none';
+  if (executeBtn) executeBtn.style.display = 'none';
 
   showModal('#eodModal', '#btnCloseEodModal');
   if (summaryEl) summaryEl.innerHTML = '<span class="muted">Loading candidate tasks and fetching GitHub PR deliverables...</span>';
@@ -1947,6 +2073,7 @@ async function triggerEodClosure(dryRun = false) {
       }
     }
 
+    if (dryRun && res.totalClosed > 0) state.eodPreviewReadyAt = Date.now();
     if (executeBtn) {
       if (dryRun && res.totalClosed > 0) {
         executeBtn.style.display = 'inline-block';
@@ -1968,6 +2095,8 @@ async function triggerEodClosure(dryRun = false) {
     }
     refreshDashboard();
   } catch (err) {
+    state.eodPreviewReadyAt = 0;
+    if (executeBtn) executeBtn.style.display = 'none';
     toast(`EOD closure failed: ${err.message}`, 'err');
     if (summaryEl) summaryEl.innerHTML = `<span style="color:var(--danger);">Error: ${escapeHtml(err.message)}</span>`;
   }
@@ -2159,6 +2288,7 @@ async function submitAdHocTask() {
       bypassDuplicateCheck: Boolean($('#adHocBypassDuplicate')?.checked),
     };
 
+    if (payload.bypassDuplicateCheck && !window.confirm('Bypass duplicate detection for this one-off task? This may create an additional work item on the same date.')) return;
     toast('Creating task in Azure DevOps...');
     const res = await api.post('/tasks/adhoc', payload);
     const created = res.task;
@@ -2168,7 +2298,7 @@ async function submitAdHocTask() {
 
     // Trigger UI updates
     refreshDashboard();
-    if (state.currentView === 'planner') refreshPlanner();
+    if (state.currentView === 'planner') runPlanPreview();
     if (state.currentView === 'explorer') refreshExplorer();
     if (state.currentView === 'journal') refreshJournal();
     if (state.currentView === 'mywork') refreshMyWork();
@@ -2234,21 +2364,34 @@ function connectLogStream() {
 
 /* ------------------------------------------------------------- wiring up */
 function wire() {
+  // Navigation tabs and links between user journeys.
+  document.addEventListener('click', e => {
+    const link = e.target.closest('[data-view-link]');
+    if (!link) return;
+    e.preventDefault();
+    switchView(link.dataset.viewLink);
+    $('#viewTitle')?.focus({ preventScroll: true });
+  });
+
+  $('#navBackdrop')?.addEventListener('click', () => closeMobileNav(true));
   // Navigation tabs
-  $$('.nav-item').forEach(b => {
-    b.addEventListener('click', () => switchView(b.dataset.view));
+  $('.nav-item').forEach(b => {
+    b.addEventListener('click', () => {
+      switchView(b.dataset.view);
+      $('#viewTitle')?.focus({ preventScroll: true });
+    });
   });
 
   // Topbar triggers
   $('#refreshBtn')?.addEventListener('click', () => {
-    const current = location.hash.slice(1) || 'dashboard';
-    switchView(current);
-    toast('Refreshed data');
+    state.isDataDirty = true;
+    switchView(state.currentView);
+    toast('Refreshing this view…');
   });
 
   $('#quickRunBtn')?.addEventListener('click', () => {
     switchView('planner');
-    openConfirmationModal();
+    $('#viewTitle')?.focus({ preventScroll: true });
   });
 
   $('#consoleBtn')?.addEventListener('click', toggleConsoleDrawer);
@@ -2299,6 +2442,7 @@ function wire() {
   $('#plannerSelectAllBtn')?.addEventListener('click', () => {
     ensureConfig().then(cfg => {
       const active = cfg.people.filter(p => p.enabled !== false);
+      state.deselectedKeys = new Set();
       active.forEach(p => state.selectedKeys.add(p.key));
       updatePlannerMemberPill(active.length);
       renderPlannerPeople();
@@ -2308,8 +2452,9 @@ function wire() {
 
   $('#plannerDeselectAllBtn')?.addEventListener('click', () => {
     ensureConfig().then(cfg => {
-      state.selectedKeys.clear();
       const active = cfg.people.filter(p => p.enabled !== false);
+      state.selectedKeys.clear();
+      state.deselectedKeys = new Set(active.map(p => p.key));
       updatePlannerMemberPill(active.length);
       renderPlannerPeople();
       runPlanPreview();
@@ -2383,9 +2528,10 @@ function wire() {
   $('#explorerListSearch')?.addEventListener('input', () => {
     renderExplorerList(state.explorerData?.detailedTasks || []);
   });
-  $('#explorerCreateMissingBtn')?.addEventListener('click', async () => {
+  $('#explorerCreateMissingBtn')?.addEventListener('click', () => {
     switchView('planner');
-    runPlanPreview().then(() => openConfirmationModal());
+    toast('Review the selected team and date window before confirming creation.');
+    $('#viewTitle')?.focus({ preventScroll: true });
   });
 
   // Dismiss modal on backdrop click
@@ -2397,8 +2543,9 @@ function wire() {
     });
   });
 
-  // Global Escape key handler for accessible dialog closing
+  // Global keyboard handling: trap modal focus and allow dismissing overlays.
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') trapModalFocus(e);
     if (e.key === 'Escape') {
       const openModal = document.querySelector('.modal-overlay.open');
       if (openModal) {
@@ -2409,6 +2556,11 @@ function wire() {
       const openDrawer = document.querySelector('.drawer.open');
       if (openDrawer) {
         openDrawer.classList.remove('open');
+        e.preventDefault();
+        return;
+      }
+      if ($('#sidebar')?.classList.contains('open')) {
+        closeMobileNav(true);
         e.preventDefault();
       }
     }
@@ -2443,7 +2595,7 @@ function wire() {
   $('#schedRunNowBtn')?.addEventListener('click', runSchedulerNow);
   $('#eodSaveConfigBtn')?.addEventListener('click', saveEodSchedulerConfig);
   $('#eodPreviewBtn')?.addEventListener('click', () => triggerEodClosure(true));
-  $('#eodRunNowBtn')?.addEventListener('click', () => triggerEodClosure(false));
+  $('#eodRunNowBtn')?.addEventListener('click', () => triggerEodClosure(true));
   $('#btnCloseEodModal')?.addEventListener('click', () => hideModal('#eodModal'));
   $('#btnCloseEodModalBtn')?.addEventListener('click', () => hideModal('#eodModal'));
   $('#btnExecuteEodConfirmed')?.addEventListener('click', () => triggerEodClosure(false));
@@ -2456,6 +2608,7 @@ function wire() {
   $('#testGhBtn')?.addEventListener('click', testGhResolution);
 
   async function repairRelationships(btn) {
+    if (!window.confirm('Repair incomplete task relationships in Azure DevOps? This may update existing work-item links.')) return;
     toast('Repairing incomplete relationships...');
     if (btn) { btn.disabled = true; btn.textContent = 'Repairing...'; }
     try {
@@ -2484,14 +2637,15 @@ function wire() {
 
   // Mobile drawer menu
   $('#menuBtn')?.addEventListener('click', () => {
-    $('#sidebar')?.classList.toggle('open');
+    const opened = $('#sidebar')?.classList.toggle('open');
+    $('#navBackdrop')?.classList.toggle('open', Boolean(opened));
+    $('#menuBtn')?.setAttribute('aria-expanded', String(Boolean(opened)));
+    $('#menuBtn')?.setAttribute('aria-label', opened ? 'Close navigation' : 'Open navigation');
+    if (opened) $('.sidebar .nav-item.active')?.focus();
   });
 
   // Hash routing
-  window.addEventListener('hashchange', () => {
-    const v = location.hash.slice(1);
-    if (v) switchView(v);
-  });
+  window.addEventListener('hashchange', handleHashNavigation);
 }
 
 /* ---------------------------------------------------------------- bootstrap */
@@ -2504,8 +2658,7 @@ async function bootstrap() {
   wire();
   connectLogStream();
 
-  const initial = location.hash.slice(1) || 'dashboard';
-  switchView(initial);
+  handleHashNavigation();
 }
 
 document.addEventListener('DOMContentLoaded', bootstrap);
