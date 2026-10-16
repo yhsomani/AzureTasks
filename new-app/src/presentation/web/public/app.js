@@ -266,7 +266,7 @@ function handleHashNavigation() {
 function switchView(view) {
   if (!VIEW_META[view]) view = 'dashboard';
   state.currentView = view;
-  $('.nav-item').forEach(b => {
+  $$('.nav-item').forEach(b => {
     const active = b.dataset.view === view;
     b.classList.toggle('active', active);
     if (active) b.setAttribute('aria-current', 'page');
@@ -2375,7 +2375,7 @@ function wire() {
 
   $('#navBackdrop')?.addEventListener('click', () => closeMobileNav(true));
   // Navigation tabs
-  $('.nav-item').forEach(b => {
+  $$('.nav-item').forEach(b => {
     b.addEventListener('click', () => {
       switchView(b.dataset.view);
       $('#viewTitle')?.focus({ preventScroll: true });
