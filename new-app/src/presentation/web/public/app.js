@@ -17,6 +17,9 @@ const state = {
   scheduler: null,
   charts: { effort: null, status: null },
   pendingPlan: null,
+  pendingPlanSignature: null,
+  planRequestVersion: 0,
+  isExecuting: false,
   cache: new Map(), // SWR client-side cache
   abortControllers: new Map(), // Per-key abort controllers for active requests
 };
@@ -186,6 +189,27 @@ function hideModal(target) {
   }
 }
 
+function trapModalFocus(e) {
+  if (e.key !== 'Tab') return;
+  const modal = document.querySelector('.modal-overlay.open');
+  if (!modal) return;
+  const focusable = Array.from(modal.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+    .filter(node => node.getClientRects().length > 0);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (!modal.contains(document.activeElement)) {
+    e.preventDefault();
+    first.focus();
+  } else if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
 function formatDateShort(iso) {
   if (!iso) return '—';
   try {
@@ -217,10 +241,38 @@ const VIEW_META = {
   settings: ['Settings', 'Azure DevOps connection, Personal Access Token, and maintenance'],
 };
 
+const VIEW_GROUPS = {
+  dashboard: 'Overview', mywork: 'Overview',
+  explorer: 'Explore work', burndown: 'Explore work',
+  planner: 'Create & automate', scheduler: 'Create & automate',
+  people: 'Manage', settings: 'Manage',
+  journal: 'Monitor', logs: 'Monitor',
+};
+
+function closeMobileNav(restoreFocus = false) {
+  $('#sidebar')?.classList.remove('open');
+  $('#navBackdrop')?.classList.remove('open');
+  const trigger = $('#menuBtn');
+  trigger?.setAttribute('aria-expanded', 'false');
+  trigger?.setAttribute('aria-label', 'Open navigation');
+  if (restoreFocus) trigger?.focus();
+}
+
+function handleHashNavigation() {
+  const view = decodeURIComponent(location.hash.slice(1) || 'dashboard');
+  switchView(VIEW_META[view] ? view : 'dashboard');
+}
+
 function switchView(view) {
   if (!VIEW_META[view]) view = 'dashboard';
   state.currentView = view;
-  $$('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  $('.nav-item').forEach(b => {
+    const active = b.dataset.view === view;
+    b.classList.toggle('active', active);
+    if (active) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
+  closeMobileNav();
   $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
 
   const [title, subtitle] = VIEW_META[view];
@@ -228,16 +280,16 @@ function switchView(view) {
   const vs = $('#viewSubtitle');
   if (vt) vt.textContent = title;
   if (vs) vs.textContent = subtitle;
-
-  location.hash = view;
+  const breadcrumb = $('#viewBreadcrumb');
+  if (breadcrumb) breadcrumb.textContent = `${VIEW_GROUPS[view]} / ${title}`;
+  if (location.hash !== `#${view}`) location.hash = view;
   const forceFresh = Boolean(state.isDataDirty);
   if (view === 'dashboard') refreshDashboard();
   if (view === 'burndown') refreshBurndown({ forceFresh });
   if (view === 'mywork') refreshMyWork({ forceFresh });
   if (view === 'explorer') refreshExplorer({ forceFresh });
   if (view === 'planner') {
-    renderPlannerPeople();
-    runPlanPreview();
+    renderPlannerPeople().then(runPlanPreview).catch(err => toast(err.message, 'err'));
   }
   if (view === 'people') loadPeople();
   if (view === 'journal') refreshJournal();
@@ -1117,7 +1169,7 @@ async function renderPlannerPeople() {
   picker.innerHTML = '';
   const active = cfg.people.filter(p => p.enabled !== false);
   if (!active.length) {
-    picker.append(el('p', { class: 'muted' }, 'No enabled team members. Add some in the Team tab.'));
+    picker.append(el('p', { class: 'muted' }, 'No enabled team members. Add members in Team before creating tasks.'));
     return;
   }
 
@@ -1163,7 +1215,7 @@ function updatePlannerMemberPill(totalActive) {
     pill.textContent = `All ${totalActive} selected`;
     pill.className = 'pill ok';
   } else if (count === 0) {
-    pill.textContent = 'None selected (previewing all)';
+    pill.textContent = 'No members selected';
     pill.className = 'pill warn';
   } else {
     pill.textContent = `${count} of ${totalActive} selected`;
@@ -2234,6 +2286,16 @@ function connectLogStream() {
 
 /* ------------------------------------------------------------- wiring up */
 function wire() {
+  // Navigation tabs and links between user journeys.
+  document.addEventListener('click', e => {
+    const link = e.target.closest('[data-view-link]');
+    if (!link) return;
+    e.preventDefault();
+    switchView(link.dataset.viewLink);
+    $('#viewTitle')?.focus({ preventScroll: true });
+  });
+
+  $('#navBackdrop')?.addEventListener('click', () => closeMobileNav(true));
   // Navigation tabs
   $$('.nav-item').forEach(b => {
     b.addEventListener('click', () => switchView(b.dataset.view));
@@ -2241,14 +2303,14 @@ function wire() {
 
   // Topbar triggers
   $('#refreshBtn')?.addEventListener('click', () => {
-    const current = location.hash.slice(1) || 'dashboard';
-    switchView(current);
-    toast('Refreshed data');
+    state.isDataDirty = true;
+    switchView(state.currentView);
+    toast('Refreshing this view…');
   });
 
   $('#quickRunBtn')?.addEventListener('click', () => {
     switchView('planner');
-    openConfirmationModal();
+    $('#viewTitle')?.focus({ preventScroll: true });
   });
 
   $('#consoleBtn')?.addEventListener('click', toggleConsoleDrawer);
@@ -2299,6 +2361,7 @@ function wire() {
   $('#plannerSelectAllBtn')?.addEventListener('click', () => {
     ensureConfig().then(cfg => {
       const active = cfg.people.filter(p => p.enabled !== false);
+      state.deselectedKeys = new Set();
       active.forEach(p => state.selectedKeys.add(p.key));
       updatePlannerMemberPill(active.length);
       renderPlannerPeople();
@@ -2308,8 +2371,9 @@ function wire() {
 
   $('#plannerDeselectAllBtn')?.addEventListener('click', () => {
     ensureConfig().then(cfg => {
-      state.selectedKeys.clear();
       const active = cfg.people.filter(p => p.enabled !== false);
+      state.selectedKeys.clear();
+      state.deselectedKeys = new Set(active.map(p => p.key));
       updatePlannerMemberPill(active.length);
       renderPlannerPeople();
       runPlanPreview();
@@ -2397,8 +2461,9 @@ function wire() {
     });
   });
 
-  // Global Escape key handler for accessible dialog closing
+  // Global keyboard handling: trap modal focus and allow dismissing overlays.
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') trapModalFocus(e);
     if (e.key === 'Escape') {
       const openModal = document.querySelector('.modal-overlay.open');
       if (openModal) {
@@ -2409,6 +2474,11 @@ function wire() {
       const openDrawer = document.querySelector('.drawer.open');
       if (openDrawer) {
         openDrawer.classList.remove('open');
+        e.preventDefault();
+        return;
+      }
+      if ($('#sidebar')?.classList.contains('open')) {
+        closeMobileNav(true);
         e.preventDefault();
       }
     }
@@ -2484,14 +2554,15 @@ function wire() {
 
   // Mobile drawer menu
   $('#menuBtn')?.addEventListener('click', () => {
-    $('#sidebar')?.classList.toggle('open');
+    const opened = $('#sidebar')?.classList.toggle('open');
+    $('#navBackdrop')?.classList.toggle('open', Boolean(opened));
+    $('#menuBtn')?.setAttribute('aria-expanded', String(Boolean(opened)));
+    $('#menuBtn')?.setAttribute('aria-label', opened ? 'Close navigation' : 'Open navigation');
+    if (opened) $('.sidebar .nav-item.active')?.focus();
   });
 
   // Hash routing
-  window.addEventListener('hashchange', () => {
-    const v = location.hash.slice(1);
-    if (v) switchView(v);
-  });
+  window.addEventListener('hashchange', handleHashNavigation);
 }
 
 /* ---------------------------------------------------------------- bootstrap */
@@ -2504,8 +2575,7 @@ async function bootstrap() {
   wire();
   connectLogStream();
 
-  const initial = location.hash.slice(1) || 'dashboard';
-  switchView(initial);
+  handleHashNavigation();
 }
 
 document.addEventListener('DOMContentLoaded', bootstrap);
