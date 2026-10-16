@@ -40,6 +40,12 @@ describe('Explorer selection and data integrity', () => {
     expect(picker).toContain("'aria-pressed': String(on)");
   });
 
+  it('keeps Deselect All explicit across Explorer filter re-renders', () => {
+    const start = source.indexOf("$('#explorerDeselectAllBtn')");
+    const fragment = source.slice(start, start + 450);
+    expect(fragment).toContain('state.deselectedExplorerKeys = new Set(');
+  });
+
   it('never claims all tasks are up to date when the API returned no member rows', () => {
     const { nodes, context } = contextWithNodes();
     runInNewContext('generateInsights({matrix:[]})', context);
