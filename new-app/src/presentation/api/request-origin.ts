@@ -17,7 +17,8 @@ export function unsafeRequestOriginGuard(options: {
     try {
       const parsed = new URL(raw);
       if ((parsed.protocol !== 'https:' && parsed.protocol !== 'http:') ||
-        parsed.origin !== raw || parsed.username || parsed.password) {
+        parsed.origin !== raw || parsed.username || parsed.password ||
+        parsed.hostname.includes('*')) {
         throw new Error('Not an exact HTTP(S) origin');
       }
       return parsed.origin;
