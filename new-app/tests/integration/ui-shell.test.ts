@@ -70,6 +70,16 @@ describe('user journey shell contracts', () => {
     expect(js).toContain('matrix-cell-action');
   });
 
+  it('refreshes the planner after one-off creation instead of calling a nonexistent function', () => {
+    expect(js).not.toContain("state.currentView === 'planner') refreshPlanner()");
+    expect(js).toContain("state.currentView === 'planner') runPlanPreview()");
+  });
+
+  it('requires confirmation for enabling automation and repairing links', () => {
+    expect(js).toContain("if (enable && !window.confirm(");
+    expect(js).toContain("if (!window.confirm('Repair incomplete task relationships");
+  });
+
   it('manages dialog focus for keyboard users', () => {
     expect(js).toContain('function trapModalFocus(');
     expect(js).toContain("e.key === 'Tab'");
