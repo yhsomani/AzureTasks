@@ -24,6 +24,11 @@ describe('user journey shell contracts', () => {
     expect(html).toContain('aria-label="Primary navigation"');
   });
 
+  it('iterates over every navigation button rather than a single element', () => {
+    expect(js).toContain("$('.nav-item').forEach");
+    expect(js).not.toContain("$('.nav-item').forEach");
+  });
+
   it('exposes accessible navigation and responsive dismissal controls', () => {
     expect(html).toContain('id="navBackdrop"');
     expect(html).toContain('aria-controls="sidebar"');
