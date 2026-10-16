@@ -109,6 +109,27 @@ describe('API routes', () => {
     expect((await res.json()).status).toBe('healthy');
   });
 
+  it('does not grant cross-origin browser access by default', async () => {
+    const res = await json('/api/health', {
+      headers: { Origin: 'https://attacker.example.invalid' },
+    });
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
+  });
+
+  it('returns JSON 404 for an unknown API route rather than the dashboard HTML', async () => {
+    const response = await json('/api/not-a-real-endpoint');
+    expect(response.status).toBe(404);
+    expect(response.headers.get('content-type')).toContain('application/json');
+    const body = await response.json();
+    expect(body.success).toBe(false);
+  });
+
+  it('does not return a success-shaped HTML response for an unknown API mutation', async () => {
+    const response = await json('/api/not-a-real-mutation', { method: 'POST' });
+    expect(response.status).toBe(404);
+    expect((await response.json()).success).toBe(false);
+  });
+
   it('GET /api/status wraps use-case output', async () => {
     const res = await json('/api/status');
     const body = await res.json();
@@ -147,6 +168,56 @@ describe('API routes', () => {
     const [input, onProgress] = (deps.createTasks.execute as any).mock.calls[0];
     expect(input.yes).toBe(true);
     expect(typeof onProgress).toBe('function');
+  });
+
+  it('rejects implicit all-member creation for an omitted or empty selection', async () => {
+    vi.mocked(deps.createTasks.execute).mockClear();
+    for (const input of [{}, { personKeys: [] }, { personKeys: 'p1' }]) {
+      const response = await json('/api/tasks/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      expect(response.status).toBe(400);
+    }
+    expect(deps.createTasks.execute).not.toHaveBeenCalled();
+  });
+
+  it('allows an intentional all-member creation only with all=true', async () => {
+    vi.mocked(deps.createTasks.execute).mockClear();
+    const response = await json('/api/tasks/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ all: true }),
+    });
+    expect(response.status).toBe(200);
+    expect(deps.createTasks.execute).toHaveBeenCalledWith(expect.objectContaining({
+      all: true,
+    }), expect.any(Function));
+  });
+
+  it('rejects an empty explicit task-planning selection rather than planning for everyone', async () => {
+    vi.mocked(deps.planTasks.execute).mockClear();
+    const response = await json('/api/tasks/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personKeys: [] }),
+    });
+    expect(response.status).toBe(400);
+    expect(deps.planTasks.execute).not.toHaveBeenCalled();
+  });
+
+  it('rejects implicit all-member Explorer create-missing execution', async () => {
+    vi.mocked(deps.createTasks.execute).mockClear();
+    for (const input of [{}, { personKeys: [] }]) {
+      const response = await json('/api/explorer/create-missing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      expect(response.status).toBe(400);
+    }
+    expect(deps.createTasks.execute).not.toHaveBeenCalled();
   });
 
   it('POST /api/tasks/adhoc creates a custom single task', async () => {
