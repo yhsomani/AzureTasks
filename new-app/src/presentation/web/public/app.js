@@ -260,6 +260,7 @@ function closeMobileNav(restoreFocus = false) {
 
 function handleHashNavigation() {
   const view = decodeURIComponent(location.hash.slice(1) || 'dashboard');
+  if (VIEW_META[view] && state.currentView === view) return;
   switchView(VIEW_META[view] ? view : 'dashboard');
 }
 
@@ -2658,7 +2659,8 @@ async function bootstrap() {
   wire();
   connectLogStream();
 
-  handleHashNavigation();
+  const initial = location.hash.slice(1) || 'dashboard';
+  switchView(initial);
 }
 
 document.addEventListener('DOMContentLoaded', bootstrap);

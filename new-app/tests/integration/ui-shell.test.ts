@@ -29,6 +29,11 @@ describe('user journey shell contracts', () => {
     expect(js).not.toMatch(/^\\s*\\$\\('\\.nav-item'\\)\\.forEach/m);
   });
 
+  it('does not refetch a destination twice after updating the URL hash', () => {
+    expect(js).toContain('if (VIEW_META[view] && state.currentView === view) return;');
+    expect(js).toContain('switchView(initial);');
+  });
+
   it('exposes accessible navigation and responsive dismissal controls', () => {
     expect(html).toContain('id="navBackdrop"');
     expect(html).toContain('aria-controls="sidebar"');
