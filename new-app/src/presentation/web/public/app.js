@@ -211,6 +211,14 @@ function trapModalFocus(e) {
   }
 }
 
+function isoDateInTimeZone(date = new Date(), timeZone = state.config?.timezone || 'Asia/Kolkata') {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date);
+  const fields = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${fields.year}-${fields.month}-${fields.day}`;
+}
+
 function formatDateShort(iso) {
   if (!iso) return '—';
   try {
@@ -1629,7 +1637,13 @@ async function executeCreation() {
       thursdayMode: $('#thursdayMode')?.value || undefined,
       dryRun: false,
     });
-    toast(`Created ${res.totalCreatedCount} tasks, skipped ${res.totalDuplicateCount} duplicates`, 'ok');
+    const taskFailures = Number(res.totalTaskFailureCount) || 0;
+    const sourceFailures = Number(res.totalSourceFailureCount) || 0;
+    if (taskFailures + sourceFailures > 0) {
+      toast(`Created ${res.totalCreatedCount || 0} tasks, skipped ${res.totalDuplicateCount || 0} duplicates; ${taskFailures} task failure(s), ${sourceFailures} source failure(s). Review Audit log.`, 'warn');
+    } else {
+      toast(`Created ${res.totalCreatedCount || 0} tasks, skipped ${res.totalDuplicateCount || 0} duplicates`, 'ok');
+    }
     refreshDashboard();
     runPlanPreview();
   } catch (err) {
@@ -2272,7 +2286,7 @@ async function openAdHocModal(defaultPersonKey, defaultDate) {
 
   const dateInput = $('#adHocTargetDate');
   if (dateInput) {
-    dateInput.value = defaultDate || new Date().toISOString().split('T')[0];
+    dateInput.value = defaultDate || isoDateInTimeZone(new Date(), cfg.timezone);
   }
 
   if ($('#adHocTitleInput')) $('#adHocTitleInput').value = '';
@@ -2444,7 +2458,7 @@ function wire() {
   $('#thursdayMode')?.addEventListener('change', runPlanPreview);
 
   $('#btnSimulateWindow')?.addEventListener('click', () => {
-    const today = state.todayIso || new Date().toISOString().slice(0, 10);
+    const today = state.todayIso || isoDateInTimeZone(new Date(), state.config?.timezone);
     // Advance date to next Thursday + 1 day (Friday) to simulate following week
     const [y, m, d] = today.split('-').map(Number);
     const dt = new Date(Date.UTC(y, m - 1, d));
