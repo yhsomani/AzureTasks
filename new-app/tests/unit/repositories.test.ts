@@ -156,6 +156,13 @@ describe('FileConfigRepository', () => {
     expect(Array.isArray(config.people)).toBe(true);
   });
 
+  it('keeps unattended creation and closure disabled on a fresh configuration', async () => {
+    const config = await new FileConfigRepository(path.join(dir, 'fresh-install.json')).load();
+    expect(config.schedulerEnabled).toBe(false);
+    expect(config.schedulerAutoStart).toBe(false);
+    expect(config.autoClose).toBe(false);
+  });
+
   it('persists people updates', async () => {
     const cfgPath = path.join(dir, 'people.json');
     fs.writeFileSync(cfgPath, JSON.stringify({ people: [] }));
