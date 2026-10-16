@@ -28,6 +28,32 @@ export interface ApiDependencies {
   scheduler: SchedulerRepository;
 }
 
+/**
+ * Resolve an explicit member scope at the HTTP boundary. An empty list must
+ * never expand to all configured employees for mutating endpoints.
+ * Legacy unfiltered plan previews may still default to all users.
+ */
+function resolvePersonScope(
+  body: Record<string, unknown> | undefined,
+  allowImplicitAll = false,
+): { personKeys?: string[]; all: boolean } {
+  const keys = body?.personKeys;
+  if (keys !== undefined) {
+    if (!Array.isArray(keys) || keys.length === 0 ||
+      keys.some(key => typeof key !== 'string' || !key.trim())) {
+      throw new Error('personKeys must be a non-empty array of member keys.');
+    }
+    if (body?.all === true) {
+      throw new Error('Choose personKeys or all=true, not both.');
+    }
+    return { personKeys: keys.map(key => key.trim()), all: false };
+  }
+  if (body?.all === true || (allowImplicitAll && body?.all === undefined)) {
+    return { all: true };
+  }
+  throw new Error('Select member keys or explicitly set all=true.');
+}
+
 export function createApiRouter(deps: ApiDependencies): Router {
   const router = Router();
 
@@ -91,10 +117,10 @@ export function createApiRouter(deps: ApiDependencies): Router {
   // Tasks
   router.post('/tasks/plan', async (req, res) => {
     try {
-      const { personKeys, asOf, thursdayMode } = req.body || {};
+      const { asOf, thursdayMode } = req.body || {};
+      const scope = resolvePersonScope(req.body, true);
       const data = await deps.planTasks.execute({
-        personKeys,
-        all: !personKeys || personKeys.length === 0,
+        ...scope,
         asOf,
         thursdayMode,
       });
@@ -106,11 +132,11 @@ export function createApiRouter(deps: ApiDependencies): Router {
 
   router.post('/tasks/execute', async (req, res) => {
     try {
-      const { personKeys, asOf, thursdayMode, dryRun } = req.body || {};
+      const { asOf, thursdayMode, dryRun } = req.body || {};
+      const scope = resolvePersonScope(req.body);
       const data = await deps.createTasks.execute(
         {
-          personKeys,
-          all: !personKeys || personKeys.length === 0,
+          ...scope,
           asOf,
           thursdayMode,
           dryRun: !!dryRun,
@@ -219,11 +245,11 @@ export function createApiRouter(deps: ApiDependencies): Router {
 
   router.post('/explorer/create-missing', async (req, res) => {
     try {
-      const { personKeys, asOf, thursdayMode } = req.body || {};
+      const { asOf, thursdayMode } = req.body || {};
+      const scope = resolvePersonScope(req.body);
       const data = await deps.createTasks.execute(
         {
-          personKeys,
-          all: !personKeys || personKeys.length === 0,
+          ...scope,
           asOf,
           thursdayMode,
           dryRun: false,
