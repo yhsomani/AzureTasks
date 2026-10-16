@@ -9,15 +9,11 @@ import * as dotenv from 'dotenv';
 import { buildApp } from './container.js';
 import { logger } from './infrastructure/logging/logger.js';
 import { AppServer } from './presentation/api/server.js';
+import { assertTlsSafety } from './infrastructure/security/tls-safety.js';
 
 dotenv.config();
 
-if (process.env.ALLOW_INSECURE_TLS === 'true') {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-  logger.warn('CAUTION: TLS certificate validation has been explicitly disabled via ALLOW_INSECURE_TLS=true.');
-} else if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
-  logger.warn('CAUTION: TLS certificate validation has been disabled via NODE_TLS_REJECT_UNAUTHORIZED=0.');
-}
+assertTlsSafety();
 
 interface CliOptions {
   command: 'run' | 'plan' | 'serve' | 'daemon' | 'repair' | 'close-today' | 'help';
