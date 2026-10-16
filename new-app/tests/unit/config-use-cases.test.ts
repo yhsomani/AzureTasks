@@ -123,6 +123,15 @@ describe('ConfigUseCases', () => {
     });
   });
 
+  it('never returns a raw GitHub token after saving settings', async () => {
+    const token = 'ghp_critical-secret-only-in-memory-5678';
+    const saved = await useCases.saveSettings({ githubToken: token, githubOrg: 'Example' });
+    expect(lastSavedSettings.githubToken).toBe(token); // credential persistence is unchanged
+    expect(saved.config.githubToken).not.toBe(token);
+    expect(JSON.stringify(saved)).not.toContain('critical-secret-only-in-memory');
+    expect(saved.config.githubToken).toBe('ghp_...5678');
+  });
+
   it('validates autoCloseStartTime and autoCloseEndTime format', async () => {
     await expect(useCases.saveSettings({ autoCloseStartTime: 'invalid' }))
       .rejects.toThrow(/Invalid autoCloseStartTime/);
