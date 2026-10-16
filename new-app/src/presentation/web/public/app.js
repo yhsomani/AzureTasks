@@ -2523,6 +2523,7 @@ function wire() {
   });
   $('#explorerSelectAllBtn')?.addEventListener('click', () => {
     ensureConfig().then(cfg => {
+      state.deselectedExplorerKeys = new Set();
       cfg.people.filter(p => p.enabled !== false).forEach(p => state.selectedExplorerKeys.add(p.key));
       renderExplorerUserPills(cfg);
       refreshExplorer();
@@ -2530,7 +2531,9 @@ function wire() {
   });
   $('#explorerDeselectAllBtn')?.addEventListener('click', () => {
     ensureConfig().then(cfg => {
+      const active = cfg.people.filter(p => p.enabled !== false);
       state.selectedExplorerKeys.clear();
+      state.deselectedExplorerKeys = new Set(active.map(p => p.key));
       renderExplorerUserPills(cfg);
       refreshExplorer();
     });
