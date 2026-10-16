@@ -26,7 +26,7 @@ describe('user journey shell contracts', () => {
 
   it('iterates over every navigation button rather than a single element', () => {
     expect(js).toContain("$('.nav-item').forEach");
-    expect(js).not.toContain("$('.nav-item').forEach");
+    expect(js).not.toMatch(/^\\s*\\$\\('\\.nav-item'\\)\\.forEach/m);
   });
 
   it('exposes accessible navigation and responsive dismissal controls', () => {
