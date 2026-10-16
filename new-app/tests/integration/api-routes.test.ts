@@ -116,6 +116,20 @@ describe('API routes', () => {
     expect(res.headers.get('access-control-allow-origin')).toBeNull();
   });
 
+  it('returns JSON 404 for an unknown API route rather than the dashboard HTML', async () => {
+    const response = await json('/api/not-a-real-endpoint');
+    expect(response.status).toBe(404);
+    expect(response.headers.get('content-type')).toMatch(/application\\/json/);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+  });
+
+  it('does not return a success-shaped HTML response for an unknown API mutation', async () => {
+    const response = await json('/api/not-a-real-mutation', { method: 'POST' });
+    expect(response.status).toBe(404);
+    expect((await response.json()).success).toBe(false);
+  });
+
   it('GET /api/status wraps use-case output', async () => {
     const res = await json('/api/status');
     const body = await res.json();
