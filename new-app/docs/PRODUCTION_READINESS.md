@@ -15,7 +15,7 @@ DevOps 3in1 task automation.
 | Concurrency safety | ✅ | File lock + stale reclamation |
 | Audit trail | ✅ | Journal, exportable, rotating |
 | Observability | ✅ | Structured logs + SSE + `/api/health` |
-| Security | ⚠️ | PAT scrubbed, TLS on; opt-in HTTP Basic auth (`API_AUTH_TOKEN`); plaintext `.env` |
+| Security | ⚠️ | Production authentication enforced, wildcard CORS disabled by default, TLS bypass prohibited, GitHub token masked on save; plaintext `.env` and tenant policy remain residual risks |
 | Deployment docs | ✅ | README + architecture + this doc |
 | Rollback | ✅ | Stateless; previous `dist/` or commit |
 | Accessibility | ⚠️ | Good basics; no automated a11y audit yet |
@@ -28,20 +28,25 @@ DevOps 3in1 task automation.
 - [ ] `npm run build` succeeds and copies the UI on the release commit
 - [ ] Server boots and serves UI + API in the target environment
 - [ ] Verify secrets do not appear in logs
-- [ ] Verify TLS certificate validation is enabled
+- [ ] Verify TLS certificate validation is enabled and trusted corporate CA is installed if required
+- [ ] Confirm production service refuses startup without `API_AUTH_TOKEN`
+- [ ] Verify all-member mutations require explicit `all: true` or non-empty scoped members
+- [ ] Ensure previously exposed tokens have been revoked and replaced
 - [ ] Verify only the maintained application is included in release artifacts
 
 ## Go / no-go
 
 **Conditional GO** for internal, single-host deployment only after rerunning the documented gates and ensuring:
 
-1. `API_AUTH_TOKEN` is configured and HTTPS is used, or access is protected by an authenticating reverse proxy.
+1. `API_AUTH_TOKEN` is configured (production startup requires it) and HTTPS is used via an authenticating or TLS-terminating reverse proxy.
 2. Only one scheduler instance runs (or a shared lock is introduced).
 3. For corporate TLS inspection, the corporate root CA is installed rather than
    disabling verification.
 
 **NO-GO** for a public, unauthenticated endpoint; for multi-host scheduling
 without a shared lock; or where plaintext PAT-on-disk is disallowed.
+
+See [Security and mutation safety](SECURITY.md) for endpoint-specific scope rules, HTTPS/TLS policies, and remaining limitations.
 
 ## Deployment checklist
 
@@ -92,8 +97,8 @@ Post-deploy verification:
 
 | Risk | Mitigation | Priority |
 |---|---|---|
-| Unauthenticated API when `API_AUTH_TOKEN` is unset | Set `API_AUTH_TOKEN` (HTTP Basic) and/or run behind an authenticating proxy | High (config) |
+| Authentication accidentally absent in local development | Set `API_AUTH_TOKEN` even in development if exposing beyond the host; never expose a dev server publicly | High (config) |
 | Plaintext PAT in `.env` | Move to OS keychain / secret manager | Medium |
-| No automated HTTP/a11y tests | Add route smoke tests + axe in CI | Medium |
+| Browser tests use synthetic data, not live tenant; no full screen-reader audit | Extend browser accessibility assertions and run manual screen-reader and authorized live-tenant checks | High |
 | Per-host lock | Shared lock if multi-host scheduling | Low (only if needed) |
 | Runtime source (`src/`) shells out to real Azure on `repair` | Dry-run via `plan` first; `repair` only touches already-created tasks | Low |
