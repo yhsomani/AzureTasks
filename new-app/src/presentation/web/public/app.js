@@ -481,6 +481,10 @@ function renderTimeline(entries) {
 function generateInsights(data) {
   const container = $('#insightsContainer');
   if (!container || !data) return;
+  if (!Array.isArray(data.matrix) || data.matrix.length === 0) {
+    container.textContent = 'No task data for this period. Check the selected dates and Azure DevOps connection.';
+    return;
+  }
 
   const insights = [];
   data.matrix.forEach(row => {
@@ -811,6 +815,20 @@ async function refreshExplorer(options = {}) {
   const forceFresh = options.forceFresh === true;
   const cfg = await ensureConfig(forceFresh);
   renderExplorerUserPills(cfg);
+  if (state.selectedExplorerKeys.size === 0) {
+    state.explorerData = null;
+    const matrix = $('#explorerMatrixWrap');
+    if (matrix) matrix.textContent = 'Select at least one team member to view task coverage.';
+    const timestamp = $('#explorerLastRefresh');
+    if (timestamp) timestamp.textContent = 'No members selected';
+    renderExplorerList([]);
+    renderExplorerKpis({
+      totalSelectedUsers: 0, totalWorkingDates: 0, expectedCombinations: 0,
+      existingCombinations: 0, missingCombinations: 0, duplicateCombinations: 0,
+      overallCoveragePercent: 0, stateCounts: {},
+    });
+    return;
+  }
 
   const preset = $('#explorerPreset')?.value || 'today_to_next_thursday';
   const start = $('#explorerStart')?.value;
@@ -885,7 +903,10 @@ function renderExplorerUserPills(cfg) {
   container.innerHTML = '';
   active.forEach(p => {
     const on = state.selectedExplorerKeys.has(p.key);
-    const pill = el('span', {
+    const pill = el('button', {
+      type: 'button',
+      'aria-pressed': String(on),
+      'data-member-key': p.key,
       class: `user-pill ${on ? 'on' : ''}`,
       onclick: () => {
         if (state.selectedExplorerKeys.has(p.key)) {
@@ -897,6 +918,7 @@ function renderExplorerUserPills(cfg) {
           if (state.deselectedExplorerKeys) state.deselectedExplorerKeys.delete(p.key);
         }
         renderExplorerUserPills(cfg);
+        Array.from(container.querySelectorAll('button.user-pill')).find(button => button.dataset.memberKey === p.key)?.focus();
         refreshExplorer({ forceFresh: true });
       },
     }, [
