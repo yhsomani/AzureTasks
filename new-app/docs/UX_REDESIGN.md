@@ -1,6 +1,6 @@
 # Journey-first UI redesign — audit, decisions, and verification
 
-**Scope:** `new-app/` only. **Audit date:** 2026-10-16. **Evidence level:** repository source inspected, static contract tests added; browser and Azure DevOps tenant-specific verification are separate gates.
+**Scope:** `new-app/` only. **Audit date:** 2026-10-16. **Evidence level:** repository source inspected, static contract tests and dependency-free navigation runtime tests executed in CI; actual interactive browser and Azure DevOps tenant-specific verification remain separate gates.
 
 ## Product intent and users
 
@@ -94,18 +94,18 @@ Expected: errors are distinguishable from empty results, and repair actions are 
 
 ## Implementation tracker
 
-| Area | Code change | Static/unit coverage | Live/browser evidence |
+| Area | Code change | Static/runtime coverage | Live/browser evidence |
 |---|---|---|---|
-| Shared navigation & breadcrumb | Implemented | UI shell contract tests | Not run locally |
+| Shared navigation & breadcrumb | Implemented | CI UI shell contracts / VM navigation harness | Not run locally |
 | Dashboard guidance and contextual links | Implemented | UI shell contract tests | Not run locally |
-| Planner safe preview / scoped creation | Implemented | UI shell contract tests | Live Azure not exercised |
-| Task Explorer inspection controls | Implemented | UI shell contract tests | Keyboard walkthrough outstanding |
+| Planner safe preview / scoped creation | Implemented | CI UI shell contracts | Live Azure not exercised |
+| Task Explorer inspection controls | Implemented | CI UI shell contracts and VM harness | Keyboard walkthrough outstanding |
 | My Work / Burndown | Existing views preserved + shared responsive shell | Existing regression tests | Visual review outstanding |
 | Team / Settings | Existing forms retained + shared shell | Existing regression tests | Field-by-field browser review outstanding |
-| Scheduler / EOD | Confirmation & preview-first entry | UI shell contract tests | Live operation not exercised |
+| Scheduler / EOD | Confirmation & preview-first entry | CI UI shell contracts | Live operation not exercised |
 | Audit / Logs | Confirmed repair + navigation | Existing tests / static checks | Live stream verification outstanding |
-| Modals / responsive | Focus wrap and backdrop | UI shell contract tests | Device and screen-reader review outstanding |
-| Server-delivered UI | New CI smoke step | HTTP shell and Basic authentication | Await CI results |
+| Modals / responsive | Focus wrap and backdrop | CI UI shell contracts | Device and screen-reader review outstanding |
+| Server-delivered UI | CI smoke implemented | Authenticated HTTP shell, protected route (401), JavaScript syntax and build | Passed in GitHub Actions; real-browser review outstanding |
 
 ## Manual acceptance scenarios
 
@@ -125,3 +125,10 @@ Expected: errors are distinguishable from empty results, and repair actions are 
 Full visual redesign of every individual inner form/table, automated browser journeys, screen-reader validation, manual mobile screenshots, live Azure DevOps data verification, and production performance comparisons remain **unverified** in this repository-only session. The initial delivery focuses on high-impact journey coherence and mutation safety rather than rewriting functional business logic. Before declaring production readiness, complete the manual acceptance scenarios above and review CI on the final commit.
 
 **Credentials:** do not reuse any PAT or GitHub token previously posted in chat. Rotate exposed values, keep secrets outside version control, and retain TLS verification.
+
+## Verification evidence — October 16, 2026
+
+- [Feature-branch CI run #38941255114](https://github.com/yhsomani/AzureTasks/actions/runs/38941255114) finished successfully for commit `8f54d7d`: install, TypeScript typecheck, lint, test coverage, browser JavaScript syntax check, build, and authenticated HTTP shell smoke checks.
+- [Merged-main CI run #38941102028](https://github.com/yhsomani/AzureTasks/actions/runs/38941102028) finished successfully on the delivered redesign merge commit.
+- The follow-up navigation regression test executes `switchView('logs')` against a minimal in-memory DOM harness and also verifies that using a single-element selector reproduces the failure. This is not equivalent to Playwright/Cypress browser E2E coverage.
+- **No real Azure DevOps work items were created, closed or repaired** during these checks; no PAT was needed for the CI smoke test.
