@@ -1,4 +1,8 @@
-# PRD: Autonomous Task Creation Audit, Persistent Automation & End-to-End Verification
+# Historical requirements and implementation checklist (not the current product contract)
+
+> This file records an earlier automation-centric development brief. Checked items are historical implementation assertions, not proof of real Azure DevOps tenant behavior. The current target product direction and acceptance gates are in [Product Direction](docs/PRODUCT_DIRECTION.md) and [Security](docs/SECURITY.md). The actual deployment must be verified separately; automated browser fixtures do not constitute live tenant validation.
+
+## Previous PRD: Autonomous Task Creation Audit, Persistent Automation & End-to-End Verification
 
 ## Overview
 Transform the `new-app` task creation and automation engine into an enterprise-grade, unattended, highly resilient, and fully verifiable Azure DevOps automation platform. Ensure robust duplicate protection, relation/hierarchy preservation, multi-user rules, persistent background scheduling across server restarts, custom schedules, and intuitive UI controls.
@@ -44,7 +48,7 @@ Transform the `new-app` task creation and automation engine into an enterprise-g
 
 ### Phase 6: End-to-End Execution, Validation & Reporting
 - [x] 6.1 Automated test suite expansion: unit & integration tests for persistent scheduler, config updates, and ad-hoc creator.
-- [x] 6.2 Live API & E2E verification: verify plan generation, scheduler persistence across server restart, journal audit logging.
+- [ ] 6.2 Live API & E2E verification: tenant-specific plan generation, scheduler persistence across actual server restart, journal audit logging. **Pending independent verification.**
 - [x] 6.3 Update `docs/TEST_RESULTS.md` with verification proofs.
 - [x] 6.4 Generate comprehensive final delivery report and complete the Ralph Loop.
 
@@ -54,4 +58,4 @@ Transform the `new-app` task creation and automation engine into an enterprise-g
 - [x] 7.3 Support per-person `titlePrefix` in `PersonConfig`, with auto-detection from their latest source task in Azure DevOps.
 - [x] 7.4 Update `planTasks` and `createTasks` to use member-specific title prefixes so newly added members have their tasks generated and tracked according to their POD convention.
 - [x] 7.5 Update Team Management UI to support optional Title Prefix field.
-- [x] 7.6 Verify with automated unit/integration tests and live Azure DevOps queries for all team members (including Vishal Shinde and Karan Dham).
+- [ ] 7.6 Verify with automated unit/integration tests and live Azure DevOps queries for all configured team members. **Live query evidence unavailable in this review.**
