@@ -56,7 +56,8 @@ describe('user journey shell contracts', () => {
 
   it('routes a single-day action through single-task creation', () => {
     expect(js).toContain('openAdHocModal(personKey, isoDate)');
-    const section = js.match(/function runForCell[\\s\\S]*?function renderPlanResults/)?.[0] ?? '';
+    const section = js.match(/function runForCell[\s\S]*?function renderPlanResults/)?.[0] ?? '';
+    expect(section).toContain('openAdHocModal(personKey, isoDate)');
     expect(section).not.toContain("api.post('/tasks/execute'");
   });
 
