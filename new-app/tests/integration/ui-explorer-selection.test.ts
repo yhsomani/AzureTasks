@@ -20,7 +20,7 @@ function contextWithNodes() {
 describe('Explorer selection and data integrity', () => {
   it('does not query all users when no Explorer members are selected', async () => {
     const { context } = contextWithNodes();
-    const requests = await runInNewContext(String.raw\`(async () => {
+    const requests = await runInNewContext(String.raw`(async () => {
       let count = 0;
       ensureConfig = async () => ({ people: [{ key: 'alice', name: 'Alice', enabled: true }] });
       renderExplorerUserPills = () => {};
@@ -28,7 +28,7 @@ describe('Explorer selection and data integrity', () => {
       state.selectedExplorerKeys.clear();
       await refreshExplorer();
       return count;
-    })()\`, context);
+    })()`, context);
     expect(requests).toBe(0);
   });
 
