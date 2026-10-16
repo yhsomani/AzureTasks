@@ -119,7 +119,7 @@ describe('API routes', () => {
   it('returns JSON 404 for an unknown API route rather than the dashboard HTML', async () => {
     const response = await json('/api/not-a-real-endpoint');
     expect(response.status).toBe(404);
-    expect(response.headers.get('content-type')).toMatch(/application\\/json/);
+    expect(response.headers.get('content-type')).toContain('application/json');
     const body = await response.json();
     expect(body.success).toBe(false);
   });
