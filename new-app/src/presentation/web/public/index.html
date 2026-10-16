@@ -68,7 +68,7 @@
         <button type="button" class="icon-btn menu-btn" id="menuBtn" aria-controls="sidebar" aria-expanded="false" aria-label="Open navigation">☰</button>
         <div class="page-identity">
           <p class="breadcrumb" id="viewBreadcrumb">Overview / Dashboard</p>
-          <h1 id="viewTitle">Dashboard</h1>
+          <h1 id="viewTitle" tabindex="-1">Dashboard</h1>
           <p class="subtitle" id="viewSubtitle">Track daily contributions, monitor team workloads, and automate tasks</p>
         </div>
         <div class="topbar-actions">
@@ -301,7 +301,7 @@
             </label>
             <div style="display:flex; align-items:flex-end; gap:8px;">
               <button class="btn ghost" id="planBtn" style="flex:1;">Preview tasks</button>
-              <button class="btn primary" id="executeBtn" style="flex:1;">Review & confirm</button>
+              <button class="btn primary" id="executeBtn" style="flex:1;" disabled>Review &amp; confirm</button>
             </div>
           </div>
 
@@ -457,7 +457,7 @@
             </div>
             <div class="row gap" style="margin:0; align-items:center;">
               <button class="btn ghost small" id="eodPreviewBtn">🔍 Preview EOD Closure (Dry Run)</button>
-              <button class="btn primary small" id="eodRunNowBtn">⚡ Close Today's Tasks Now</button>
+              <button class="btn primary small" id="eodRunNowBtn">Review EOD closure</button>
             </div>
           </header>
 
