@@ -14,6 +14,7 @@ import {
   matchesPerson,
   parseTitleDate,
   zonedTimeToUtcIso,
+  computeTaskCloseTimestamp,
   DatePlanningService,
 } from '../../domain/index.js';
 import { GitHubClient } from '../../infrastructure/github/github-client.js';
@@ -124,8 +125,10 @@ export class CloseDailyTasksUseCase {
 
     // 3. Match work items to each person for the target date
     const matchedTasks: Array<{ person: Person; item: any }> = [];
+    const seenTaskIds = new Set<number>();
 
     for (const item of candidateWorkItems) {
+      if (seenTaskIds.has(item.id)) continue;
       const assignedToVal = item.fields['System.AssignedTo'];
       const title = String(item.fields['System.Title'] || '');
 
@@ -146,6 +149,7 @@ export class CloseDailyTasksUseCase {
           }
 
           if (itemDate === targetDate) {
+            seenTaskIds.add(item.id);
             matchedTasks.push({ person: p, item });
             break;
           }
@@ -163,8 +167,17 @@ export class CloseDailyTasksUseCase {
       const taskId = item.id;
       const taskTitle = String(item.fields['System.Title'] || `Task #${taskId}`);
 
-      // Check if already closed
-      if (currentState.toLowerCase() === 'closed') {
+      const stateLower = currentState.trim().toLowerCase();
+      const isClosedState = ['closed', 'done', 'resolved', 'completed'].includes(stateLower);
+      const hasClosedDate = Boolean(
+        item.fields['Microsoft.VSTS.Common.ClosedDate'] ||
+        item.fields['Custom.ActualClosedDate'] ||
+        item.fields['Custom.ActualEnddate'] ||
+        item.fields['Custom.ActualEndDate']
+      );
+
+      // Check if already closed: by terminal state or by existing closed/actual-end dates
+      if (isClosedState || hasClosedDate) {
         totalAlreadyClosed++;
         results.push({
           personKey: person.key,
@@ -173,7 +186,13 @@ export class CloseDailyTasksUseCase {
           taskTitle,
           previousState: currentState,
           newState: currentState,
-          actualEndDate: String(item.fields['Microsoft.VSTS.Common.ClosedDate'] || item.fields['Custom.ActualEnddate'] || nowUtc),
+          actualEndDate: String(
+            item.fields['Microsoft.VSTS.Common.ClosedDate'] ||
+            item.fields['Custom.ActualClosedDate'] ||
+            item.fields['Custom.ActualEnddate'] ||
+            item.fields['Custom.ActualEndDate'] ||
+            nowUtc
+          ),
           remainingWork: Number(item.fields['Microsoft.VSTS.Scheduling.RemainingWork'] || 0),
           completedWork: Number(item.fields['Microsoft.VSTS.Scheduling.CompletedWork'] || 8),
           prCount: 0,
@@ -225,13 +244,22 @@ export class CloseDailyTasksUseCase {
           plannedStart = zonedTimeToUtcIso(targetDate, activeConfig.startTime || '09:30', activeConfig.timezone);
         }
 
+        // Determine identical randomized closure timestamp for Actual End date and Actual Closed date
+        // Randomized between 6:15pm and 6:45pm, guaranteed <= current time to prevent Azure DevOps errors
+        const closedTimestamp = computeTaskCloseTimestamp(
+          targetDate,
+          activeConfig.timezone,
+          activeConfig.autoCloseStartTime || '18:15',
+          activeConfig.autoCloseEndTime || '18:45'
+        );
+
         // Build atomic JSON Patch operations
         const ops: any[] = [
           { op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.RemainingWork', value: 0 },
           { op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.CompletedWork', value: 8 },
           { op: 'add', path: '/fields/Custom.ActualStartdate', value: plannedStart },
-          { op: 'add', path: '/fields/Custom.ActualEnddate', value: nowUtc },
-          { op: 'add', path: '/fields/Microsoft.VSTS.Common.ClosedDate', value: nowUtc },
+          { op: 'add', path: '/fields/Custom.ActualEnddate', value: closedTimestamp },
+          { op: 'add', path: '/fields/Microsoft.VSTS.Common.ClosedDate', value: closedTimestamp },
           { op: 'add', path: '/fields/System.Description', value: prDeliverables.htmlDescription },
           {
             op: 'add',
@@ -247,10 +275,10 @@ export class CloseDailyTasksUseCase {
           ops.push({ op: 'add', path: '/fields/Custom.ActualStartDate', value: plannedStart });
         }
         if ('Custom.ActualEndDate' in item.fields || 'Custom.PlannedEndDate' in item.fields) {
-          ops.push({ op: 'add', path: '/fields/Custom.ActualEndDate', value: nowUtc });
+          ops.push({ op: 'add', path: '/fields/Custom.ActualEndDate', value: closedTimestamp });
         }
         if ('Custom.ActualClosedDate' in item.fields) {
-          ops.push({ op: 'add', path: '/fields/Custom.ActualClosedDate', value: nowUtc });
+          ops.push({ op: 'add', path: '/fields/Custom.ActualClosedDate', value: closedTimestamp });
         }
 
         if (!isDryRun) {
@@ -290,7 +318,7 @@ export class CloseDailyTasksUseCase {
           newState: 'Closed',
           plannedStartDate: String(plannedStart),
           actualStartDate: String(plannedStart),
-          actualEndDate: nowUtc,
+          actualEndDate: closedTimestamp,
           remainingWork: 0,
           completedWork: 8,
           githubUsername: githubUser,

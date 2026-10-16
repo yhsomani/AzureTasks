@@ -97,9 +97,12 @@ export function formatTitleDate(isoDate: string): string {
  * Azure DevOps stores StartDate as an instant; we want 09:30 local wall time.
  */
 export function zonedTimeToUtcIso(isoDate: string, hhmm: string, timeZone: string): string {
-  const [hh, mm] = hhmm.split(':').map(Number);
+  const parts_time = hhmm.split(':').map(Number);
+  const hh = parts_time[0] ?? 0;
+  const mm = parts_time[1] ?? 0;
+  const ss = parts_time[2] ?? 0;
   const [y, mo, d] = isoDate.split('-').map(Number);
-  const utcGuess = Date.UTC(y, mo - 1, d, hh, mm, 0, 0);
+  const utcGuess = Date.UTC(y, mo - 1, d, hh, mm, ss, 0);
 
   // What wall-clock time does that UTC instant show in the target zone?
   const dtf = new Intl.DateTimeFormat('en-US', {
@@ -119,6 +122,84 @@ export function zonedTimeToUtcIso(isoDate: string, hhmm: string, timeZone: strin
   // offset = how far the zone is ahead of UTC at this instant
   const offset = asUtc - utcGuess;
   return new Date(utcGuess - offset).toISOString();
+}
+
+/**
+ * Compute a randomized, realistic closure timestamp for daily tasks.
+ * Requirements:
+ * 1. Must be randomized between startTimeStr (default 18:15) and endTimeStr (default 18:45) in target timezone.
+ * 2. Guaranteed to be smaller than or equal to current time (<= now) so Azure DevOps does not reject future timestamps.
+ * 3. Actual End Date and Actual Closed Date will receive this exact same ISO timestamp.
+ */
+export function computeTaskCloseTimestamp(
+  targetDate: string,
+  timezone: string,
+  startTimeStr: string = '18:15',
+  endTimeStr: string = '18:45',
+  now: Date = new Date()
+): string {
+  const [startH, startM] = startTimeStr.split(':').map(n => parseInt(n, 10) || 0);
+  const [endH, endM] = endTimeStr.split(':').map(n => parseInt(n, 10) || 0);
+  const startWindowSeconds = startH * 3600 + startM * 60;
+  const endWindowSeconds = endH * 3600 + endM * 60;
+
+  // Local date ISO in the configured timezone (e.g. '2026-10-16')
+  const nowLocalDateIso = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+
+  const nowParts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: timezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(now).split(':').map(n => parseInt(n, 10) || 0);
+
+  const nowSeconds = nowParts[0] * 3600 + nowParts[1] * 60 + nowParts[2];
+
+  let targetSeconds: number;
+
+  if (targetDate < nowLocalDateIso) {
+    // Past date: full window is in the past
+    const diff = Math.max(0, endWindowSeconds - startWindowSeconds);
+    targetSeconds = startWindowSeconds + Math.floor(Math.random() * (diff + 1));
+  } else if (targetDate === nowLocalDateIso) {
+    // Current date (today):
+    if (nowSeconds >= endWindowSeconds) {
+      // Past the window end (e.g. after 6:45 PM): full window is safely in the past
+      const diff = Math.max(0, endWindowSeconds - startWindowSeconds);
+      targetSeconds = startWindowSeconds + Math.floor(Math.random() * (diff + 1));
+    } else if (nowSeconds >= startWindowSeconds) {
+      // Inside window (between 6:15 PM and 6:45 PM): clamp upper bound to current seconds
+      const maxSeconds = Math.min(endWindowSeconds, nowSeconds);
+      const diff = Math.max(0, maxSeconds - startWindowSeconds);
+      targetSeconds = startWindowSeconds + Math.floor(Math.random() * (diff + 1));
+    } else {
+      // Early close before 6:15 PM: cap at current seconds to avoid future timestamp error
+      targetSeconds = nowSeconds;
+    }
+  } else {
+    // Future date: clamp at nowSeconds
+    targetSeconds = Math.min(startWindowSeconds, nowSeconds);
+  }
+
+  const h = Math.floor(targetSeconds / 3600);
+  const m = Math.floor((targetSeconds % 3600) / 60);
+  const s = targetSeconds % 60;
+  const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+
+  let targetUtc = zonedTimeToUtcIso(targetDate, timeStr, timezone);
+
+  // Absolute safety guarantee: timestamp must never be strictly after now
+  if (targetDate >= nowLocalDateIso && new Date(targetUtc).getTime() > now.getTime()) {
+    targetUtc = now.toISOString();
+  }
+
+  return targetUtc;
 }
 
 /**

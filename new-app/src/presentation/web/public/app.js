@@ -1947,7 +1947,25 @@ async function triggerEodClosure(dryRun = false) {
       }
     }
 
-    toast(dryRun ? `Preview complete: ${res.totalClosed} task(s) ready to close.` : `Successfully closed ${res.totalClosed} task(s).`, 'ok');
+    if (executeBtn) {
+      if (dryRun && res.totalClosed > 0) {
+        executeBtn.style.display = 'inline-block';
+        executeBtn.disabled = false;
+        executeBtn.textContent = `⚡ Execute EOD Closure in Azure DevOps (${res.totalClosed} tasks)`;
+      } else {
+        executeBtn.style.display = 'none';
+      }
+    }
+
+    if (dryRun) {
+      if (res.totalClosed === 0 && res.totalAlreadyClosed > 0) {
+        toast(`All ${res.totalAlreadyClosed} task(s) are already closed.`, 'ok');
+      } else {
+        toast(`Preview complete: ${res.totalClosed} task(s) ready to close.`, 'ok');
+      }
+    } else {
+      toast(`Successfully closed ${res.totalClosed} task(s).`, 'ok');
+    }
     refreshDashboard();
   } catch (err) {
     toast(`EOD closure failed: ${err.message}`, 'err');
@@ -2436,13 +2454,9 @@ function wire() {
   $('#testConnBtn')?.addEventListener('click', testConnection);
   $('#saveGhSettingsBtn')?.addEventListener('click', saveGhSettings);
   $('#testGhBtn')?.addEventListener('click', testGhResolution);
-  $('#btnRunCreationAll')?.addEventListener('click', () => {
-    state.selectedKeys.clear();
-    executeCreation();
-  });
-  $('#btnRepairAll')?.addEventListener('click', async () => {
+
+  async function repairRelationships(btn) {
     toast('Repairing incomplete relationships...');
-    const btn = $('#btnRepairAll');
     if (btn) { btn.disabled = true; btn.textContent = 'Repairing...'; }
     try {
       const res = await api.post('/tasks/repair');
@@ -2457,7 +2471,10 @@ function wire() {
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = '🔧 Repair Relationships'; }
     }
-  });
+  }
+
+  $('#btnRepairAll')?.addEventListener('click', (e) => repairRelationships(e.currentTarget));
+  $('#journalRepairBtn')?.addEventListener('click', (e) => repairRelationships(e.currentTarget));
 
   $('#togglePatEye')?.addEventListener('click', () => {
     const input = $('#setPat');

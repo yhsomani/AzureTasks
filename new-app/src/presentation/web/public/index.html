@@ -368,6 +368,7 @@
               <p class="muted small">Cryptographic execution record of all created tasks, fields, and relations</p>
             </div>
             <div class="row gap" style="margin:0;">
+              <button class="btn small ghost" id="journalRepairBtn">🔧 Repair Relations</button>
               <button class="btn small ghost" id="exportCsv">Export CSV</button>
               <button class="btn small ghost" id="exportJson">Export JSON</button>
             </div>
@@ -536,10 +537,9 @@
         <article class="card">
           <header class="card-head"><h2>Maintenance &amp; Utilities</h2></header>
           <div class="row gap">
-            <button class="btn primary" id="btnRunCreationAll">⚡ Run Task Creation (All People)</button>
             <button class="btn ghost" id="btnRepairAll">🔧 Repair Relationships</button>
           </div>
-          <p class="muted small">Repair re-copies missing parent/related links for tasks created with partial relation status.</p>
+          <p class="muted small">Re-copies missing parent/related links for tasks created with partial relation status.</p>
         </article>
       </section>
     </main>

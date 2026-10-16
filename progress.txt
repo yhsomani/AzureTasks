@@ -85,7 +85,33 @@
 - Secret Scrubbing Hardening: Expanded `Logger.registerSecret()` with raw Base64 token encoding and `admin:${token}` Basic auth patterns, preventing credential exposure in logged network requests or headers.
 - Test Suite & Regression Verification: Added test coverage in `config-use-cases.test.ts`. Verified all 17 test suites (171 tests) passing in `new-app` and 14 test suites (75 tests) passing in `Legacy`.
 - Build & Lint Gate: Passed strict TypeScript type checking (`tsc --noEmit`), ESLint with 0 warnings/errors, and clean production build synced to `dist/`.
-- Live Daemon Verification: Verified active daemon server on port 3000, 100% daily task coverage across all 6 active team members in Azure DevOps, and healthy scheduler daemon. Final verdict: PASS.
-
-
-
+## Iteration 10: Product Simplification, UI Necessity Audit & Dead-Code Elimination
+- Executed systematic UI necessity audit across all 10 application views and components.
+- Eliminated Redundant Execution Trigger: Removed unconfirmed `#btnRunCreationAll` button from Settings view, restricting batch task creation strictly to Task Planner and Topbar with interactive review and confirmation modal.
+- Contextual Workflow Consolidation: Added `#journalRepairBtn` ("🔧 Repair Relations") directly into Audit Log (`view-journal`) header alongside Export CSV/JSON, enabling immediate in-place remediation when partial relation copies are detected.
+- Dead Code & Abandoned Boilerplate Elimination:
+  - Deleted `Legacy/src/react-ui/` (abandoned Vite boilerplate + internal node_modules, 102 files).
+  - Deleted `Legacy/src/ui.bak/` (unreferenced backup of ui assets).
+  - Deleted `Legacy/get_prompt.js` and `Legacy/full_prompt.txt` (scratch transcript dump scripts).
+  - Deleted leftover `.bak` files across `dist/` and `src/`.
+  - Cleaned `Legacy/tsconfig.json` exclude list.
+- Verification & Health Gate:
+  - All 17 test suites (171 tests) passing in `new-app`.
+  - All 14 test suites (75 tests) passing in `Legacy`.
+  - Strict TypeScript check (`tsc --noEmit`) and ESLint pass with 0 errors/warnings.
+  - Production build clean and synced to `dist/`.
+  - Live daemon verified on port 3000. Final verdict: PASS.
+## Iteration 11: EOD Task Auto-Close Investigation, Remediation & Source Code Execution Policy
+- Root Cause Analysis & Immediate Remediation:
+  - Identified 5 root causes for auto-close failure (false-success zero task persistence, same-day reschedule leap, macOS sleep clock drift, silent mock identity fallback on file lock, and multi-POD WIQL title prefix filtering).
+  - Manually triggered closure for Oct 16 tasks (#10595624, #10642751, #10645207, #10647986).
+- Codebase Hardening (Source Code Only):
+  - `node-scheduler-repo.ts`: Added zero-result guard setting status to `'empty'` without committing `lastAutoClose`; fixed next-run calculation to advance from midnight of tomorrow/Monday; added 60s sleep heartbeat ticker.
+  - `container.ts`: Connected `autoCloseFn` to return closure results to scheduler.
+  - `file-config-repo.ts`: Added 3-attempt retry loop with 50ms backoff on `load()`; throws `Configuration Error` on corrupt JSON instead of silently reverting to mock identities.
+  - `work-item-service.ts`: Broadened fallback WIQL query to support multi-POD prefixes without filtering out candidate tasks.
+  - `repositories.test.ts`: Added 5 unit tests for schedule calculations, zero-result handling, and heartbeat timer.
+- Build & Execution Directive Compliance:
+  - Maintained strictly code-only modifications (`src/`, `tests/`); zero build file churn. Reverted any build config alterations (`Legacy/tsconfig.json`).
+  - Switched server daemon to direct TypeScript execution via `tsx src/index.ts` without touching or requiring compiled build files (`dist/`).
+  - Verification: `tsc --noEmit` passed with 0 errors; all 17 test suites (176 tests) passing (100%); server active on port 3000 with healthy nextAutoClose scheduled for Monday 18:33 IST.

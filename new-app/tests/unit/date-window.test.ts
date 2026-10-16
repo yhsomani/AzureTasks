@@ -7,6 +7,7 @@ import {
   formatTitleDate,
   planCreationDates,
   validateNotPastDate,
+  computeTaskCloseTimestamp,
 } from '../../src/domain/value-objects/date-window';
 
 describe('date-window: basic date helpers', () => {
@@ -192,3 +193,85 @@ describe('date-window: planCreationDates', () => {
       .toEqual(['2026-10-05', '2026-10-06', '2026-10-07']);
   });
 });
+
+describe('date-window: computeTaskCloseTimestamp', () => {
+  it('generates a timestamp between 18:15 and 18:45 for a past date', () => {
+    // Current time is 2026-10-16 21:00:00 IST
+    const now = new Date('2026-10-16T15:30:00.000Z'); // 21:00 IST
+    const targetDate = '2026-10-15';
+    const tz = 'Asia/Kolkata';
+
+    for (let i = 0; i < 20; i++) {
+      const ts = computeTaskCloseTimestamp(targetDate, tz, '18:15', '18:45', now);
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: tz,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).format(new Date(ts)).split(':').map(Number);
+
+      const sec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+      expect(sec).toBeGreaterThanOrEqual(18 * 3600 + 15 * 60);
+      expect(sec).toBeLessThanOrEqual(18 * 3600 + 45 * 60);
+      expect(new Date(ts).getTime()).toBeLessThanOrEqual(now.getTime());
+    }
+  });
+
+  it('generates a timestamp between 18:15 and 18:45 when closing today after 18:45', () => {
+    // Current time is 2026-10-16 20:30:00 IST (15:00 UTC)
+    const now = new Date('2026-10-16T15:00:00.000Z');
+    const targetDate = '2026-10-16';
+    const tz = 'Asia/Kolkata';
+
+    for (let i = 0; i < 20; i++) {
+      const ts = computeTaskCloseTimestamp(targetDate, tz, '18:15', '18:45', now);
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: tz,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).format(new Date(ts)).split(':').map(Number);
+
+      const sec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+      expect(sec).toBeGreaterThanOrEqual(18 * 3600 + 15 * 60);
+      expect(sec).toBeLessThanOrEqual(18 * 3600 + 45 * 60);
+      expect(new Date(ts).getTime()).toBeLessThanOrEqual(now.getTime());
+    }
+  });
+
+  it('restricts timestamp to <= current time when closing inside the 18:15 - 18:45 window', () => {
+    // Current time is 2026-10-16 18:25:30 IST (12:55:30 UTC)
+    const now = new Date('2026-10-16T12:55:30.000Z');
+    const targetDate = '2026-10-16';
+    const tz = 'Asia/Kolkata';
+
+    for (let i = 0; i < 20; i++) {
+      const ts = computeTaskCloseTimestamp(targetDate, tz, '18:15', '18:45', now);
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: tz,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).format(new Date(ts)).split(':').map(Number);
+
+      const sec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+      expect(sec).toBeGreaterThanOrEqual(18 * 3600 + 15 * 60);
+      expect(sec).toBeLessThanOrEqual(18 * 3600 + 25 * 60 + 30);
+      expect(new Date(ts).getTime()).toBeLessThanOrEqual(now.getTime());
+    }
+  });
+
+  it('caps timestamp at now when closing today before 18:15 to avoid future date errors', () => {
+    // Current time is 2026-10-16 15:30:00 IST (10:00:00 UTC)
+    const now = new Date('2026-10-16T10:00:00.000Z');
+    const targetDate = '2026-10-16';
+    const tz = 'Asia/Kolkata';
+
+    const ts = computeTaskCloseTimestamp(targetDate, tz, '18:15', '18:45', now);
+    expect(new Date(ts).getTime()).toBeLessThanOrEqual(now.getTime());
+  });
+});
+

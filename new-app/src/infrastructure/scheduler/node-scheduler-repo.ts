@@ -12,9 +12,10 @@ import { logger } from '../logging/logger.js';
 export class NodeSchedulerRepository implements SchedulerRepository {
   private timer: NodeJS.Timeout | null = null;
   private autoCloseTimer: NodeJS.Timeout | null = null;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
   private status: SchedulerStatus;
   private scheduleFn: (() => Promise<void>) | null = null;
-  private autoCloseFn: (() => Promise<void>) | null = null;
+  private autoCloseFn: (() => Promise<any>) | null = null;
   private timezoneOverride?: string;
   private startTimeOverride?: string;
   private autoStartOverride?: boolean;
@@ -106,6 +107,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     if (this.autoCloseEnabled) {
       this.scheduleAutoCloseDaily();
     }
+    this.startHeartbeat();
     logger.info(`Scheduler started. Next run: ${this.status.nextRun} (${this.timezone} @ ${this.startTime}).`);
 
     if (persist && this.configRepo) {
@@ -128,6 +130,10 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     if (this.autoCloseTimer) {
       clearTimeout(this.autoCloseTimer);
       this.autoCloseTimer = null;
+    }
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
     }
     this.status.running = false;
     this.status.nextRun = undefined;
@@ -221,7 +227,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     this.scheduleFn = fn;
   }
 
-  setAutoCloseFunction(fn: () => Promise<void>): void {
+  setAutoCloseFunction(fn: () => Promise<any>): void {
     this.autoCloseFn = fn;
   }
 
@@ -239,7 +245,70 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       if (this.autoCloseEnabled) {
         this.scheduleAutoCloseDaily();
       }
+      this.startHeartbeat();
       logger.info(`Scheduler rescheduled. Next run: ${this.status.nextRun} (${this.timezone} @ ${this.startTime}).`);
+    }
+  }
+
+  private startHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    this.heartbeatTimer = setInterval(() => {
+      this.checkHeartbeat();
+    }, 60000);
+  }
+
+  private checkHeartbeat(): void {
+    if (!this.status.running || !this.autoCloseEnabled || !this.autoCloseFn) return;
+    if (this.isAutoCloseExecuting) return;
+
+    const now = new Date();
+    const tz = this.timezone;
+    const nowLocalDateIso = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+
+    const dow = getDayOfWeek(nowLocalDateIso);
+    if (dow === 0 || dow === 6) return; // Weekend
+
+    const lastRunToday = this.status.lastAutoClose
+      ? new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date(this.status.lastAutoClose)) === nowLocalDateIso
+      : false;
+
+    // If today's auto-close already ran successfully with closed tasks, do nothing
+    if (lastRunToday && this.status.lastAutoCloseResult === 'success') {
+      return;
+    }
+
+    const nowLocalTimeParts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).format(now).split(':').map(n => parseInt(n, 10) || 0);
+
+    const nowSeconds = nowLocalTimeParts[0] * 3600 + nowLocalTimeParts[1] * 60 + nowLocalTimeParts[2];
+    const [startH, startM] = this.autoCloseStartTime.split(':').map(n => parseInt(n, 10) || 0);
+    const startSeconds = startH * 3600 + startM * 60;
+
+    // If current time is past start of window and today's auto-close hasn't succeeded:
+    if (nowSeconds >= startSeconds) {
+      if (this.status.nextAutoClose) {
+        const nextTarget = new Date(this.status.nextAutoClose);
+        const diffMs = nextTarget.getTime() - now.getTime();
+        // If timer is scheduled to fire within the next 3 minutes, let the normal timer fire
+        if (diffMs > 0 && diffMs <= 3 * 60 * 1000) {
+          return;
+        }
+      }
+      logger.info(`Scheduler Heartbeat: auto-close window active/passed for ${nowLocalDateIso} but tasks not yet verified closed. Triggering catchup execution...`);
+      void this.runAutoCloseScheduled();
     }
   }
 
@@ -328,11 +397,12 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       }
 
       // 1b. If after the active window today (e.g. after 18:45):
-      // DO NOT DEFER TODAY'S TASKS TO TOMORROW! Execute closure for today's tasks immediately.
+      // DO NOT DEFER TODAY'S TASKS TO TOMORROW! Execute closure for today's tasks immediately or retry in 15m.
       if (nowSeconds >= endSeconds) {
-        const target = new Date(from.getTime() + 5000); // Trigger in 5s
-        const timeStr = 'Immediate (Catching up today)';
-        logger.info(`Scheduler: Today's auto-close window (${this.autoCloseStartTime}-${this.autoCloseEndTime}) has passed but tasks were not closed yet today. Triggering immediate closure for today...`);
+        const delaySeconds = this.status.lastAutoCloseResult === 'empty' ? 15 * 60 : 5;
+        const target = new Date(from.getTime() + delaySeconds * 1000);
+        const timeStr = delaySeconds > 5 ? 'Retry in 15m (Catching up today)' : 'Immediate (Catching up today)';
+        logger.info(`Scheduler: Today's auto-close window (${this.autoCloseStartTime}-${this.autoCloseEndTime}) has passed but tasks were not closed yet today. Triggering ${timeStr}...`);
         return { target, timeStr };
       }
 
@@ -344,9 +414,10 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     }
 
     // 2. If already run today OR it's a weekend:
-    // Schedule for the next weekday's window
+    // Schedule for the next weekday's window starting from tomorrow
     const timeStr = this.computeRandomizedTime(this.autoCloseStartTime, this.autoCloseEndTime);
-    const target = this.getNextRunTime(from, timeStr);
+    const tomorrowIso = addDays(nowLocalDateIso, 1);
+    const target = this.getNextRunTime(new Date(zonedTimeToUtcIso(tomorrowIso, '00:00:00', tz)), timeStr);
     return { target, timeStr };
   }
 
@@ -433,9 +504,21 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     this.isAutoCloseExecuting = true;
     logger.info(`Scheduler: running automated EOD task closure (window: ${this.autoCloseStartTime}-${this.autoCloseEndTime}, tz: ${this.timezone})...`);
     try {
-      await this.autoCloseFn();
+      const result: any = await this.autoCloseFn();
+
+      const totalFound = typeof result?.totalFound === 'number' ? result.totalFound : undefined;
+      const totalClosed = typeof result?.totalClosed === 'number' ? result.totalClosed : 0;
+      const totalAlreadyClosed = typeof result?.totalAlreadyClosed === 'number' ? result.totalAlreadyClosed : 0;
+      const totalFailed = typeof result?.totalFailed === 'number' ? result.totalFailed : 0;
+
+      if (totalFound === 0 || (totalFound !== undefined && totalClosed === 0 && totalAlreadyClosed === 0)) {
+        logger.warn('Scheduler: auto-close executed but 0 candidate tasks were found or matched for today. Will NOT mark today as completed so heartbeat/retry can catch up.');
+        this.status.lastAutoCloseResult = 'empty';
+        return;
+      }
+
       this.status.lastAutoClose = new Date().toISOString();
-      this.status.lastAutoCloseResult = 'success';
+      this.status.lastAutoCloseResult = totalFailed > 0 ? 'partial' : 'success';
       if (this.configRepo) {
         try {
           await this.configRepo.saveSettings({
@@ -445,9 +528,8 @@ export class NodeSchedulerRepository implements SchedulerRepository {
           logger.warn(`Failed to persist lastAutoClose: ${err.message}`);
         }
       }
-      logger.success('Scheduler: EOD task auto-close completed successfully.');
+      logger.success(`Scheduler: EOD task auto-close completed successfully (${totalClosed} closed, ${totalAlreadyClosed} already closed, ${totalFailed} failed).`);
     } catch (error: any) {
-      this.status.lastAutoClose = new Date().toISOString();
       this.status.lastAutoCloseResult = 'failure';
       logger.error(`Scheduler: EOD task auto-close failed: ${error?.message || error}`);
     } finally {

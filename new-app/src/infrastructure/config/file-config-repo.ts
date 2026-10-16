@@ -30,17 +30,37 @@ export class FileConfigRepository implements ConfigRepository {
       return defaultConfig;
     }
 
-    try {
-      const raw = fs.readFileSync(this.configPath, 'utf-8');
-      const parsed = JSON.parse(raw);
+    let parsed: any = null;
+    let lastError: any = null;
+    const maxRetries = 3;
 
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const raw = fs.readFileSync(this.configPath, 'utf-8');
+        parsed = JSON.parse(raw);
+        lastError = null;
+        break;
+      } catch (err: any) {
+        lastError = err;
+        if (attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      }
+    }
+
+    if (lastError) {
+      console.error(`Failed to load existing config file "${this.configPath}" after ${maxRetries} attempts:`, lastError.message);
+      throw new Error(`Configuration Error: Could not read or parse "${this.configPath}": ${lastError.message}`);
+    }
+
+    try {
       let people: PersonConfig[] = [];
       let overrides: Partial<AppConfig> = {};
 
       if (Array.isArray(parsed)) {
         people = parsed;
       } else if (parsed && typeof parsed === 'object') {
-        people = Array.isArray(parsed.people) ? parsed.people : defaultConfig.people;
+        people = Array.isArray(parsed.people) ? parsed.people : [];
         overrides = { ...parsed };
         delete overrides.people;
       }
@@ -86,8 +106,8 @@ export class FileConfigRepository implements ConfigRepository {
       if (err.message?.includes('Configuration Error')) {
         throw err;
       }
-      console.warn('Failed to load config file, using defaults:', err.message);
-      return defaultConfig;
+      console.warn('Failed to load config file:', err.message);
+      throw err;
     }
   }
 

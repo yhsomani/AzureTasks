@@ -205,7 +205,7 @@ export interface SchedulerRepository {
     autoCloseEndTime?: string;
   }): Promise<void>;
   triggerRunNow?(): Promise<{ success: boolean; message: string }>;
-  setAutoCloseFunction?(fn: () => Promise<void>): void;
+  setAutoCloseFunction?(fn: () => Promise<any>): void;
   triggerAutoCloseNow?(): Promise<{ success: boolean; message: string }>;
 }
 
@@ -222,7 +222,7 @@ export interface SchedulerStatus {
   autoCloseEndTime?: string;
   nextAutoClose?: string;
   lastAutoClose?: string;
-  lastAutoCloseResult?: 'success' | 'failure' | 'partial';
+  lastAutoCloseResult?: 'success' | 'failure' | 'partial' | 'empty';
 }
 
 /**

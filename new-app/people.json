@@ -53,6 +53,20 @@
       "pod": "105_FD Dep Mandate and DNC",
       "role": "SDM",
       "enabled": true
+    },
+    {
+      "key": "pranjal_Salunkhe",
+      "name": "Pranjal Salunkhe",
+      "assignedTo": "pranjal.salunkhe@bajajfinserv.in",
+      "pod": "106_Gold Loan Top up and Renewal and RAR",
+      "role": "Dev On-Role",
+      "enabled": true
+    },
+    {
+      "key": "mallinath_b",
+      "name": "Mallinath B",
+      "assignedTo": "mallinath.b@bajajfinserv.in",
+      "enabled": true
     }
   ],
   "schedulerEnabled": true,
@@ -61,5 +75,5 @@
   "autoClose": true,
   "autoCloseStartTime": "18:15",
   "autoCloseEndTime": "18:45",
-  "lastAutoClose": "2026-10-15T17:33:45.316Z"
+  "lastAutoClose": "2026-10-16T16:05:20.550Z"
 }

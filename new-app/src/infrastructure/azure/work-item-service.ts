@@ -399,7 +399,6 @@ export class AzureWorkItemService implements WorkItemRepository {
           FROM WorkItems
           WHERE [System.TeamProject] = '${this.escapeWiql(project)}'
             AND [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
-            AND [System.Title] CONTAINS '${this.escapeWiql(titlePrefix)}'
             AND [System.State] <> 'Removed'
           ORDER BY [System.CreatedDate] DESC, [System.Id] DESC
         `;

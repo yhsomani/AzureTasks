@@ -105,6 +105,7 @@ export async function buildApp(
     if (result.totalFailed > 0) {
       throw new Error(`${result.totalFailed} task(s) failed during auto-closure`);
     }
+    return result;
   });
 
   // Auto-start scheduler if configured and not explicitly suppressed

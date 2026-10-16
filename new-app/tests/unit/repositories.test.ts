@@ -164,6 +164,13 @@ describe('FileConfigRepository', () => {
     const reloaded = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
     expect(reloaded.people).toHaveLength(1);
   });
+
+  it('throws Configuration Error when config file exists but contains invalid JSON', async () => {
+    const cfgPath = path.join(dir, 'people.json');
+    fs.writeFileSync(cfgPath, '{ invalid json content');
+    const repo = new FileConfigRepository(cfgPath);
+    await expect(repo.load()).rejects.toThrow(/Configuration Error: Could not read or parse/);
+  });
 });
 
 describe('NodeSchedulerRepository', () => {
@@ -238,5 +245,82 @@ describe('NodeSchedulerRepository', () => {
     await new Promise(r => setTimeout(r, 50));
     expect(executed).toBe(true);
     expect(scheduler.getStatus().lastRunResult).toBe('success');
+  });
+
+  it('schedules next auto-close for tomorrow or next weekday when lastAutoClose is already today', () => {
+    const todayIso = new Date().toLocaleDateString('en-CA');
+    const scheduler = new NodeSchedulerRepository({
+      timezone: 'UTC',
+      startTime: '09:30',
+      autoClose: true,
+      autoCloseStartTime: '18:15',
+      autoCloseEndTime: '18:45',
+      lastAutoClose: todayIso,
+    });
+    const res = (scheduler as any).getNextAutoCloseTarget();
+    expect(res).not.toBeNull();
+    const targetIso = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(res.target);
+    expect(targetIso > todayIso).toBe(true);
+  });
+
+  it('does not mark lastAutoClose as success when autoCloseFn finds 0 tasks', async () => {
+    const cfgPath = path.join(dir, 'people.json');
+    fs.writeFileSync(cfgPath, JSON.stringify({ people: [], autoClose: true }));
+    const configRepo = new FileConfigRepository(cfgPath);
+
+    const scheduler = new NodeSchedulerRepository(
+      { timezone: 'UTC', startTime: '09:30', autoClose: true },
+      configRepo
+    );
+
+    scheduler.setAutoCloseFunction(async () => {
+      return {
+        targetDate: '2026-10-16',
+        totalFound: 0,
+        totalClosed: 0,
+        totalAlreadyClosed: 0,
+        totalFailed: 0,
+      };
+    });
+
+    await (scheduler as any).runAutoCloseScheduled();
+    const reloaded = await configRepo.load();
+    expect(reloaded.lastAutoClose).toBeUndefined();
+    expect(scheduler.getStatus().lastAutoCloseResult).toBe('empty');
+  });
+
+  it('persists lastAutoClose as success when autoCloseFn closes or finds tasks', async () => {
+    const cfgPath = path.join(dir, 'people.json');
+    fs.writeFileSync(cfgPath, JSON.stringify({ people: [], autoClose: true }));
+    const configRepo = new FileConfigRepository(cfgPath);
+
+    const scheduler = new NodeSchedulerRepository(
+      { timezone: 'UTC', startTime: '09:30', autoClose: true },
+      configRepo
+    );
+
+    scheduler.setAutoCloseFunction(async () => {
+      return {
+        targetDate: '2026-10-16',
+        totalFound: 4,
+        totalClosed: 4,
+        totalAlreadyClosed: 0,
+        totalFailed: 0,
+      };
+    });
+
+    await (scheduler as any).runAutoCloseScheduled();
+    const reloaded = await configRepo.load();
+    expect(reloaded.lastAutoClose).toBeDefined();
+    expect(scheduler.getStatus().lastAutoCloseResult).toBe('success');
+  });
+
+  it('starts and stops the heartbeat timer with the scheduler', async () => {
+    const scheduler = new NodeSchedulerRepository({ timezone: 'UTC', startTime: '09:30', autoClose: true });
+    expect((scheduler as any).heartbeatTimer).toBeNull();
+    await scheduler.start(false);
+    expect((scheduler as any).heartbeatTimer).not.toBeNull();
+    await scheduler.stop(false);
+    expect((scheduler as any).heartbeatTimer).toBeNull();
   });
 });
