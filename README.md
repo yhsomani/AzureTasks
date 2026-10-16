@@ -33,6 +33,7 @@ CI runs these checks for the supported application.
 
 - [Setup, commands, deployment, and security](new-app/README.md)
 - [Current product requirements](new-app/PRD.md)
+- [UI redesign audit and user journeys](new-app/docs/UX_REDESIGN.md)
 - [Feature inventory and navigation](new-app/docs/FEATURE_INVENTORY.md)
 - [Architecture](new-app/docs/ARCHITECTURE.md)
 - [Workflows](new-app/docs/WORKFLOWS.md)
