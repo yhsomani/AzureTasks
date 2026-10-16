@@ -76,3 +76,12 @@ Light and dark themes are swapped via `[data-theme]`; the choice persists in
 | Scheduler | Toggle + status | `/scheduler`, `/scheduler/toggle` |
 | Logs | Live structured output | `/logs/recent`, `/logs/stream` |
 | Settings | Connection + PAT | `/config/settings`, `/config/pat` |
+
+
+## Journey-first UI shell (October 2026)
+
+The maintained navigation groups are **Overview**, **Explore work**, **Create & automate**, **Manage**, and **Monitor**. Active navigation must expose `aria-current="page"` and the current breadcrumb; use `switchView(view)` for internal navigation instead of directly manipulating classes. Buttons that jump between destinations use `data-view-link`.
+
+The mobile sidebar exposes `aria-expanded`, a dismissible backdrop, Escape dismissal, and page-heading focus on navigation. `.nav-group`, `.journey-guide`, `.workflow-note`, and `.matrix-cell-action` are the shared styles. Dialogs trap Tab/Shift+Tab focus; the initiator regains focus on close. Mutation entry points must not skip a scoped preview.
+
+See [UX redesign audit and acceptance matrix](UX_REDESIGN.md) for the complete navigation map, severity ranking, and verification limits.
