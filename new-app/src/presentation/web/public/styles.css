@@ -591,3 +591,26 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 }
 .matrix-cell-action:hover { background: var(--accent-soft); border-color: var(--accent); }
 .matrix-cell-action:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+
+/* Selection controls are native buttons, while retaining the chip visual language. */
+.person-chip,
+.user-pill {
+  font-family: inherit;
+  line-height: 1.45;
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+.person-chip:hover,
+.user-pill:hover {
+  border-color: var(--accent);
+}
+.person-chip[aria-pressed="true"],
+.user-pill[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.person-chip:focus-visible,
+.user-pill:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
