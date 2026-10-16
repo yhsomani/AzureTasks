@@ -49,7 +49,8 @@ describe('Explorer selection and data integrity', () => {
   it('never claims all tasks are up to date when the API returned no member rows', () => {
     const { nodes, context } = contextWithNodes();
     runInNewContext('generateInsights({matrix:[]})', context);
-    expect(nodes['#insightsContainer'].innerHTML).toMatch(/No task data/);
-    expect(nodes['#insightsContainer'].innerHTML).not.toMatch(/completely up to date/);
+    const text = nodes['#insightsContainer'].textContent || nodes['#insightsContainer'].innerHTML;
+    expect(text).toMatch(/No task data/);
+    expect(text).not.toMatch(/completely up to date/);
   });
 });
