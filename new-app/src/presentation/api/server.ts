@@ -62,11 +62,16 @@ export class AppServer {
     });
 
     const allowedOrigin = process.env.CORS_ORIGIN?.trim();
-    this.app.use(cors(allowedOrigin ? { origin: allowedOrigin } : undefined));
+    // The SPA is same-origin by default; do not advertise wildcard cross-origin
+    // access to the task-mutation API unless an explicit trusted origin is set.
+    if (allowedOrigin) this.app.use(cors({ origin: allowedOrigin }));
 
-    // Auth (optional): set API_AUTH_TOKEN to require a login. CORS runs first so
-    // preflight OPTIONS is answered before the credential check.
+    // Production endpoints can mutate remote Azure DevOps items and therefore
+    // must never boot without an access-control boundary.
     const token = process.env.API_AUTH_TOKEN?.trim();
+    if (process.env.NODE_ENV === 'production' && !token) {
+      throw new Error('API_AUTH_TOKEN must be configured in production.');
+    }
     if (token) {
       const user = process.env.API_AUTH_USER?.trim() || 'admin';
       logger.registerSecret(token);
