@@ -115,7 +115,7 @@ export class ConfigUseCases {
     if (input.autoCloseStartTime !== undefined) this.config.autoCloseStartTime = input.autoCloseStartTime;
     if (input.autoCloseEndTime !== undefined) this.config.autoCloseEndTime = input.autoCloseEndTime;
 
-    return { message: 'Settings saved successfully.', config: this.config };
+    return { message: 'Settings saved successfully.', config: await this.getConfig() };
   }
 
   async savePat(input: SavePatInput): Promise<{ message: string; patMasked: string }> {
