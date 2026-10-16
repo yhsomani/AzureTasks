@@ -570,3 +570,24 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .card-head .row { flex-wrap: wrap; }
   .table-wrap, .matrix-container { max-width: 100%; overflow-x: auto; }
 }
+
+/* Accessible actions inside dense task-coverage tables */
+.matrix-cell-action {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 3px 5px;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: inherit;
+  font: inherit;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.matrix-cell-action:hover { background: var(--accent-soft); border-color: var(--accent); }
+.matrix-cell-action:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
