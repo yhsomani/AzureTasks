@@ -146,3 +146,16 @@ The next regression-focused iteration addressed three additional root causes:
 [Browser + full-suite CI, run #38944094953](https://github.com/yhsomani/AzureTasks/actions/runs/38944094953) passed the full suite, TypeScript typecheck, lint, JavaScript syntax, build, server authentication smoke and headless Chromium tests. The browser scenarios cover all ten routes, mobile navigation with backdrop, Planner keyboard selection, no-member mutation guards, confirmation cancellation, Explorer select/deselect behavior and EOD dry-run entry. Screenshots are uploaded as a short-lived `ui-browser-screenshots` workflow artifact and use explicit synthetic fixtures.
 
 **Remaining verification:** production tenant task creation/closure, real-role permission flows, keyboard operation across every form and table, screen-reader audit, visual design review with screenshots on multiple real devices, and performance under slow Azure DevOps responses. Automated fixture tests are **not** proof of live integrations.
+
+## Additional UX correctness fixes: task dates and partial execution feedback
+
+A further test-first inspection found two misleading user journeys in the existing SPA:
+
+- **Ad-hoc task date defaults were based on UTC.** After midnight in `Asia/Kolkata`, the UTC date can still be the prior business day; defaulting a new task to that date is unsafe. The UI now derives its default date from `Intl.DateTimeFormat(..., { timeZone: cfg.timezone })` using `formatToParts`. The Planner simulation fallback also uses the configured business day rather than raw UTC.
+- **Batch execution claimed success despite partial failures.** The confirmation flow used a positive success toast regardless of `totalTaskFailureCount` and `totalSourceFailureCount`. It now warns with the exact task/source failure counts and directs operators to the audit log when the API returns partial failures. A fully successful response retains the positive confirmation.
+
+### Test coverage and outstanding gates
+
+`tests/integration/ui-timezone-feedback.test.ts` includes a fixed UTC instant that falls on the following day in Asia/Kolkata, an ad-hoc date default contract, a VM-executed partial-failure toast assertion, and the fully-successful control case. GitHub Actions exercises these alongside the existing browser navigation and safe creation tests.
+
+**Not verified here:** live Azure DevOps creation, business-specific holiday/calendar rules, visual review with real data, and externally stored credential rotation. Avoid assuming success based solely on a green headless-browser fixture test.
