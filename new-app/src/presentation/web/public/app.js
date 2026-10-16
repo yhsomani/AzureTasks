@@ -1994,6 +1994,17 @@ async function runSchedulerNow() {
 }
 
 async function triggerEodClosure(dryRun = false) {
+  if (!dryRun) {
+    if (!state.eodPreviewReadyAt || Date.now() - state.eodPreviewReadyAt > 120000) {
+      toast('Preview EOD closure before executing. The preview must be less than two minutes old.', 'warn');
+      triggerEodClosure(true);
+      return;
+    }
+    if (!window.confirm('Close the work items shown in the EOD preview? This updates Azure DevOps immediately.')) return;
+    state.eodPreviewReadyAt = 0;
+  } else {
+    state.eodPreviewReadyAt = 0;
+  }
   const modal = $('#eodModal');
   const summaryEl = $('#eodModalSummary');
   const tbody = $('#eodModalTable tbody');
@@ -2001,7 +2012,7 @@ async function triggerEodClosure(dryRun = false) {
   const title = $('#eodModalTitle');
 
   if (title) title.textContent = dryRun ? 'End-of-Day Task Closure Preview (Dry Run)' : 'Closing Today Tasks...';
-  if (executeBtn) executeBtn.style.display = dryRun ? 'inline-block' : 'none';
+  if (executeBtn) executeBtn.style.display = 'none';
 
   showModal('#eodModal', '#btnCloseEodModal');
   if (summaryEl) summaryEl.innerHTML = '<span class="muted">Loading candidate tasks and fetching GitHub PR deliverables...</span>';
@@ -2062,6 +2073,7 @@ async function triggerEodClosure(dryRun = false) {
       }
     }
 
+    if (dryRun && res.totalClosed > 0) state.eodPreviewReadyAt = Date.now();
     if (executeBtn) {
       if (dryRun && res.totalClosed > 0) {
         executeBtn.style.display = 'inline-block';
@@ -2083,6 +2095,8 @@ async function triggerEodClosure(dryRun = false) {
     }
     refreshDashboard();
   } catch (err) {
+    state.eodPreviewReadyAt = 0;
+    if (executeBtn) executeBtn.style.display = 'none';
     toast(`EOD closure failed: ${err.message}`, 'err');
     if (summaryEl) summaryEl.innerHTML = `<span style="color:var(--danger);">Error: ${escapeHtml(err.message)}</span>`;
   }
@@ -2274,6 +2288,7 @@ async function submitAdHocTask() {
       bypassDuplicateCheck: Boolean($('#adHocBypassDuplicate')?.checked),
     };
 
+    if (payload.bypassDuplicateCheck && !window.confirm('Bypass duplicate detection for this one-off task? This may create an additional work item on the same date.')) return;
     toast('Creating task in Azure DevOps...');
     const res = await api.post('/tasks/adhoc', payload);
     const created = res.task;
