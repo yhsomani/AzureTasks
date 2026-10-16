@@ -7,64 +7,28 @@ on:
     branches: [ main, master ]
 
 jobs:
-  validate-new-app:
-    name: Validate new-app (Hexagonal / Production)
+  validate-app:
+    name: Validate 3in1 Task Studio
     runs-on: ubuntu-latest
-
     defaults:
       run:
         working-directory: new-app
-
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: new-app/package-lock.json
-
-      - name: Install Dependencies
+      - name: Install
         run: npm ci
-
-      - name: Typecheck TypeScript
+      - name: Typecheck
         run: npm run typecheck
-
-      - name: Run Linter
+      - name: Lint
         run: npm run lint
-
-      - name: Run Tests with Coverage
+      - name: Test
         run: npm run test:coverage
-
-      - name: Verify Build
+      - name: Build
         run: npm run build
-
-  validate-legacy:
-    name: Validate Legacy (Reference Baseline)
-    runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: Legacy
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'npm'
-          cache-dependency-path: Legacy/package-lock.json
-
-      - name: Install Dependencies
-        run: npm ci
-
-      - name: Typecheck TypeScript
-        run: npm run typecheck
-
-      - name: Run Tests
-        run: npm test

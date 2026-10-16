@@ -1,3 +1,5 @@
+> **Historical test record:** The counts and output below were captured on an earlier revision. They have not been rerun for the new-app-only consolidation. Run `npm ci && npm run typecheck && npm run lint && npm run test:coverage && npm run build` and consult the current CI run before treating this commit as verified.
+
 # Test results
 
 **Command:** `npm test` (`vitest run`)

@@ -9,7 +9,7 @@ DevOps 3in1 task automation.
 |---|---|---|
 | Build | ✅ | `npm run build` → `dist/` clean |
 | Type safety | ✅ | `npx tsc --noEmit` clean (strict) |
-| Tests | ✅ | 116 passing; domain ~100% covered |
+| Tests | Reverify | Historical passing counts are not a substitute for CI on this revision |
 | Business-rule correctness | ✅ | Pure, tested; 8 regression tests for real bugs |
 | Error isolation | ✅ | Per-item failures don't abort a run |
 | Concurrency safety | ✅ | File lock + stale reclamation |
@@ -21,22 +21,21 @@ DevOps 3in1 task automation.
 | Accessibility | ⚠️ | Good basics; no automated a11y audit yet |
 | Multi-host scheduler | ⚠️ | Per-host lock only |
 
-## Quality gates — all met
+## Quality gates — required for each release
 
-- [x] `npm run typecheck` passes
-- [x] `npm test` all green
-- [x] `npm run build` succeeds and copies the UI
-- [x] Server boots, serves UI + API (smoke-tested)
-- [x] No secrets in logs (scrubbing verified by code + smoke test)
-- [x] TLS verification enabled
-- [x] Legacy untouched and independently runnable
+- [ ] `npm run typecheck` passes on the release commit
+- [ ] `npm test` all green on the release commit
+- [ ] `npm run build` succeeds and copies the UI on the release commit
+- [ ] Server boots and serves UI + API in the target environment
+- [ ] Verify secrets do not appear in logs
+- [ ] Verify TLS certificate validation is enabled
+- [ ] Verify only the maintained application is included in release artifacts
 
 ## Go / no-go
 
-**GO** for internal, single-host deployment, provided:
+**Conditional GO** for internal, single-host deployment only after rerunning the documented gates and ensuring:
 
-1. The service is bound to a trusted network **or** placed behind an
-   authenticating reverse proxy (no built-in auth).
+1. `API_AUTH_TOKEN` is configured and HTTPS is used, or access is protected by an authenticating reverse proxy.
 2. Only one scheduler instance runs (or a shared lock is introduced).
 3. For corporate TLS inspection, the corporate root CA is installed rather than
    disabling verification.

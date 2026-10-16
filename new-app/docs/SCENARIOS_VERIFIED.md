@@ -1,3 +1,5 @@
+> **Historical verification matrix:** This document records tests reported on an earlier revision. Browser checks and live Azure DevOps calls have not been repeated in this repository consolidation. Do not interpret any older screenshots, scenario outcomes, or passing counts as current proof.
+
 # Comprehensive Verification Matrix — All Case Scenarios Tested
 
 ## Test Environment

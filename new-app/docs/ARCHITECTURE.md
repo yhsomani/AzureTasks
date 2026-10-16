@@ -39,24 +39,24 @@ root (`container.ts`) is the only place that knows concrete adapters.
 | infrastructure | `azure/client.ts`, `azure/work-item-service.ts`, `config/file-config-repo.ts`, `journal/file-journal-repo.ts`, `lock/file-lock-repo.ts`, `scheduler/node-scheduler-repo.ts`, `logging/logger.ts` |
 | presentation | `api/routes.ts`, `api/server.ts`, `web/public/{index.html,styles.css,app.js}` |
 
-### Why this fixes the legacy problems
+### Current architecture rationale
 
-| Legacy issue | Resolution |
+| Design concern | Current solution |
 |---|---|
-| `TaskOrchestrator` 400+ lines doing planning + execution + reporting | Split into pure domain services + a thin `CreateTasksUseCase` |
-| Direct Azure calls everywhere | `WorkItemRepository` port; fakes in tests, Azure in prod |
-| Dual request handling in the API router | Single Express `Router`; no raw `handleRequest` |
-| Unclear config precedence | Documented and enforced in `FileConfigRepository.load()` |
-| Monolithic ~40 KB UI | Small module SPA, design-system CSS, no build step |
-| No log rotation | `FileJournalRepository` rotates at 10 MB, keeps 10 archives |
-| TLS verification disabled | Never disabled; corporate CAs instead |
-| Timezone ignored in scheduling | Scheduler computes next 09:30 **in the configured IANA zone** |
+| Separate task planning from side effects | Pure domain services and a thin `CreateTasksUseCase` |
+| Isolate external Azure calls | `WorkItemRepository` port with test doubles |
+| Centralize HTTP request handling | Express Router in the presentation layer |
+| Make configuration deterministic | `FileConfigRepository.load()` with documented precedence |
+| Keep UI lightweight | Dependency-free SPA and shared design-system stylesheet |
+| Limit journal growth | Rotation at 10 MB with a bounded archive count |
+| Preserve transport security | Standard TLS verification and trusted CA roots |
+| Respect local working hours | Scheduler uses the configured IANA timezone |
 
 ## 2. Key domain decisions
 
 - **Pure functions for verified behavior.** Date planning, duplicate detection,
   title parsing, field-copy exclusion and relation filtering are pure and unit
-  tested against the legacy rules.
+  tested against the application's documented domain rules.
 - **UTC-safe date math.** All ISO date helpers parse with `T00:00:00Z` and use
   `getUTC*`/`setUTC*`. Mixing local parsing with `toISOString()` was a real bug
   (off-by-one in IST) and is guarded by tests.
@@ -111,8 +111,8 @@ AZURE_DEVOPS_PAT=... PORT=8080 node dist/index.js serve
 AZURE_DEVOPS_PAT=... node dist/index.js daemon
 ```
 
-Run as a systemd/launchd service. Put `serve` behind an authenticating reverse
-proxy (the API is unauthenticated by design and can create work items). Back up
+Run as a systemd/launchd service. Set `API_AUTH_TOKEN` and use HTTPS or put `serve` behind an authenticating reverse
+proxy. Endpoints can mutate Azure DevOps work items; do not expose them publicly without protection. Back up
 `people.json`, `.env`, `.task-journal.json`.
 
 ### Rollback

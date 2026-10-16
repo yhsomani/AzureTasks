@@ -9,10 +9,7 @@ log. Ships as a CLI + web dashboard + weekday scheduler.
   dependencies: `express`, `cors`, `dotenv`.
 - **Architecture:** hexagonal (ports & adapters) — pure domain, application use
   cases, infrastructure adapters, presentation.
-- **Tests:** 167 passing (17 files) — unit + integration with in-memory fakes.
-
-> Legacy implementation is preserved untouched in [`../Legacy`](../Legacy).
-> See [`docs/LEGACY_RECOVERY.md`](docs/LEGACY_RECOVERY.md).
+- **Verification:** Run the unit/integration suites and CI checks locally; historical passing counts are documented separately.
 
 ---
 
@@ -37,6 +34,12 @@ npm run dev                 # web dashboard on http://localhost:3000
 
 The server reads `AZURE_DEVOPS_PAT` and `GITHUB_TOKEN` from the environment. Required PAT scope:
 **Work Items: Read & Write**.
+
+## Documentation and navigation
+
+See [Feature inventory and user journey](docs/FEATURE_INVENTORY.md), [Architecture](docs/ARCHITECTURE.md), [Workflows](docs/WORKFLOWS.md), [Design system](docs/DESIGN_SYSTEM.md), and [Production readiness](docs/PRODUCTION_READINESS.md).
+
+This directory is the **only supported application** in the repository. No other application subtree is needed to build, test, or run it.
 
 ## Commands
 
@@ -144,9 +147,7 @@ stateless except `people.json`, `.env`, `.task-journal.json`.
 
 - The PAT is read from the environment and scrubbed from all logs.
 - The UI writes a new PAT to `.env` with `chmod 0600` (best effort).
-- The client does **not** disable TLS verification. (The legacy app set
-  `NODE_TLS_REJECT_UNAUTHORIZED=0`; that was deliberately dropped. For corporate
-  interception, install the corporate root CA instead.)
+- TLS certificate verification must stay enabled. Use a trusted corporate root CA where required; do not use TLS-bypass startup flags.
 - **HTTP Basic auth** protects the web UI and API when `API_AUTH_TOKEN` is set
   (the browser prompts once and reuses the session credentials; the PAT is never
   involved). Without TLS the credentials are only base64-encoded, so run behind
