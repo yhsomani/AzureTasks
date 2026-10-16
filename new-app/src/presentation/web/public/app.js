@@ -1935,6 +1935,11 @@ async function refreshScheduler() {
 }
 
 async function toggleScheduler(enable) {
+  if (enable && !window.confirm('Enable unattended task creation for the configured members and schedule? Review the selected team and time first.')) {
+    const toggle = $('#schedToggle');
+    if (toggle) toggle.checked = false;
+    return;
+  }
   try {
     const s = await api.post('/scheduler/toggle', { enable, persist: true });
     toast(s.running ? 'Scheduler started (persisted)' : 'Scheduler stopped (persisted)');
@@ -2278,7 +2283,7 @@ async function submitAdHocTask() {
 
     // Trigger UI updates
     refreshDashboard();
-    if (state.currentView === 'planner') refreshPlanner();
+    if (state.currentView === 'planner') runPlanPreview();
     if (state.currentView === 'explorer') refreshExplorer();
     if (state.currentView === 'journal') refreshJournal();
     if (state.currentView === 'mywork') refreshMyWork();
@@ -2508,9 +2513,10 @@ function wire() {
   $('#explorerListSearch')?.addEventListener('input', () => {
     renderExplorerList(state.explorerData?.detailedTasks || []);
   });
-  $('#explorerCreateMissingBtn')?.addEventListener('click', async () => {
+  $('#explorerCreateMissingBtn')?.addEventListener('click', () => {
     switchView('planner');
-    runPlanPreview().then(() => openConfirmationModal());
+    toast('Review the selected team and date window before confirming creation.');
+    $('#viewTitle')?.focus({ preventScroll: true });
   });
 
   // Dismiss modal on backdrop click
@@ -2587,6 +2593,7 @@ function wire() {
   $('#testGhBtn')?.addEventListener('click', testGhResolution);
 
   async function repairRelationships(btn) {
+    if (!window.confirm('Repair incomplete task relationships in Azure DevOps? This may update existing work-item links.')) return;
     toast('Repairing incomplete relationships...');
     if (btn) { btn.disabled = true; btn.textContent = 'Repairing...'; }
     try {
