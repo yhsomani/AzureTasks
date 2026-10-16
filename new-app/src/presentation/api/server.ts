@@ -85,6 +85,10 @@ export class AppServer {
 
     // API
     this.app.use('/api', createApiRouter(this.deps));
+    // An unknown API route must never be answered with the SPA HTML shell.
+    this.app.use('/api', (_req, res) => {
+      res.status(404).json({ success: false, error: 'API route not found.' });
+    });
 
     // Static UI: in development, prioritize src directory so edits take effect immediately
     const publicDir = path.resolve(process.cwd(), 'src/presentation/web/public');
