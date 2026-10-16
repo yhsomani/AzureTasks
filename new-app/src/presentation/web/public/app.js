@@ -955,9 +955,16 @@ function renderExplorerMatrix(data) {
   const tbody = el('tbody');
   matrix.forEach(row => {
     const tr = el('tr');
-    tr.append(el('td', { class: 'sticky-col', style: 'cursor:pointer;', onclick: () => openUserInspectModal(row) }, [
-      el('div', { style: 'font-weight:600; color:var(--accent);' }, `${row.person.name} ↗`),
-      el('div', { class: 'muted small' }, `${row.stats.createdCount}/${row.stats.totalWorkingDays} (${row.stats.coveragePercent}%)`),
+    tr.append(el('td', { class: 'sticky-col' }, [
+      el('button', {
+        class: 'matrix-cell-action',
+        type: 'button',
+        title: `Inspect tasks assigned to ${row.person.name}`,
+        onclick: () => openUserInspectModal(row),
+      }, [
+        el('span', { style: 'font-weight:600; color:var(--accent);' }, `${row.person.name} ↗`),
+        el('span', { class: 'muted small' }, `${row.stats.createdCount}/${row.stats.totalWorkingDays} (${row.stats.coveragePercent}%)`),
+      ]),
     ]));
 
     dates.forEach(d => {
@@ -967,19 +974,21 @@ function renderExplorerMatrix(data) {
       } else if (cell.status === 'CREATED' || cell.status === 'DUPLICATE') {
         const cls = cell.status === 'DUPLICATE' ? 'cell-duplicate' : 'cell-created';
         const txt = cell.tasks.length > 1 ? `x${cell.tasks.length}` : '✓';
-        const td = el('td', {
-          class: `cell-status ${cls}`,
-          title: `Task #${cell.primaryTask?.id || ''}: ${cell.primaryTask?.title || ''}`,
+        const inspect = el('button', {
+          type: 'button',
+          class: 'matrix-cell-action',
+          title: `Inspect task #${cell.primaryTask?.id || ''} for ${row.person.name}`,
           onclick: () => openDateInspectModal(cell, row.person),
         }, txt);
-        tr.append(td);
+        tr.append(el('td', { class: `cell-status ${cls}` }, inspect));
       } else if (cell.status === 'MISSING') {
-        const td = el('td', {
-          class: 'cell-status cell-missing',
-          title: 'Missing task — eligible for creation',
+        const inspect = el('button', {
+          type: 'button',
+          class: 'matrix-cell-action',
+          title: `Inspect missing task for ${row.person.name}`,
           onclick: () => openDateInspectModal(cell, row.person),
-        }, '—');
-        tr.append(td);
+        }, 'Inspect');
+        tr.append(el('td', { class: 'cell-status cell-missing' }, inspect));
       } else {
         tr.append(el('td', { class: 'cell-status', style: 'opacity:0.3;' }, '·'));
       }
@@ -1964,8 +1973,9 @@ async function saveEodSchedulerConfig() {
 }
 
 async function runSchedulerNow() {
+  if (!window.confirm('Run the scheduled task creation now for the configured team? This may create Azure DevOps work items.')) return;
   try {
-    toast('Triggering immediate scheduler execution...');
+    toast('Starting scheduler execution…');
     const res = await api.post('/scheduler/run-now');
     if (res.success) {
       toast(res.message || 'Scheduler executed', 'ok');
@@ -2345,8 +2355,11 @@ function wire() {
 
   $('#navBackdrop')?.addEventListener('click', () => closeMobileNav(true));
   // Navigation tabs
-  $$('.nav-item').forEach(b => {
-    b.addEventListener('click', () => switchView(b.dataset.view));
+  $('.nav-item').forEach(b => {
+    b.addEventListener('click', () => {
+      switchView(b.dataset.view);
+      $('#viewTitle')?.focus({ preventScroll: true });
+    });
   });
 
   // Topbar triggers
@@ -2561,7 +2574,7 @@ function wire() {
   $('#schedRunNowBtn')?.addEventListener('click', runSchedulerNow);
   $('#eodSaveConfigBtn')?.addEventListener('click', saveEodSchedulerConfig);
   $('#eodPreviewBtn')?.addEventListener('click', () => triggerEodClosure(true));
-  $('#eodRunNowBtn')?.addEventListener('click', () => triggerEodClosure(false));
+  $('#eodRunNowBtn')?.addEventListener('click', () => triggerEodClosure(true));
   $('#btnCloseEodModal')?.addEventListener('click', () => hideModal('#eodModal'));
   $('#btnCloseEodModalBtn')?.addEventListener('click', () => hideModal('#eodModal'));
   $('#btnExecuteEodConfirmed')?.addEventListener('click', () => triggerEodClosure(false));
