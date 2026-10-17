@@ -326,13 +326,38 @@ describe('API routes', () => {
     const res = await json('/api/tasks/close-today', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dryRun: false, asOf: '2026-10-15' }),
+      body: JSON.stringify({ dryRun: false, all: true, asOf: '2026-10-15' }),
     });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.success).toBe(true);
     expect(deps.closeDailyTasks?.execute).toHaveBeenCalledWith(
       expect.objectContaining({ dryRun: false, asOf: '2026-10-15' })
+    );
+  });
+
+  it('rejects EOD remote writes without an explicit member or all=true scope', async () => {
+    const close = deps.closeDailyTasks?.execute as any;
+    close.mockClear();
+    const res = await json('/api/tasks/close-today', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dryRun: false }),
+    });
+    expect(res.status).toBe(500);
+    expect((await res.json()).success).toBe(false);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it('permits a read-only all-member EOD preview without a mutation scope', async () => {
+    const res = await json('/api/tasks/close-today', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dryRun: true }),
+    });
+    expect(res.status).toBe(200);
+    expect(deps.closeDailyTasks?.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ dryRun: true })
     );
   });
 
