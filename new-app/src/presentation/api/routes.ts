@@ -205,12 +205,16 @@ export function createApiRouter(deps: ApiDependencies): Router {
       if (!deps.closeDailyTasks) {
         return res.status(501).json({ success: false, error: 'EOD task closure is not configured' });
       }
-      const { personKeys, asOf, dryRun } = req.body || {};
-      logger.info(`EOD task closure requested (dryRun=${Boolean(dryRun)}, asOf=${asOf || 'today'})...`);
+      const { asOf } = req.body || {};
+      const dryRun = req.body?.dryRun === true;
+      // Closing tasks is a remote write. A missing or empty member scope must
+      // never silently close all employees' work items.
+      const scope = resolvePersonScope(req.body, dryRun);
+      logger.info(`EOD task closure requested (dryRun=${dryRun}, asOf=${asOf || 'today'})...`);
       const result = await deps.closeDailyTasks.execute({
-        personKeys,
+        personKeys: scope.personKeys,
         asOf,
-        dryRun: Boolean(dryRun),
+        dryRun,
         bypassRules: true,
       });
       res.json({ success: true, data: result });
