@@ -35,6 +35,26 @@ describe('ExploreTasksUseCase', () => {
     expect(month.endDate).toBe('2026-10-31');
   });
 
+  it('never widens an unknown member selection to every employee', async () => {
+    const repo = { findCandidateTasks: vi.fn() } as unknown as WorkItemRepository;
+    const explorer = new ExploreTasksUseCase(repo, mockConfig);
+    await expect(explorer.execute({
+      asOf: '2026-10-12',
+      personKeys: ['removed-member'],
+    })).rejects.toThrow(/unknown or disabled members/);
+    expect(repo.findCandidateTasks).not.toHaveBeenCalled();
+  });
+
+  it('rejects explicit empty member selections', async () => {
+    const repo = { findCandidateTasks: vi.fn() } as unknown as WorkItemRepository;
+    const explorer = new ExploreTasksUseCase(repo, mockConfig);
+    await expect(explorer.execute({
+      asOf: '2026-10-12',
+      personKeys: [],
+    })).rejects.toThrow(/Select at least one/);
+    expect(repo.findCandidateTasks).not.toHaveBeenCalled();
+  });
+
   it('executes task exploration, builds matrix and computes stats', async () => {
     const mockRepo: WorkItemRepository = {
       validateProject: vi.fn(),
