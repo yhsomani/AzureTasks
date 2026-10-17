@@ -91,25 +91,37 @@ export class AzureDevOpsClient {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), options.timeout ?? 30000);
 
-        const response = await fetch(url, {
-          method: options.method || 'GET',
-          headers,
-          body: options.body ? JSON.stringify(options.body) : undefined,
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
+        let response: Response;
+        try {
+          response = await fetch(url, {
+            method: options.method || 'GET',
+            headers,
+            body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+            signal: controller.signal,
+          });
+        } finally {
+          // A rejected fetch used to leave its abort timer running until expiry.
+          clearTimeout(timeoutId);
+        }
 
         // Handle rate limiting
         if (response.status === 429) {
+          if (attempt >= this.maxRetries) {
+            throw new AzureClientError('Azure DevOps rate limit exceeded (HTTP 429); retry later.', false);
+          }
           const retryAfter = response.headers.get('Retry-After');
-          const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : this.calculateBackoff(attempt);
+          const seconds = retryAfter ? Number(retryAfter) : NaN;
+          const delay = Number.isFinite(seconds) && seconds >= 0
+            ? Math.min(seconds * 1000, 60000)
+            : this.calculateBackoff(attempt);
           await this.sleep(delay);
           continue;
         }
 
-        // Handle server errors with retry
-        if (response.status >= 500 && attempt < this.maxRetries) {
+        if (response.status >= 500) {
+          if (attempt >= this.maxRetries) {
+            throw new AzureClientError(`Azure DevOps returned HTTP ${response.status} after retries.`, false);
+          }
           await this.sleep(this.calculateBackoff(attempt));
           continue;
         }

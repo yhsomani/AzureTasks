@@ -70,9 +70,11 @@ export function formatPrTaskDescription(options: {
   const { targetIsoDate, pullRequests, role } = options;
 
   if (pullRequests.length === 0) {
-    const roleContext = role ? ` (${escapeHtml(role)})` : '';
-    const htmlDescription = `<div>\n<p><strong>Daily Deliverables &amp; Activities (${targetIsoDate}):</strong></p>\n<p>No Pull Requests were created today. Scheduled development, code review, bug fixes, and verification tasks completed as planned${roleContext}.</p>\n</div>`.trim();
-    const summaryText = 'No PRs created today. Daily engineering deliverables executed as planned.';
+    // Do not invent work completion when GitHub returned no evidence.
+    // The operator may provide a manually verified summary separately.
+    const roleContext = role ? ` (Role: ${escapeHtml(role)})` : '';
+    const htmlDescription = `<div><p><strong>GitHub evidence for ${escapeHtml(targetIsoDate)}${roleContext}:</strong></p><p>No matching Pull Requests were found. This does not establish whether other work was completed. Review the work item before closure.</p></div>`;
+    const summaryText = 'No matching GitHub PR evidence; manual work summary not verified.';
     return { htmlDescription, summaryText };
   }
 

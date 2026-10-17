@@ -75,7 +75,7 @@ describe('GitHub Service & EMU Derivation', () => {
       expect(result.summaryText).toContain('2 PR(s) created today');
     });
 
-    it('generates a guaranteed non-empty description when 0 PRs exist today', () => {
+    it('honestly reports missing PR evidence without asserting unverified work', () => {
       const result = formatPrTaskDescription({
         username: 'mukul-ramteke_bflghec',
         targetIsoDate: '2026-10-15',
@@ -86,10 +86,11 @@ describe('GitHub Service & EMU Derivation', () => {
       });
 
       expect(result.htmlDescription.trim().length).toBeGreaterThan(20);
-      expect(result.htmlDescription).toContain('Daily Deliverables &amp; Activities (2026-10-15)');
-      expect(result.htmlDescription).toContain('No Pull Requests were created today');
+      expect(result.htmlDescription).toContain('GitHub evidence for 2026-10-15');
+      expect(result.htmlDescription).toContain('No matching Pull Requests were found');
       expect(result.htmlDescription).toContain('SDM');
-      expect(result.summaryText).toContain('No PRs created today');
+      expect(result.summaryText).toContain('manual work summary not verified');
+      expect(result.htmlDescription).not.toContain('completed as planned');
     });
   });
 

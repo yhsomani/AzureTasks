@@ -261,13 +261,16 @@ export class ExploreTasksUseCase {
     }
 
     let selectedPeople = allConfiguredPeople;
-    if (input.personKeys && input.personKeys.length > 0) {
-      const keySet = new Set(input.personKeys.map(k => k.trim().toLowerCase()));
+    if (input.personKeys !== undefined) {
+      if (!Array.isArray(input.personKeys) || input.personKeys.length === 0) {
+        throw new Error('Select at least one enabled team member for Explorer.');
+      }
+      const keySet = new Set(input.personKeys.map(k => String(k).trim().toLowerCase()));
       selectedPeople = allConfiguredPeople.filter(p =>
         keySet.has(p.key.toLowerCase()) || keySet.has(p.assignedTo.toLowerCase()) || keySet.has(p.name.toLowerCase())
       );
-      if (selectedPeople.length === 0) {
-        selectedPeople = allConfiguredPeople;
+      if (selectedPeople.length === 0 || selectedPeople.length !== keySet.size) {
+        throw new Error('Explorer member selection contains unknown or disabled members. Refresh the team list.');
       }
     }
 

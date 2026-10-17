@@ -99,6 +99,22 @@ describe('AzureDevOpsClient', () => {
     expect(headers['Content-Type']).toBe('application/json-patch+json');
   });
 
+  it('returns an actionable error after the final HTTP 429 rather than a generic retry failure', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('', { status: 429, headers: { 'Retry-After': '0' } }));
+    const client = new AzureDevOpsClient({ organization: 'org', pat: 'x', maxRetries: 1, initialRetryDelayMs: 0 });
+    await expect(client.get('/x')).rejects.toThrow(/rate limit exceeded.*429/i);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports the final 5xx response after retry exhaustion', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('', { status: 503 }));
+    const client = new AzureDevOpsClient({ organization: 'org', pat: 'x', maxRetries: 0 });
+    await expect(client.get('/x')).rejects.toThrow(/HTTP 503/);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('sends application/json Content-Type on standard POST requests', async () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
