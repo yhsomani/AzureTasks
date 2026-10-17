@@ -39,12 +39,33 @@ describe('FileLockRepository', () => {
     expect(lock.acquire()).toBe(true);
   });
 
-  it('treats an old lock as stale', () => {
+  it('does not expire a long-running lock while its owner is still alive', () => {
     const lockPath = path.join(dir, '.lock.json');
     const old = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, acquiredAt: old, stale: false }));
     const lock = new FileLockRepository(lockPath);
-    expect(lock.getLockInfo()?.stale).toBe(true);
+    expect(lock.getLockInfo()?.stale).toBe(false);
+    expect(lock.acquire()).toBe(false);
+  });
+
+  it('does not let another instance release a lock it never acquired', () => {
+    const filename = path.join(dir, '.lock.json');
+    const owner = new FileLockRepository(filename);
+    const observer = new FileLockRepository(filename);
+    expect(owner.acquire()).toBe(true);
+    expect(observer.acquire()).toBe(false);
+    observer.release();
+    expect(owner.isLocked()).toBe(true);
+    owner.release();
+    expect(owner.isLocked()).toBe(false);
+  });
+
+  it('does not reclaim a malformed lock file without ownership evidence', () => {
+    const filename = path.join(dir, '.lock.json');
+    fs.writeFileSync(filename, '{not-valid-json');
+    const lock = new FileLockRepository(filename);
+    expect(lock.acquire()).toBe(false);
+    expect(fs.readFileSync(filename, 'utf8')).toBe('{not-valid-json');
   });
 });
 
