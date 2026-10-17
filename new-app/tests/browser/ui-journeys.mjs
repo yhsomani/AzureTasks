@@ -101,6 +101,15 @@ try {
     assert.equal(new URL(page.url()).hash, '#' + view, 'hash route: ' + view);
   }
 
+  await page.locator('.nav-item[data-view="journal"]').click();
+  await page.getByText('No audit records found for this workspace.').waitFor();
+  assert.match(await page.locator('#journalTable tbody').textContent(), /No audit records/);
+  await page.locator('.nav-item[data-view="scheduler"]').click();
+  assert.match(await page.locator('#schedulerSafetyNotice').textContent(), /remote Azure DevOps work items/);
+  assert.match(await page.locator('#eodSafetyNotice').textContent(), /preview first/);
+  await page.locator('.nav-item[data-view="logs"]').click();
+  assert.equal(await page.locator('#logStream').getAttribute('aria-live'), null);
+
   await page.locator('.nav-item[data-view="explorer"]').click();
   await page.locator('#explorerDeselectAllBtn').click();
   await page.locator('#explorerUserPills button.user-pill[aria-pressed="false"]').waitFor();
