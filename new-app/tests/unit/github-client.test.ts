@@ -199,7 +199,7 @@ describe('GitHubClient', () => {
       expect(deliverables.summaryText).toContain('1 PR(s) created today: #11');
     });
 
-    it('generates standard activity description when user has no PRs today', async () => {
+    it('reports missing PR evidence without claiming unverified work', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -217,8 +217,8 @@ describe('GitHubClient', () => {
       });
       expect(deliverables.isToday).toBe(false);
       expect(deliverables.pullRequests).toHaveLength(0);
-      expect(deliverables.htmlDescription).toContain('Daily Deliverables');
-      expect(deliverables.summaryText).toContain('No PRs created today');
+      expect(deliverables.htmlDescription).toContain('No matching Pull Requests were found');
+      expect(deliverables.summaryText).toContain('manual work summary not verified');
     });
   });
 });
