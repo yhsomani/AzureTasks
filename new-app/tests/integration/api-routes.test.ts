@@ -491,12 +491,14 @@ describe('API auth (HTTP Basic, opt-in via API_AUTH_TOKEN)', () => {
     const ownOrigin = new URL(authBase).origin;
     const sameOrigin = await fetch(authBase + '/api/scheduler/run-now', {
       method: 'POST',
-      headers: { ...basic('admin:sekret'), Origin: ownOrigin, 'Sec-Fetch-Site': 'same-origin' },
+      headers: { ...basic('admin:sekret'), 'Content-Type': 'application/json', Origin: ownOrigin, 'Sec-Fetch-Site': 'same-origin' },
+      body: JSON.stringify({ confirm: true, all: true }),
     });
     expect(sameOrigin.status).toBe(200);
     const cli = await fetch(authBase + '/api/scheduler/run-now', {
       method: 'POST',
-      headers: basic('admin:sekret'),
+      headers: { ...basic('admin:sekret'), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true, all: true }),
     });
     expect(cli.status).toBe(200);
     expect(authDeps.scheduler.triggerRunNow).toHaveBeenCalledTimes(2);
