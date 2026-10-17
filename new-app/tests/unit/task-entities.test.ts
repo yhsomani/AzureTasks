@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseTitleDate,
+  matchesTaskSeries,
   filterCopyableRelations,
   isRelationCopyable,
   isRelationExcluded,
@@ -35,6 +36,18 @@ describe('task: parseTitleDate', () => {
     const result = parseTitleDate('3in1_PWA_MyAccount | Foo 15', '3in1_PWA_MyAccount |');
     expect(result.isValid).toBe(false);
     expect(result.isoDate).toBe('');
+  });
+});
+
+describe('task: series isolation', () => {
+  it('matches canonical series across case and harmless spacing differences', () => {
+    expect(matchesTaskSeries('3in1_PWA_MyAccount |  17 Oct', '3in1_PWA_MyAccount |')).toBe(true);
+    expect(matchesTaskSeries('3IN1_pwa_myaccount|Oct 17', '3in1_PWA_MyAccount |')).toBe(true);
+  });
+
+  it('rejects another work series even if a date segment is valid', () => {
+    expect(matchesTaskSeries('Other_Series | 17 Oct', '3in1_PWA_MyAccount |')).toBe(false);
+    expect(matchesTaskSeries('3in1_PWA_MyAccount_Extra | 17 Oct', '3in1_PWA_MyAccount |')).toBe(false);
   });
 });
 
