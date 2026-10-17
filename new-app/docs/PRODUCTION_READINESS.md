@@ -17,7 +17,7 @@ DevOps 3in1 task automation.
 | Observability | ✅ | Structured logs + SSE + `/api/health` |
 | Security | ⚠️ | Production authentication enforced, wildcard CORS disabled by default, TLS bypass prohibited, GitHub token masked on save; plaintext `.env` and tenant policy remain residual risks |
 | Deployment docs | ✅ | README + architecture + this doc |
-| Rollback | ✅ | Stateless; previous `dist/` or commit |
+| Rollback | ⚠️ | Application persists people, settings, credentials, journal and scheduler checkpoints; staging restoration required |
 | Accessibility | ⚠️ | Good basics; no automated a11y audit yet |
 | Multi-host scheduler | ⚠️ | Per-host lock only |
 
@@ -69,10 +69,10 @@ PORT=8080 node dist/index.js serve
 node dist/index.js daemon
 ```
 
-Post-deploy verification:
+Post-deploy verification (read-only first; do NOT use the Create missing action merely for smoke testing):
 - `GET /api/health` → `healthy`
 - `GET /api/status` → `connected: true`, `projectValid: true`
-- Explorer shows coverage and `Create missing` produces a real work item
+- Explorer shows coverage from the live tenant; perform a narrowly bounded creation test only after explicit operator authorization
 - Audit log gains a row; export works
 
 ## Operational runbook
@@ -90,8 +90,7 @@ Post-deploy verification:
 1. Stop the process.
 2. `git checkout <previous-tag-or-commit> -- new-app && npm ci && npm run build`
    (or restore the previous `dist/`).
-3. Restart. No state migration is required — `people.json`, `.env`,
-   `.task-journal.json` are forward/backward compatible JSON/plain text.
+3. Restore verified backups of `people.json`, `.env` (or secrets-store references), `.task-journal.json`, archive files, and scheduler/lock state as appropriate. Validate secrets permissions and only then restart. Test the restoration procedure on staging first; compatibility is not guaranteed across every revision.
 
 ## Residual risks & recommended next steps
 
@@ -102,3 +101,10 @@ Post-deploy verification:
 | Browser tests use synthetic data, not live tenant; no full screen-reader audit | Extend browser accessibility assertions and run manual screen-reader and authorized live-tenant checks | High |
 | Per-host lock | Shared lock if multi-host scheduling | Low (only if needed) |
 | Runtime source (`src/`) shells out to real Azure on `repair` | Dry-run via `plan` first; `repair` only touches already-created tasks | Low |
+
+## Evidence boundaries (17 October 2026)
+
+- Source/CI tests do not establish live Azure tenant correctness, reverse proxy TLS/Origin protection, or credential rotation.
+- The configuration repository now avoids persisting tokens in people.json, but `.env` remains plaintext on disk. Deployments prohibiting plaintext tokens require a separately tested secret-store migration.
+- Config writes use same-directory atomic rename; do not claim crash consistency on every filesystem or concurrent multi-host safety.
+- A source-level fix does not close an acceptance gate. Record an exact release SHA, test time, CI URL, staging restore trace, and authorized tenant evidence.
