@@ -20,6 +20,14 @@ describe('team management trust and editing controls', () => {
     expect(save).not.toContain('Tasks synchronized across all views');
     expect(save).toContain('Team configuration saved');
   });
+  it('keeps Add Member as a draft until Save team is explicitly clicked', () => {
+    const a = source.indexOf('async function savePersonFromModal()');
+    const b = source.indexOf('/* ---------------------------------------------------------------- audit log */', a);
+    const add = source.slice(a, b);
+    expect(add).not.toContain("api.post('/config/people'");
+    expect(add).toContain('updateTeamDirtyState()');
+  });
+
   it('provides an explicit pending changes indicator with save feedback', () => {
     expect(html).toContain('id="teamSaveStatus"');
     expect(html).toContain('id="savePeopleBtn"');
