@@ -290,6 +290,8 @@ function switchView(view) {
   const vs = $('#viewSubtitle');
   if (vt) vt.textContent = title;
   if (vs) vs.textContent = subtitle;
+  const viewStatus = $('#viewStatus');
+  if (viewStatus) viewStatus.textContent = `${title} view opened`;
   const breadcrumb = $('#viewBreadcrumb');
   if (breadcrumb) breadcrumb.textContent = `${VIEW_GROUPS[view]} / ${title}`;
   if (location.hash !== `#${view}`) location.hash = view;
