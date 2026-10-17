@@ -360,9 +360,11 @@
             </div>
             <button class="btn primary small" id="addPersonBtn">➕ Add member</button>
           </header>
+          <p class="muted small" style="margin-bottom:14px;">Edit the roster below. Changes are only applied when you select <strong>Save team</strong>; task creation is never triggered by saving team details.</p>
           <div id="peopleList" class="people-list"></div>
-          <div class="row end">
-            <button class="btn primary" id="savePeopleBtn">Save team</button>
+          <div class="team-save-bar">
+            <p id="teamSaveStatus" role="status" aria-live="polite">Loading team configuration…</p>
+            <button class="btn primary" id="savePeopleBtn" disabled>Save team</button>
           </div>
         </article>
       </section>

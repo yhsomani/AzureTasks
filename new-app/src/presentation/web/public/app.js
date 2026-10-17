@@ -9,6 +9,8 @@ const state = {
   status: null,
   config: null,
   people: [],
+  teamDirty: false,
+  teamSaving: false,
   selectedKeys: new Set(),
   explorerData: null,
   selectedExplorerKeys: new Set(),
@@ -1659,6 +1661,16 @@ async function executeCreation() {
 }
 
 /* ------------------------------------------------------------- team members */
+function updateTeamDirtyState(dirty = true) {
+  state.teamDirty = dirty;
+  const status = $('#teamSaveStatus');
+  if (status) status.textContent = dirty
+    ? 'Unsaved team changes. Save before planning tasks with the new roster.'
+    : 'Team configuration saved. Task data is not automatically changed.';
+  const save = $('#savePeopleBtn');
+  if (save) save.disabled = !dirty || state.teamSaving;
+}
+
 function renderPeople() {
   const list = $('#peopleList');
   if (!list) return;
@@ -1691,7 +1703,7 @@ function renderPeople() {
 
     const del = el('button', {
       class: 'btn ghost small del',
-      onclick: () => { state.people.splice(idx, 1); renderPeople(); },
+      onclick: () => { state.people.splice(idx, 1); updateTeamDirtyState(); renderPeople(); },
     }, 'Remove');
     row.append(del);
     list.append(row);
@@ -1704,58 +1716,50 @@ function field(label, control) {
 
 function input(value, onChange, type = 'text') {
   const node = el('input', { type, value: value ?? '' });
-  node.addEventListener('input', () => onChange(node.value));
+  node.addEventListener('input', () => { onChange(node.value); updateTeamDirtyState(); });
   return node;
 }
 
 async function loadPeople() {
+  if (state.teamDirty) return; // Preserve edits across navigation; never discard a draft.
   const cfg = await ensureConfig(true);
+  if (state.teamDirty) return; // Ignore an in-flight load after the user began editing.
   state.people = cfg.people.map(p => ({ ...p }));
   renderPeople();
+  updateTeamDirtyState(false);
 }
 
 async function savePeople() {
+  if (state.teamSaving || !state.teamDirty) return;
+  state.teamSaving = true;
+  updateTeamDirtyState(true);
+  const button = $('#savePeopleBtn');
+  if (button) button.textContent = 'Saving…';
   try {
-    const res = await api.post('/config/people', { people: state.people });
+    await api.post('/config/people', { people: state.people });
     if (!state.config) state.config = { people: [] };
     state.config.people = state.people.map(p => ({ ...p }));
-    
-    // Invalidate caches and reset view caches
+
+    // Invalidate all derived plans without silently widening either selection.
     api.invalidateCache();
     state.explorerData = null;
     state.pendingPlan = null;
+    state.pendingPlanSignature = null;
     state.burndownData = null;
     state.isDataDirty = true;
-
-    // Automatically ensure all active members are selected
-    const active = state.people.filter(p => p.enabled !== false);
-    active.forEach(p => {
-      state.selectedKeys.add(p.key);
-      state.selectedExplorerKeys.add(p.key);
-    });
-
-    toast('Team members saved. Syncing tasks everywhere...', 'ok');
-
-    // Update people count KPI
-    if ($('#kpiPeople')) $('#kpiPeople').textContent = active.length;
-
-    // Refresh views to show updated members and fetch fresh data
-    renderPlannerPeople();
-    renderExplorerUserPills(state.config);
-    refreshMyWork({ forceFresh: true });
-    runPlanPreview();
-
-    Promise.all([
-      refreshExplorer({ forceFresh: true }),
-      refreshBurndown({ forceFresh: true }),
-      refreshDashboard()
-    ]).then(() => {
-      state.isDataDirty = false;
-      toast('✅ Tasks synchronized across all views', 'ok');
-    }).catch(e => console.warn('Background sync error:', e));
-
+    const enabled = new Set(state.people.filter(p => p.enabled !== false).map(p => p.key));
+    for (const key of state.selectedKeys) if (!enabled.has(key)) state.selectedKeys.delete(key);
+    for (const key of state.selectedExplorerKeys) if (!enabled.has(key)) state.selectedExplorerKeys.delete(key);
+    if ($('#kpiPeople')) $('#kpiPeople').textContent = enabled.size;
+    updateTeamDirtyState(false);
+    toast('Team configuration saved. Review a fresh task plan before creating work items.', 'ok');
   } catch (err) {
+    updateTeamDirtyState(true);
     toast(err.message, 'err');
+  } finally {
+    state.teamSaving = false;
+    if (button) button.textContent = 'Save team';
+    updateTeamDirtyState(state.teamDirty);
   }
 }
 
@@ -1806,62 +1810,13 @@ async function savePersonFromModal() {
     enabled: true,
   };
 
-  // Optimistically append to local state and update Team UI immediately
+  // Adding a member changes the editable draft, not the remote configuration.
+  // The operator explicitly reviews and saves the entire roster using Save team.
   state.people.push(newMember);
   renderPeople();
+  updateTeamDirtyState();
   hideModal('#personModal');
-
-  toast(`Adding ${name} and syncing Azure DevOps data...`, 'ok');
-
-  try {
-    // Persist to backend
-    await api.post('/config/people', { people: state.people });
-    if (!state.config) state.config = { people: [] };
-    state.config.people = state.people.map(p => ({ ...p }));
-
-    // Invalidate caches and reset view models to guarantee fresh data across all views
-    api.invalidateCache();
-    state.explorerData = null;
-    state.pendingPlan = null;
-    state.burndownData = null;
-    state.isDataDirty = true;
-
-    // Automatically select the new member in Explorer & Planner
-    state.selectedKeys.add(key);
-    state.selectedExplorerKeys.add(key);
-
-    // Update people count KPI
-    const active = state.people.filter(p => p.enabled !== false);
-    if ($('#kpiPeople')) $('#kpiPeople').textContent = active.length;
-
-    // Update planner & explorer user pills
-    renderPlannerPeople();
-    renderExplorerUserPills(state.config);
-
-    // Update My Work dropdown and immediately fetch new member's tasks
-    refreshMyWork({ forceFresh: true, targetKey: key });
-
-    // Trigger immediate Plan Preview recalculation with new member included
-    runPlanPreview();
-
-    // Immediately fetch fresh data across all views in parallel
-    Promise.all([
-      refreshExplorer({ forceFresh: true }),
-      refreshBurndown({ forceFresh: true }),
-      refreshDashboard()
-    ]).then(() => {
-      state.isDataDirty = false;
-      toast(`✅ Tasks fetched & synchronized everywhere for ${name}`, 'ok');
-    }).catch(e => {
-      console.warn(`Sync for ${key}:`, e);
-    });
-
-  } catch (err) {
-    // Rollback on server error
-    state.people = state.people.filter(p => p.key !== key);
-    renderPeople();
-    toast(`Failed to save team member: ${err.message}`, 'err');
-  }
+  toast(`Added ${name} to the draft. Select Save team to apply changes.`, 'warn');
 }
 
 /* ---------------------------------------------------------------- audit log */

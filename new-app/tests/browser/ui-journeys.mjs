@@ -63,6 +63,10 @@ async function attachFixtures(pageInstance) {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
     if (pathname === '/api/logs/stream' || pathname === '/api/health') return route.continue();
+    if (pathname === '/api/config/people' && request.method() === 'POST') {
+      // Settings-only synthetic fixture: no external Azure DevOps writes.
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { saved: true } }) });
+    }
     if (pathname === '/api/tasks/plan') {
       const payload = JSON.parse(request.postData() || '{}');
       const scoped = (payload.personKeys || []).length > 0;
