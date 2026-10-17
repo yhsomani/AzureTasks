@@ -220,7 +220,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
       res.json({ success: true, data: result });
     } catch (err: any) {
       logger.error(`EOD task closure failed: ${err.message}`);
-      res.status(500).json({ success: false, error: err.message });
+      const invalidScope = /^(Select member keys|personKeys must|Choose personKeys)/.test(String(err.message));
+      res.status(invalidScope ? 400 : 500).json({ success: false, error: err.message });
     }
   });
 
