@@ -159,3 +159,14 @@ A further test-first inspection found two misleading user journeys in the existi
 `tests/integration/ui-timezone-feedback.test.ts` includes a fixed UTC instant that falls on the following day in Asia/Kolkata, an ad-hoc date default contract, a VM-executed partial-failure toast assertion, and the fully-successful control case. GitHub Actions exercises these alongside the existing browser navigation and safe creation tests.
 
 **Not verified here:** live Azure DevOps creation, business-specific holiday/calendar rules, visual review with real data, and externally stored credential rotation. Avoid assuming success based solely on a green headless-browser fixture test.
+
+## Settings accessibility and credential transparency — October 17, 2026
+
+- Added a connection/setup sequence and a direct link to Team configuration. It does not change existing APIs.
+- Added clear security disclosure: local server configuration is sensitive, masked fields do not imply at-rest encryption, and HTTPS / credential rotation remain deployment responsibilities.
+- Corrected an unsupported claim that the Azure DevOps PAT was “stored securely in server .env.”
+- Added a labeled Azure DevOps token control, properly described timezone/start-time fields, labeled GitHub token help, and a token visibility button that updates accessible state when shown/hidden.
+- Added responsive layout for credential controls at 600px and below.
+- Existing form identifiers and navigation routes are retained; CI integration coverage checks this contract.
+
+**Outstanding:** a managed secret store migration, actual screen reader review, and secure deployment verification. These are not satisfied by a browser fixture test.
