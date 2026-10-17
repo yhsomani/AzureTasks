@@ -414,19 +414,13 @@ async function refreshDashboard() {
   }).then(data => {
     renderOverviewCharts(data);
     generateInsights(data);
-  }).catch(() => {
-    api.get('/explorer?preset=current_month', {
-      swr: true,
-      maxAgeMs: 60000,
-      abortKey: 'dashboard-explorer',
-      onStale: (data) => {
-        renderOverviewCharts(data);
-        generateInsights(data);
-      },
-    }).then(data => {
-      renderOverviewCharts(data);
-      generateInsights(data);
-    }).catch(() => {});
+  }).catch(err => {
+    // A failed Azure read is not an empty workload or a different date range.
+    // Surface the error rather than swallowing it and leaving stale statistics.
+    if (insightsContainer) {
+      insightsContainer.textContent = `Live task coverage unavailable: ${err.message}. Check Azure DevOps connection and permissions.`;
+    }
+    state.explorerData = null;
   });
 }
 
