@@ -1809,62 +1809,13 @@ async function savePersonFromModal() {
     enabled: true,
   };
 
-  // Optimistically append to local state and update Team UI immediately
+  // Adding a member changes the editable draft, not the remote configuration.
+  // The operator explicitly reviews and saves the entire roster using Save team.
   state.people.push(newMember);
   renderPeople();
+  updateTeamDirtyState();
   hideModal('#personModal');
-
-  toast(`Adding ${name} and syncing Azure DevOps data...`, 'ok');
-
-  try {
-    // Persist to backend
-    await api.post('/config/people', { people: state.people });
-    if (!state.config) state.config = { people: [] };
-    state.config.people = state.people.map(p => ({ ...p }));
-
-    // Invalidate caches and reset view models to guarantee fresh data across all views
-    api.invalidateCache();
-    state.explorerData = null;
-    state.pendingPlan = null;
-    state.burndownData = null;
-    state.isDataDirty = true;
-
-    // Automatically select the new member in Explorer & Planner
-    state.selectedKeys.add(key);
-    state.selectedExplorerKeys.add(key);
-
-    // Update people count KPI
-    const active = state.people.filter(p => p.enabled !== false);
-    if ($('#kpiPeople')) $('#kpiPeople').textContent = active.length;
-
-    // Update planner & explorer user pills
-    renderPlannerPeople();
-    renderExplorerUserPills(state.config);
-
-    // Update My Work dropdown and immediately fetch new member's tasks
-    refreshMyWork({ forceFresh: true, targetKey: key });
-
-    // Trigger immediate Plan Preview recalculation with new member included
-    runPlanPreview();
-
-    // Immediately fetch fresh data across all views in parallel
-    Promise.all([
-      refreshExplorer({ forceFresh: true }),
-      refreshBurndown({ forceFresh: true }),
-      refreshDashboard()
-    ]).then(() => {
-      state.isDataDirty = false;
-      toast(`✅ Tasks fetched & synchronized everywhere for ${name}`, 'ok');
-    }).catch(e => {
-      console.warn(`Sync for ${key}:`, e);
-    });
-
-  } catch (err) {
-    // Rollback on server error
-    state.people = state.people.filter(p => p.key !== key);
-    renderPeople();
-    toast(`Failed to save team member: ${err.message}`, 'err');
-  }
+  toast(`Added ${name} to the draft. Select Save team to apply changes.`, 'warn');
 }
 
 /* ---------------------------------------------------------------- audit log */
