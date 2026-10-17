@@ -63,6 +63,10 @@ async function attachFixtures(pageInstance) {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
     if (pathname === '/api/logs/stream' || pathname === '/api/health') return route.continue();
+    if (pathname === '/api/config/people' && request.method() === 'POST') {
+      // Settings-only synthetic fixture: no external Azure DevOps writes.
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { saved: true } }) });
+    }
     if (pathname === '/api/tasks/plan') {
       const payload = JSON.parse(request.postData() || '{}');
       const scoped = (payload.personKeys || []).length > 0;
@@ -100,6 +104,20 @@ try {
     assert.equal(await page.locator('.nav-item[data-view="' + view + '"]').getAttribute('aria-current'), 'page', 'current page: ' + view);
     assert.equal(new URL(page.url()).hash, '#' + view, 'hash route: ' + view);
   }
+
+  await page.locator('.nav-item[data-view="people"]').click();
+  const teamField = page.locator('#peopleList .person-row input').nth(3);
+  await teamField.waitFor();
+  await teamField.fill('Developer - Edited');
+  assert.equal(await page.locator('#savePeopleBtn').isDisabled(), false);
+  assert.match(await page.locator('#teamSaveStatus').textContent(), /Unsaved team changes/);
+  await page.locator('.nav-item[data-view="dashboard"]').click();
+  await page.locator('.nav-item[data-view="people"]').click();
+  assert.equal(await page.locator('#peopleList .person-row input').nth(3).inputValue(), 'Developer - Edited');
+  await page.locator('#savePeopleBtn').click();
+  await page.getByText('Team configuration saved. Task data is not automatically changed.').waitFor();
+  assert.equal(await page.locator('#savePeopleBtn').isDisabled(), true);
+  assert.equal(mutationRequests.length, 0, 'saving roster fixture must not mutate Azure DevOps work items');
 
   await page.locator('.nav-item[data-view="explorer"]').click();
   await page.locator('#explorerDeselectAllBtn').click();
