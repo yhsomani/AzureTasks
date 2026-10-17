@@ -3,6 +3,8 @@
  * Wires infrastructure adapters to application use cases.
  */
 
+import * as path from 'node:path';
+import * as dotenv from 'dotenv';
 import { AzureDevOpsClient } from './infrastructure/azure/client.js';
 import { AzureWorkItemService } from './infrastructure/azure/work-item-service.js';
 import { FileConfigRepository } from './infrastructure/config/file-config-repo.js';
@@ -43,6 +45,13 @@ export async function buildApp(
   configFilePath?: string,
   options: { autoStartScheduler?: boolean } = {}
 ): Promise<App> {
+  // A user-supplied --config may live outside the current working directory.
+  // Load its adjacent .env before constructing clients, while preserving
+  // explicitly injected deployment environment variables.
+  if (configFilePath) {
+    const resolved = path.resolve(process.cwd(), configFilePath);
+    dotenv.config({ path: path.join(path.dirname(resolved), '.env'), override: false, quiet: true });
+  }
   const configRepo = new FileConfigRepository(configFilePath);
   const config = await configRepo.load();
 
