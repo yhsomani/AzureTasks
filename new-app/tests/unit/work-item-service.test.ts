@@ -14,7 +14,7 @@ class FakeClient {
 
   async get<T>(_url: string): Promise<T> {
     return {
-      value: this.items.map(i => ({ id: i.id, rev: 1, fields: { 'System.Title': i.title } })),
+      value: this.items.map(i => ({ id: i.id, rev: 1, fields: { 'System.Title': i.title, 'System.AssignedTo': 'a@b.com' } })),
       count: this.items.length,
     } as T;
   }
@@ -120,5 +120,63 @@ describe('AzureWorkItemService.copyRelations', () => {
     expect(result.copiedCount).toBe(1);
     expect(capturedPath).toContain('/_apis/wit/workitems/5678');
     expect(capturedOptions?.headers?.['Content-Type']).toBe('application/json-patch+json');
+  });
+});
+
+describe('AzureWorkItemService.findCandidateTasks', () => {
+  it('loads all available Azure fields without requesting tenant-specific Custom.* names', async () => {
+    const calls: string[] = [];
+    const client = {
+      async post<T>(_url: string, _body: any): Promise<T> {
+        return { workItems: [{ id: 7 }] } as T;
+      },
+      async get<T>(url: string): Promise<T> {
+        calls.push(url);
+        return { value: [{ id: 7, fields: {
+          'System.Title': '3in1_PWA_MyAccount | 17 Oct',
+          'System.AssignedTo': 'a@b.com',
+          'Custom.PlannedStartdate': '2026-10-17T09:30:00',
+        } }] } as T;
+      },
+    };
+    const svc = new AzureWorkItemService(client as any);
+    const data = await svc.findCandidateTasks('P', 'Task', '3in1_PWA_MyAccount |', '2026-10-17', '2026-10-17', ['a@b.com']);
+    expect(data[0].fields['Custom.PlannedStartdate']).toBeDefined();
+    expect(calls[0]).not.toContain('&fields=');
+  });
+
+  it('reports Azure read failures instead of silently returning an empty task list', async () => {
+    const client = {
+      async post<T>(): Promise<T> { throw new Error('HTTP 403: forbidden'); },
+    };
+    const svc = new AzureWorkItemService(client as any);
+    await expect(svc.findCandidateTasks('P', 'Task', 'series')).rejects.toThrow(
+      /Azure DevOps task discovery failed.*403/
+    );
+  });
+
+  it('rejects incomplete coverage instead of silently discarding rows after a fixed slice', async () => {
+    const client = {
+      async post<T>(): Promise<T> {
+        return { workItems: Array.from({ length: 5001 }, (_, i) => ({ id: i + 1 })) } as T;
+      },
+    };
+    const svc = new AzureWorkItemService(client as any);
+    await expect(svc.findCandidateTasks('P', 'Task', 'series')).rejects.toThrow(/Too many matching/);
+  });
+});
+
+describe('AzureWorkItemService duplicate detection with missing assignee', () => {
+  it('does not count unassigned tasks as belonging to a requested person', async () => {
+    const date = new Date().getFullYear() + '-06-10';
+    const prefix = '3in1_PWA_MyAccount |';
+    const client = {
+      async post<T>(): Promise<T> { return { workItems: [{ id: 11 }] } as T; },
+      async get<T>(): Promise<T> {
+        return { value: [{ id: 11, fields: { 'System.Title': prefix + ' ' + formatTitleDate(date) } }] } as T;
+      },
+    };
+    const svc = new AzureWorkItemService(client as any);
+    expect((await svc.getExistingTasksForPerson('P', 'Task', prefix, 'a@b.com', date, date)).size).toBe(0);
   });
 });
