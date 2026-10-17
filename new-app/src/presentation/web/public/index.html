@@ -64,6 +64,7 @@
     <button type="button" class="nav-backdrop" id="navBackdrop" tabindex="-1" aria-label="Close navigation"></button>
 
     <main class="main" id="main" tabindex="-1">
+      <p id="viewStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true">Dashboard ready</p>
       <header class="topbar">
         <button type="button" class="icon-btn menu-btn" id="menuBtn" aria-controls="sidebar" aria-expanded="false" aria-label="Open navigation">☰</button>
         <div class="page-identity">
@@ -105,11 +106,11 @@
         <div class="chart-grid">
           <article class="card">
             <header class="card-head"><h2>📈 Daily Effort Trend</h2></header>
-            <div class="chart-box"><canvas id="effortTrendChart"></canvas></div>
+            <div class="chart-box"><canvas id="effortTrendChart" role="img" aria-label="Daily effort trend">Daily effort trend chart. Consult the task explorer for detailed work-item data.</canvas></div>
           </article>
           <article class="card">
             <header class="card-head"><h2>📊 Task Status Distribution</h2></header>
-            <div class="chart-box"><canvas id="statusDistributionChart"></canvas></div>
+            <div class="chart-box"><canvas id="statusDistributionChart" role="img" aria-label="Task status distribution">Task status distribution chart. Consult the task explorer for detailed work-item data.</canvas></div>
           </article>
         </div>
 

@@ -7,6 +7,14 @@ const js = readFileSync(new URL('app.js', base), 'utf8');
 const css = readFileSync(new URL('styles.css', base), 'utf8');
 
 describe('user journey shell contracts', () => {
+  it('gives the main content focusable status announcements and descriptive chart alternatives', () => {
+    expect(html).toContain('id="viewStatus"');
+    expect(html).toContain('role="status"');
+    expect(html).toContain('aria-live="polite"');
+    expect(html).toContain('aria-label="Daily effort trend"');
+    expect(html).toContain('aria-label="Task status distribution"');
+  });
+
   it('keeps all ten existing destination routes', () => {
     for (const view of [
       'dashboard', 'mywork', 'explorer', 'burndown', 'planner',
