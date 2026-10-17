@@ -2633,6 +2633,13 @@ function wire() {
     const input = $('#setPat');
     if (!input) return;
     input.type = input.type === 'password' ? 'text' : 'password';
+    const showing = input.type === 'text';
+    const toggle = $('#togglePatEye');
+    if (toggle) {
+      toggle.textContent = showing ? 'Hide' : 'Show';
+      toggle.setAttribute('aria-label', showing ? 'Hide Azure DevOps token' : 'Show Azure DevOps token');
+      toggle.setAttribute('aria-pressed', String(showing));
+    }
   });
 
   // Mobile drawer menu

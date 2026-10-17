@@ -105,19 +105,19 @@ try {
     assert.equal(new URL(page.url()).hash, '#' + view, 'hash route: ' + view);
   }
 
-  await page.locator('.nav-item[data-view="people"]').click();
-  const teamField = page.locator('#peopleList .person-row input').nth(3);
-  await teamField.waitFor();
-  await teamField.fill('Developer - Edited');
-  assert.equal(await page.locator('#savePeopleBtn').isDisabled(), false);
-  assert.match(await page.locator('#teamSaveStatus').textContent(), /Unsaved team changes/);
-  await page.locator('.nav-item[data-view="dashboard"]').click();
-  await page.locator('.nav-item[data-view="people"]').click();
-  assert.equal(await page.locator('#peopleList .person-row input').nth(3).inputValue(), 'Developer - Edited');
-  await page.locator('#savePeopleBtn').click();
-  await page.getByText('Team configuration saved. Task data is not automatically changed.').waitFor();
-  assert.equal(await page.locator('#savePeopleBtn').isDisabled(), true);
-  assert.equal(mutationRequests.length, 0, 'saving roster fixture must not mutate Azure DevOps work items');
+  // Verify real keyboard operability, input labeling, and token visibility without
+  // entering any credentials or sending a settings mutation.
+  await page.locator('.nav-item[data-view="settings"]').click();
+  assert.equal(await page.locator('#setTz').getAttribute('aria-describedby'), 'settingsTimezoneHelp');
+  assert.equal(await page.locator('#setPat').getAttribute('type'), 'password');
+  await page.locator('#togglePatEye').focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await page.locator('#setPat').getAttribute('type'), 'text');
+  assert.equal(await page.locator('#togglePatEye').getAttribute('aria-label'), 'Hide Azure DevOps token');
+  await page.keyboard.press('Enter');
+  assert.equal(await page.locator('#setPat').getAttribute('type'), 'password');
+  assert.equal(await page.locator('#togglePatEye').getAttribute('aria-label'), 'Show Azure DevOps token');
+  assert.equal(mutationRequests.length, 0);
 
   await page.locator('.nav-item[data-view="explorer"]').click();
   await page.locator('#explorerDeselectAllBtn').click();

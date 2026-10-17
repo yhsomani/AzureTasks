@@ -292,7 +292,7 @@ export class FileConfigRepository implements ConfigRepository {
       stopDayOfWeek: 4,
       thursdayMode: 'CURRENT',
       defaultState: 'New',
-      autoClose: true,
+      autoClose: false,
       autoCloseStartTime: '18:15',
       autoCloseEndTime: '18:45',
       copyEstimates: true,

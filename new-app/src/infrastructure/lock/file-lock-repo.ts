@@ -1,84 +1,96 @@
 /**
- * File-based Lock Repository
- * Prevents concurrent execution with PID-aware stale lock detection
+ * Single-host exclusive file lock.
+ * A live owner never expires by elapsed time alone. A release from another
+ * instance cannot remove the owner's lock.
+ *
+ * Not a distributed lock: use shared coordination for multi-host deployments.
  */
-
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'node:crypto';
 import { LockRepository, LockInfo } from '../../domain/ports/repositories.js';
+
+type OwnedLockInfo = LockInfo & { ownerToken?: string };
 
 export class FileLockRepository implements LockRepository {
   private readonly lockPath: string;
-  private readonly staleThresholdMs = 5 * 60 * 1000; // 5 minutes
+  private ownerToken: string | null = null;
 
   constructor(lockPath?: string) {
-    this.lockPath = lockPath 
+    this.lockPath = lockPath
       ? path.resolve(process.cwd(), lockPath)
       : path.resolve(process.cwd(), '.execution-lock.json');
   }
 
   acquire(): boolean {
-    const lockInfo: LockInfo = {
+    if (this.ownerToken) return false;
+    const token = randomUUID();
+    const info: OwnedLockInfo = {
       pid: process.pid,
       acquiredAt: new Date().toISOString(),
       stale: false,
+      ownerToken: token,
     };
 
-    try {
-      // Atomic write using exclusive flag 'wx' (fails if file already exists)
-      fs.writeFileSync(this.lockPath, JSON.stringify(lockInfo, null, 2), { encoding: 'utf-8', flag: 'wx' });
-      return true;
-    } catch (err: any) {
-      if (err.code !== 'EEXIST') return false;
-
-      // File exists - check if the holding process is dead or lock expired
-      const existing = this.getLockInfo();
-      if (!existing || existing.stale) {
-        if (existing?.stale) {
-          console.warn('Removing stale execution lock from PID', existing.pid);
-        }
-        this.release();
-        // Retry atomic acquisition once
-        try {
-          fs.writeFileSync(this.lockPath, JSON.stringify(lockInfo, null, 2), { encoding: 'utf-8', flag: 'wx' });
-          return true;
-        } catch {
-          return false;
-        }
+    const writeExclusive = (): boolean => {
+      try {
+        fs.writeFileSync(this.lockPath, JSON.stringify(info, null, 2), { encoding: 'utf-8', flag: 'wx' });
+        this.ownerToken = token;
+        return true;
+      } catch {
+        return false;
       }
-      return false; // Active lock held by an alive process
+    };
+
+    if (writeExclusive()) return true;
+    // Refuse to overwrite unparseable locks. They might belong to a live
+    // writer whose first write was interrupted, or to an unknown process.
+    const existing = this.getLockInfo();
+    if (!existing?.stale) return false;
+
+    // Best-effort single-host stale reclamation. Must not be used for
+    // multi-host scheduling where PID evidence is not authoritative.
+    try {
+      const current = this.getLockInfo();
+      if (!current?.stale || current.pid !== existing.pid ||
+          current.acquiredAt !== existing.acquiredAt) return false;
+      fs.unlinkSync(this.lockPath);
+      return writeExclusive();
+    } catch {
+      return false;
     }
   }
 
   release(): void {
-    if (fs.existsSync(this.lockPath)) {
-      try {
-        fs.unlinkSync(this.lockPath);
-      } catch {
-        // Ignore errors
-      }
+    if (!this.ownerToken) return;
+    try {
+      const current = JSON.parse(fs.readFileSync(this.lockPath, 'utf-8')) as OwnedLockInfo;
+      if (current.ownerToken !== this.ownerToken || current.pid !== process.pid) return;
+      fs.unlinkSync(this.lockPath);
+    } catch {
+      // A disappeared/replaced lock is not ours to remove.
+    } finally {
+      this.ownerToken = null;
     }
   }
 
   isLocked(): boolean {
     if (!fs.existsSync(this.lockPath)) return false;
-    const lockInfo = this.getLockInfo();
-    return lockInfo !== null && !lockInfo.stale;
+    const info = this.getLockInfo();
+    // Fail closed when metadata is malformed.
+    return info === null || !info.stale;
   }
 
   getLockInfo(): LockInfo | null {
     if (!fs.existsSync(this.lockPath)) return null;
-
     try {
-      const raw = fs.readFileSync(this.lockPath, 'utf-8');
-      const lockInfo = JSON.parse(raw) as LockInfo;
-      
-      // Check if stale (process dead or lock too old)
-      const acquiredAt = new Date(lockInfo.acquiredAt).getTime();
-      const now = Date.now();
-      const isStale = (now - acquiredAt) > this.staleThresholdMs || !this.isProcessAlive(lockInfo.pid);
-      
-      return { ...lockInfo, stale: isStale };
+      const value: unknown = JSON.parse(fs.readFileSync(this.lockPath, 'utf-8'));
+      if (!value || typeof value !== 'object') return null;
+      const info = value as OwnedLockInfo;
+      if (!Number.isSafeInteger(info.pid) || info.pid <= 0 ||
+          typeof info.acquiredAt !== 'string' ||
+          !Number.isFinite(new Date(info.acquiredAt).getTime())) return null;
+      return { ...info, stale: !this.isProcessAlive(info.pid) };
     } catch {
       return null;
     }
@@ -86,11 +98,11 @@ export class FileLockRepository implements LockRepository {
 
   private isProcessAlive(pid: number): boolean {
     try {
-      // Signal 0 doesn't kill, just checks if process exists
       process.kill(pid, 0);
       return true;
-    } catch {
-      return false;
+    } catch (error: unknown) {
+      // EPERM means that a process exists but is not visible to our user.
+      return (error as NodeJS.ErrnoException)?.code === 'EPERM';
     }
   }
 }
