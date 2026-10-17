@@ -2007,7 +2007,7 @@ async function runSchedulerNow() {
   if (!window.confirm('Run the scheduled task creation now for the configured team? This may create Azure DevOps work items.')) return;
   try {
     toast('Starting scheduler execution…');
-    const res = await api.post('/scheduler/run-now');
+    const res = await api.post('/scheduler/run-now', { confirm: true, all: true });
     if (res.success) {
       toast(res.message || 'Scheduler executed', 'ok');
     } else {
@@ -2641,7 +2641,7 @@ function wire() {
     toast('Repairing incomplete relationships...');
     if (btn) { btn.disabled = true; btn.textContent = 'Repairing...'; }
     try {
-      const res = await api.post('/tasks/repair');
+      const res = await api.post('/tasks/repair', { confirm: true });
       if (res.total === 0) {
         toast('No incomplete relations found. Everything is healthy!', 'ok');
       } else {
