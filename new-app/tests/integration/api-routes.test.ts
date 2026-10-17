@@ -371,13 +371,15 @@ describe('API routes', () => {
 
 describe('API auth (HTTP Basic, opt-in via API_AUTH_TOKEN)', () => {
   let authServer: AppServer;
+  let authDeps: ApiDependencies;
   let authBase: string;
   const prev = { token: process.env.API_AUTH_TOKEN, user: process.env.API_AUTH_USER };
 
   beforeAll(async () => {
     process.env.API_AUTH_TOKEN = 'sekret';
     process.env.API_AUTH_USER = 'admin';
-    authServer = new AppServer(makeDeps(), 0);
+    authDeps = makeDeps();
+    authServer = new AppServer(authDeps, 0);
     const port = await authServer.start();
     authBase = `http://127.0.0.1:${port}`;
   });
@@ -404,6 +406,51 @@ describe('API auth (HTTP Basic, opt-in via API_AUTH_TOKEN)', () => {
     const res = await fetch(authBase + '/api/status', { headers: basic('admin:sekret') });
     expect(res.status).toBe(200);
     expect((await res.json()).success).toBe(true);
+  });
+
+  it('rejects credentialed cross-origin scheduler POST before any mutation runs', async () => {
+    vi.mocked(authDeps.scheduler.triggerRunNow!).mockClear();
+    const res = await fetch(authBase + '/api/scheduler/run-now', {
+      method: 'POST',
+      headers: { ...basic('admin:sekret'), Origin: 'https://attacker.example.invalid' },
+    });
+    expect(res.status).toBe(403);
+    expect((await res.json()).success).toBe(false);
+    expect(authDeps.scheduler.triggerRunNow).not.toHaveBeenCalled();
+  });
+
+  it('rejects Origin: null and a forged similar-host origin', async () => {
+    for (const origin of ['null', new URL(authBase).origin + '.attacker.example.invalid']) {
+      const res = await fetch(authBase + '/api/scheduler/run-now', {
+        method: 'POST',
+        headers: { ...basic('admin:sekret'), Origin: origin },
+      });
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it('rejects browser Fetch Metadata cross-site mutations without Origin', async () => {
+    const res = await fetch(authBase + '/api/scheduler/run-now', {
+      method: 'POST',
+      headers: { ...basic('admin:sekret'), 'Sec-Fetch-Site': 'cross-site' },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('accepts same-origin browser mutation and a non-browser CLI request', async () => {
+    vi.mocked(authDeps.scheduler.triggerRunNow!).mockClear();
+    const ownOrigin = new URL(authBase).origin;
+    const sameOrigin = await fetch(authBase + '/api/scheduler/run-now', {
+      method: 'POST',
+      headers: { ...basic('admin:sekret'), Origin: ownOrigin, 'Sec-Fetch-Site': 'same-origin' },
+    });
+    expect(sameOrigin.status).toBe(200);
+    const cli = await fetch(authBase + '/api/scheduler/run-now', {
+      method: 'POST',
+      headers: basic('admin:sekret'),
+    });
+    expect(cli.status).toBe(200);
+    expect(authDeps.scheduler.triggerRunNow).toHaveBeenCalledTimes(2);
   });
 
   it('rejects wrong credentials', async () => {
