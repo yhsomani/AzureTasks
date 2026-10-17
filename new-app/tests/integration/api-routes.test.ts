@@ -344,7 +344,7 @@ describe('API routes', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dryRun: false }),
     });
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(400);
     expect((await res.json()).success).toBe(false);
     expect(close).not.toHaveBeenCalled();
   });
