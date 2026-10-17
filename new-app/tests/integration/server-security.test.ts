@@ -28,7 +28,8 @@ describe('Production web server access controls', () => {
     try {
       const accepted = await fetch(destination, {
         method: 'POST',
-        headers: { Authorization: authorization, Origin: 'https://tasks.example.invalid' },
+        headers: { Authorization: authorization, Origin: 'https://tasks.example.invalid', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true, all: true }),
       });
       expect(accepted.status).toBe(200);
       const rejected = await fetch(destination, {
