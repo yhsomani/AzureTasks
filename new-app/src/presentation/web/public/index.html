@@ -361,9 +361,11 @@
             </div>
             <button class="btn primary small" id="addPersonBtn">➕ Add member</button>
           </header>
+          <p class="muted small" style="margin-bottom:14px;">Edit the roster below. Changes are only applied when you select <strong>Save team</strong>; task creation is never triggered by saving team details.</p>
           <div id="peopleList" class="people-list"></div>
-          <div class="row end">
-            <button class="btn primary" id="savePeopleBtn">Save team</button>
+          <div class="team-save-bar">
+            <p id="teamSaveStatus" role="status" aria-live="polite">Loading team configuration…</p>
+            <button class="btn primary" id="savePeopleBtn" disabled>Save team</button>
           </div>
         </article>
       </section>
@@ -374,7 +376,7 @@
           <header class="card-head">
             <div>
               <h2>Audit log</h2>
-              <p class="muted small">Cryptographic execution record of all created tasks, fields, and relations</p>
+              <p class="muted small">Review recorded operations, results, and any incomplete relation copies. Verify important updates in Azure DevOps.</p>
             </div>
             <div class="row gap" style="margin:0;">
               <button class="btn small ghost" id="journalRepairBtn">🔧 Repair Relations</button>
@@ -382,6 +384,7 @@
               <button class="btn small ghost" id="exportJson">Export JSON</button>
             </div>
           </header>
+          <p id="journalResultStatus" class="muted small" role="status" aria-live="polite">Loading audit history…</p>
           <div id="journalStats" class="stat-chips"></div>
           <div class="table-wrap">
             <table class="table" id="journalTable">
@@ -394,6 +397,9 @@
 
       <!-- 8. SCHEDULER VIEW -->
       <section class="view" id="view-scheduler">
+        <div class="workflow-note" role="note" id="schedulerSafetyNotice">
+          <strong>Remote task changes.</strong> Running or enabling the scheduler can create remote Azure DevOps work items. Review team assignments, timezone, and planned dates before enabling unattended creation.
+        </div>
         <article class="card">
           <header class="card-head">
             <div>
@@ -449,6 +455,10 @@
           </p>
         </article>
 
+        <div class="workflow-note" role="note" id="eodSafetyNotice" style="margin-top:18px;">
+          <strong>Closure is separate from task creation.</strong> EOD closure changes task states and work hours in Azure DevOps. Use a read-only preview first; leave automatic closure off unless explicitly approved.
+        </div>
+
         <!-- EOD AUTO-CLOSE CARD -->
         <article class="card" style="margin-top: 16px;">
           <header class="card-head">
@@ -463,7 +473,7 @@
           </header>
 
           <div class="grid cols-4" style="margin-top: 16px;">
-            <div class="mini"><span>Auto-Close Status</span><strong id="eodStatusPill" style="color:var(--ok);">Enabled</strong></div>
+            <div class="mini"><span>Auto-Close Status</span><strong id="eodStatusPill">Checking…</strong></div>
             <div class="mini"><span>Window</span><strong id="eodWindowDisplay">18:15 – 18:45</strong></div>
             <div class="mini"><span>Next Auto-Close</span><strong id="eodNextDisplay" style="color:var(--brand-glow);">—</strong></div>
             <div class="mini"><span>Last Auto-Close</span><strong id="eodLastDisplay">No runs yet</strong></div>
@@ -480,7 +490,7 @@
             </label>
             <div style="display:flex; flex-direction:column; gap:8px;">
               <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                <input type="checkbox" id="eodEnableCheck" checked />
+                <input type="checkbox" id="eodEnableCheck" />
                 <span>Enable automatic EOD task closure</span>
               </label>
               <button class="btn primary" id="eodSaveConfigBtn">💾 Save EOD Settings</button>
@@ -496,20 +506,32 @@
       <!-- 9. LOGS VIEW -->
       <section class="view" id="view-logs">
         <article class="card">
-          <header class="card-head"><h2>Live logs</h2><span class="pill" id="logStatus">connecting…</span></header>
-          <pre class="logs" id="logStream" aria-live="polite"></pre>
+          <header class="card-head"><h2>Live logs</h2><span class="pill" id="logStatus" role="status" aria-live="polite">Connecting…</span></header>
+          <p class="muted small">Operational events only. For item-level execution history, open the Audit log.</p>
+          <pre class="logs" id="logStream" tabindex="0" aria-label="Recent operational logs"></pre>
         </article>
       </section>
 
       <!-- 10. SETTINGS VIEW -->
       <section class="view" id="view-settings">
+        <div class="settings-setup" id="settingsSetupGuide" role="note">
+          <div>
+            <strong>Connect your workspace safely</strong>
+            <p>1. Configure your organization and timezone. 2. Add a least-privilege token. 3. Test access before planning tasks. Preview changes before any creation.</p>
+          </div>
+          <button type="button" class="btn ghost small" data-view-link="people">Review team</button>
+        </div>
+        <div class="settings-security" id="settingsSecurityNotice" role="note">
+          <strong>Credentials are sensitive configuration</strong>
+          <p>Never paste credentials into logs, screenshots, or a repository. Restrict access to the server's environment and configuration files. Use HTTPS and rotate any exposed token. Masked display does not mean secrets are encrypted at rest.</p>
+        </div>
         <article class="card">
           <header class="card-head"><h2>Connection settings</h2></header>
           <div class="grid cols-2">
             <label class="field"><span>Organization</span><input type="text" id="setOrg" placeholder="BFLDevOpsOrg" /></label>
             <label class="field"><span>Project</span><input type="text" id="setProject" placeholder="3in1_Agile_Projects" /></label>
-            <label class="field"><span>Timezone</span><input type="text" id="setTz" placeholder="Asia/Kolkata" /></label>
-            <label class="field"><span>Start time (HH:mm)</span><input type="text" id="setStart" placeholder="09:30" /></label>
+            <label class="field" for="setTz"><span>Timezone (IANA)</span><input type="text" id="setTz" placeholder="Asia/Kolkata" aria-describedby="settingsTimezoneHelp" /><small class="field-help" id="settingsTimezoneHelp">Example: Asia/Kolkata. Determines task dates and scheduler windows.</small></label>
+            <label class="field" for="setStart"><span>Workday start time (HH:mm)</span><input type="text" id="setStart" placeholder="09:30" inputmode="numeric" aria-describedby="settingsStartHelp" /><small class="field-help" id="settingsStartHelp">24-hour time in the configured timezone.</small></label>
           </div>
           <div class="row end" style="gap:8px;">
             <button class="btn ghost" id="testConnBtn">🔌 Test Connection</button>
@@ -519,19 +541,20 @@
 
         <article class="card">
           <header class="card-head"><h2>Personal Access Token</h2></header>
-          <div style="display:flex; gap:8px;">
-            <input type="password" id="setPat" placeholder="••••••••••••••••" autocomplete="off" style="flex:1;" />
-            <button type="button" class="btn ghost" id="togglePatEye" title="Show/Hide">👁️</button>
+          <label class="field" for="setPat">Azure DevOps PAT</label>
+          <div class="settings-credential-row">
+            <input type="password" id="setPat" placeholder="Enter a newly issued PAT" autocomplete="off" aria-label="Azure DevOps personal access token" />
+            <button type="button" class="btn ghost" id="togglePatEye" aria-label="Show Azure DevOps token" title="Show token">Show</button>
             <button class="btn primary" id="savePatBtn">Update PAT</button>
           </div>
-          <p class="muted small" style="margin-top:6px;">Requires Work Items: Read &amp; Write. Token is stored securely in server .env and scrubbed from logs.</p>
+          <p class="muted small" style="margin-top:6px;">Use the least Azure DevOps permissions required by your workflows. Secrets may be persisted in server configuration; protect the filesystem and backups. Never expose this application over plaintext HTTP.</p>
         </article>
 
         <!-- GITHUB INTEGRATION CARD -->
         <article class="card">
           <header class="card-head"><h2>GitHub Integration &amp; EMU Settings</h2></header>
           <div class="grid cols-3">
-            <label class="field"><span>GitHub Token (PAT)</span><input type="password" id="setGhToken" placeholder="ghp_••••••••••••••••" autocomplete="off" /></label>
+            <label class="field" for="setGhToken"><span>GitHub access token</span><input type="password" id="setGhToken" placeholder="Enter GitHub token" autocomplete="off" aria-describedby="githubTokenHelp" /><small class="field-help" id="githubTokenHelp">Optional. Restrict repository access and rotate exposed tokens.</small></label>
             <label class="field"><span>GitHub Organization</span><input type="text" id="setGhOrg" placeholder="e.g. BFLDevOpsOrg" /></label>
             <label class="field"><span>Enterprise Suffix</span><input type="text" id="setGhSuffix" placeholder="_bflghec" value="_bflghec" /></label>
           </div>

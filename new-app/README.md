@@ -25,10 +25,10 @@ cp .env.example .env
 
 # 2. Optional: edit people.json (team members + org/project)
 
-# 3. Run
+# 3. Run (preview before any intentional mutation)
 npm run dev -- plan         # preview task creation, writes nothing
-npm run dev -- run          # create tasks
-npm run dev -- close-today  # close today's tasks with GitHub PR descriptions
+npm run dev -- run          # creates remote tasks; use explicit selection and confirmation
+npm run dev -- close-today  # remote closure; manual/intentional only; preview first
 npm run dev                 # web dashboard on http://localhost:3000
 ```
 
@@ -37,7 +37,7 @@ The server reads `AZURE_DEVOPS_PAT` and `GITHUB_TOKEN` from the environment. Req
 
 ## Documentation and navigation
 
-See [UI redesign audit and user journeys](docs/UX_REDESIGN.md), [Feature inventory](docs/FEATURE_INVENTORY.md), [Architecture](docs/ARCHITECTURE.md), [Workflows](docs/WORKFLOWS.md), [Design system](docs/DESIGN_SYSTEM.md), and [Production readiness](docs/PRODUCTION_READINESS.md).
+See [Product vision and scope](docs/PRODUCT_DIRECTION.md), [Security and mutation safety](docs/SECURITY.md), [UI redesign audit and user journeys](docs/UX_REDESIGN.md), [Feature inventory](docs/FEATURE_INVENTORY.md), [Architecture](docs/ARCHITECTURE.md), [Workflows](docs/WORKFLOWS.md), [Design system](docs/DESIGN_SYSTEM.md), and [Production readiness](docs/PRODUCTION_READINESS.md).
 
 This directory is the **only supported application** in the repository. No other application subtree is needed to build, test, or run it.
 
@@ -64,6 +64,8 @@ npm run dev -- close-today --all
 npm run dev -- plan --person yash_somani --as-of 2026-10-15
 npm run dev -- serve --port 8080
 ```
+
+**Safety:** Fresh-install defaults keep unattended scheduling and automatic EOD closure disabled. This repository previously contained a tracked team configuration with enabled automation; review the config in every deployment. Production requires `API_AUTH_TOKEN` and HTTPS through a trusted reverse proxy. When a proxy changes the scheme or Host, set `PUBLIC_ORIGIN` to its external origin so unsafe browser API requests can be checked. See [Security](docs/SECURITY.md).
 
 ## Build & run (production)
 

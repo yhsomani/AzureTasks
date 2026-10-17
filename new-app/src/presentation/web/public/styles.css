@@ -615,5 +615,28 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   outline-offset: 2px;
 }
 
-/* Screen-reader-only status messages remain accessible without visual clutter. */
-.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+/* Connection setup: clear prerequisites and accurate credential guidance. */
+.settings-setup, .settings-security {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 21px;
+  margin-bottom: 17px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+}
+.settings-setup strong, .settings-security strong { display: block; font-size: 14px; margin-bottom: 4px; }
+.settings-setup p, .settings-security p { color: var(--text-muted); font-size: 13px; max-width: 78ch; }
+.settings-security { border-left: 3px solid var(--warn); }
+.settings-credential-row { display: flex; gap: 10px; align-items: stretch; }
+.settings-credential-row input { flex: 1; min-width: 0; }
+.field-help { display: block; color: var(--text-muted); font-weight: 400; font-size: 11.5px; margin-top: 3px; }
+@media (max-width: 600px) {
+  .settings-setup, .settings-security { padding: 14px; flex-direction: column; }
+  .settings-setup > button { align-self: stretch; }
+  .settings-credential-row { flex-wrap: wrap; }
+  .settings-credential-row input { flex-basis: 100%; }
+  .settings-credential-row button { flex: 1; }
+}

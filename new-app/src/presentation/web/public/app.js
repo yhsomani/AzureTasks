@@ -9,10 +9,13 @@ const state = {
   status: null,
   config: null,
   people: [],
+  teamDirty: false,
+  teamSaving: false,
   selectedKeys: new Set(),
   explorerData: null,
   selectedExplorerKeys: new Set(),
   burndownData: null,
+  myWorkRequestVersion: 0,
   journal: [],
   scheduler: null,
   charts: { effort: null, status: null },
@@ -684,19 +687,21 @@ function renderBurndownTable(data) {
         tr.append(el('td', { class: 'cell-status cell-weekend' }, 'WO'));
       } else if (cell.status === 'CREATED' || cell.status === 'DUPLICATE') {
         const completed = cell.tasks.reduce((sum, t) => sum + (t.completedWork || 0), 0);
-        const td = el('td', {
-          class: 'cell-status cell-created',
-          title: `Tasks: ${cell.tasks.length} | Completed: ${completed}h`,
-          onclick: () => openDateInspectModal(cell, row.person),
-        }, completed > 0 ? `${completed}h` : String(cell.tasks.length));
-        tr.append(td);
+        tr.append(el('td', { class: 'cell-status cell-created' },
+          el('button', {
+            type: 'button',
+            class: 'matrix-cell-action',
+            title: `Inspect ${cell.tasks.length} task(s) for ${row.person.name} · ${d.formattedDate}`,
+            onclick: () => openDateInspectModal(cell, row.person),
+          }, completed > 0 ? `${completed}h` : String(cell.tasks.length))));
       } else {
-        const td = el('td', {
-          class: 'cell-status cell-missing',
-          title: 'Missing task',
-          onclick: () => openDateInspectModal(cell, row.person),
-        }, '0');
-        tr.append(td);
+        tr.append(el('td', { class: 'cell-status cell-missing' },
+          el('button', {
+            type: 'button',
+            class: 'matrix-cell-action',
+            title: `Inspect missing task for ${row.person.name} · ${d.formattedDate}`,
+            onclick: () => openDateInspectModal(cell, row.person),
+          }, '0')));
       }
     });
 
@@ -711,8 +716,10 @@ function renderBurndownTable(data) {
 
 /* ----------------------------------------------------------------- my work */
 async function refreshMyWork(options = {}) {
+  const requestVersion = ++state.myWorkRequestVersion;
   const forceFresh = options.forceFresh === true;
   const cfg = await ensureConfig(forceFresh);
+  if (requestVersion !== state.myWorkRequestVersion) return;
   const select = $('#myWorkPersonSelect');
   const activePeople = cfg.people.filter(p => p.enabled !== false);
 
@@ -765,11 +772,16 @@ async function refreshMyWork(options = {}) {
       forceFresh,
       maxAgeMs: 30000,
       abortKey: 'mywork-query',
-      onStale: (stale) => renderMyWorkContent(stale, personKey),
+      onStale: (stale) => {
+        if (requestVersion === state.myWorkRequestVersion && $('#myWorkPersonSelect')?.value === personKey) {
+          renderMyWorkContent(stale, personKey);
+        }
+      },
     });
+    if (requestVersion !== state.myWorkRequestVersion || $('#myWorkPersonSelect')?.value !== personKey) return;
     renderMyWorkContent(data, personKey);
   } catch (err) {
-    if (err.name === 'AbortError') return;
+    if (requestVersion !== state.myWorkRequestVersion || err.name === 'AbortError') return;
     if (container) container.innerHTML = `<p class="muted" style="color:var(--danger);">${escapeHtml(err.message)}</p>`;
   }
 }
@@ -807,11 +819,11 @@ function renderMyWorkContent(data, personKey) {
     const stateCls = (t.state || 'new').toLowerCase();
     tbody.append(el('tr', {}, [
       el('td', { style: 'font-weight:600;' }, t.formattedDate),
-      el('td', {}, el('a', { href: t.url || '#', target: '_blank', style: 'color:var(--accent); font-weight:600;' }, `#${t.taskId}`)),
+      el('td', {}, el('a', { href: t.url || getAdoWorkItemUrl(t.taskId), target: '_blank', style: 'color:var(--accent); font-weight:600;' }, `#${t.taskId}`)),
       el('td', { class: 'title-cell' }, t.title || '—'),
       el('td', {}, el('span', { class: `state-tag state-${stateCls}` }, t.state || 'New')),
       el('td', {}, `${t.completedWork || 0}h`),
-      el('td', {}, el('a', { href: t.url || '#', target: '_blank', class: 'btn small ghost' }, 'Open in ADO ↗')),
+      el('td', {}, el('a', { href: t.url || getAdoWorkItemUrl(t.taskId), target: '_blank', class: 'btn small ghost' }, 'Open in ADO ↗')),
     ]));
   });
   table.append(tbody);
@@ -1661,6 +1673,16 @@ async function executeCreation() {
 }
 
 /* ------------------------------------------------------------- team members */
+function updateTeamDirtyState(dirty = true) {
+  state.teamDirty = dirty;
+  const status = $('#teamSaveStatus');
+  if (status) status.textContent = dirty
+    ? 'Unsaved team changes. Save before planning tasks with the new roster.'
+    : 'Team configuration saved. Task data is not automatically changed.';
+  const save = $('#savePeopleBtn');
+  if (save) save.disabled = !dirty || state.teamSaving;
+}
+
 function renderPeople() {
   const list = $('#peopleList');
   if (!list) return;
@@ -1693,7 +1715,7 @@ function renderPeople() {
 
     const del = el('button', {
       class: 'btn ghost small del',
-      onclick: () => { state.people.splice(idx, 1); renderPeople(); },
+      onclick: () => { state.people.splice(idx, 1); updateTeamDirtyState(); renderPeople(); },
     }, 'Remove');
     row.append(del);
     list.append(row);
@@ -1706,58 +1728,50 @@ function field(label, control) {
 
 function input(value, onChange, type = 'text') {
   const node = el('input', { type, value: value ?? '' });
-  node.addEventListener('input', () => onChange(node.value));
+  node.addEventListener('input', () => { onChange(node.value); updateTeamDirtyState(); });
   return node;
 }
 
 async function loadPeople() {
+  if (state.teamDirty) return; // Preserve edits across navigation; never discard a draft.
   const cfg = await ensureConfig(true);
+  if (state.teamDirty) return; // Ignore an in-flight load after the user began editing.
   state.people = cfg.people.map(p => ({ ...p }));
   renderPeople();
+  updateTeamDirtyState(false);
 }
 
 async function savePeople() {
+  if (state.teamSaving || !state.teamDirty) return;
+  state.teamSaving = true;
+  updateTeamDirtyState(true);
+  const button = $('#savePeopleBtn');
+  if (button) button.textContent = 'Saving…';
   try {
-    const res = await api.post('/config/people', { people: state.people });
+    await api.post('/config/people', { people: state.people });
     if (!state.config) state.config = { people: [] };
     state.config.people = state.people.map(p => ({ ...p }));
-    
-    // Invalidate caches and reset view caches
+
+    // Invalidate all derived plans without silently widening either selection.
     api.invalidateCache();
     state.explorerData = null;
     state.pendingPlan = null;
+    state.pendingPlanSignature = null;
     state.burndownData = null;
     state.isDataDirty = true;
-
-    // Automatically ensure all active members are selected
-    const active = state.people.filter(p => p.enabled !== false);
-    active.forEach(p => {
-      state.selectedKeys.add(p.key);
-      state.selectedExplorerKeys.add(p.key);
-    });
-
-    toast('Team members saved. Syncing tasks everywhere...', 'ok');
-
-    // Update people count KPI
-    if ($('#kpiPeople')) $('#kpiPeople').textContent = active.length;
-
-    // Refresh views to show updated members and fetch fresh data
-    renderPlannerPeople();
-    renderExplorerUserPills(state.config);
-    refreshMyWork({ forceFresh: true });
-    runPlanPreview();
-
-    Promise.all([
-      refreshExplorer({ forceFresh: true }),
-      refreshBurndown({ forceFresh: true }),
-      refreshDashboard()
-    ]).then(() => {
-      state.isDataDirty = false;
-      toast('✅ Tasks synchronized across all views', 'ok');
-    }).catch(e => console.warn('Background sync error:', e));
-
+    const enabled = new Set(state.people.filter(p => p.enabled !== false).map(p => p.key));
+    for (const key of state.selectedKeys) if (!enabled.has(key)) state.selectedKeys.delete(key);
+    for (const key of state.selectedExplorerKeys) if (!enabled.has(key)) state.selectedExplorerKeys.delete(key);
+    if ($('#kpiPeople')) $('#kpiPeople').textContent = enabled.size;
+    updateTeamDirtyState(false);
+    toast('Team configuration saved. Review a fresh task plan before creating work items.', 'ok');
   } catch (err) {
+    updateTeamDirtyState(true);
     toast(err.message, 'err');
+  } finally {
+    state.teamSaving = false;
+    if (button) button.textContent = 'Save team';
+    updateTeamDirtyState(state.teamDirty);
   }
 }
 
@@ -1808,81 +1822,43 @@ async function savePersonFromModal() {
     enabled: true,
   };
 
-  // Optimistically append to local state and update Team UI immediately
+  // Adding a member changes the editable draft, not the remote configuration.
+  // The operator explicitly reviews and saves the entire roster using Save team.
   state.people.push(newMember);
   renderPeople();
+  updateTeamDirtyState();
   hideModal('#personModal');
-
-  toast(`Adding ${name} and syncing Azure DevOps data...`, 'ok');
-
-  try {
-    // Persist to backend
-    await api.post('/config/people', { people: state.people });
-    if (!state.config) state.config = { people: [] };
-    state.config.people = state.people.map(p => ({ ...p }));
-
-    // Invalidate caches and reset view models to guarantee fresh data across all views
-    api.invalidateCache();
-    state.explorerData = null;
-    state.pendingPlan = null;
-    state.burndownData = null;
-    state.isDataDirty = true;
-
-    // Automatically select the new member in Explorer & Planner
-    state.selectedKeys.add(key);
-    state.selectedExplorerKeys.add(key);
-
-    // Update people count KPI
-    const active = state.people.filter(p => p.enabled !== false);
-    if ($('#kpiPeople')) $('#kpiPeople').textContent = active.length;
-
-    // Update planner & explorer user pills
-    renderPlannerPeople();
-    renderExplorerUserPills(state.config);
-
-    // Update My Work dropdown and immediately fetch new member's tasks
-    refreshMyWork({ forceFresh: true, targetKey: key });
-
-    // Trigger immediate Plan Preview recalculation with new member included
-    runPlanPreview();
-
-    // Immediately fetch fresh data across all views in parallel
-    Promise.all([
-      refreshExplorer({ forceFresh: true }),
-      refreshBurndown({ forceFresh: true }),
-      refreshDashboard()
-    ]).then(() => {
-      state.isDataDirty = false;
-      toast(`✅ Tasks fetched & synchronized everywhere for ${name}`, 'ok');
-    }).catch(e => {
-      console.warn(`Sync for ${key}:`, e);
-    });
-
-  } catch (err) {
-    // Rollback on server error
-    state.people = state.people.filter(p => p.key !== key);
-    renderPeople();
-    toast(`Failed to save team member: ${err.message}`, 'err');
-  }
+  toast(`Added ${name} to the draft. Select Save team to apply changes.`, 'warn');
 }
 
 /* ---------------------------------------------------------------- audit log */
 async function refreshJournal() {
+  const status = $('#journalResultStatus');
+  if (status) status.textContent = 'Loading audit history…';
   try {
     const data = await api.get('/journal?limit=250');
-    state.journal = data.entries;
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    state.journal = entries;
     const stats = $('#journalStats');
     if (stats) {
       stats.innerHTML = '';
       stats.append(
-        el('div', { class: 'stat-chip' }, [el('b', {}, String(data.totalEntries)), el('span', {}, 'Total Log Entries')]),
+        el('div', { class: 'stat-chip' }, [el('b', {}, String(data.totalEntries ?? entries.length)), el('span', {}, 'Total Log Entries')]),
         el('div', { class: 'stat-chip' }, [el('b', {}, String(data.incompleteEntriesCount)), el('span', {}, 'Incomplete Relation Copies')]),
       );
     }
     const tbody = $('#journalTable tbody');
     if (!tbody) return;
     tbody.innerHTML = '';
-    for (const e of data.entries) {
+    if (status) status.textContent = entries.length
+      ? `${entries.length} audit record(s) loaded. Review incomplete relations before repairing them.`
+      : 'No audit records found for this workspace.';
+    if (entries.length === 0) {
+      tbody.append(el('tr', {}, el('td', { colspan: '8' },
+        el('span', { role: 'status', class: 'muted' }, 'No audit records. Created tasks and repairs will appear here when recorded.'))));
+      return;
+    }
+    for (const e of entries) {
       tbody.append(el('tr', {}, [
         el('td', {}, new Date(e.timestamp).toLocaleString()),
         el('td', {}, e.personName || '—'),
@@ -1900,6 +1876,12 @@ async function refreshJournal() {
       ]));
     }
   } catch (err) {
+    if (status) status.textContent = `Unable to load audit records: ${err.message}`;
+    const tbody = $('#journalTable tbody');
+    if (tbody) {
+      tbody.innerHTML = '';
+      tbody.append(el('tr', {}, el('td', { colspan: '8' }, `Unable to load audit records: ${err.message}`)));
+    }
     toast(err.message, 'err');
   }
 }
@@ -2680,6 +2662,13 @@ function wire() {
     const input = $('#setPat');
     if (!input) return;
     input.type = input.type === 'password' ? 'text' : 'password';
+    const showing = input.type === 'text';
+    const toggle = $('#togglePatEye');
+    if (toggle) {
+      toggle.textContent = showing ? 'Hide' : 'Show';
+      toggle.setAttribute('aria-label', showing ? 'Hide Azure DevOps token' : 'Show Azure DevOps token');
+      toggle.setAttribute('aria-pressed', String(showing));
+    }
   });
 
   // Mobile drawer menu
