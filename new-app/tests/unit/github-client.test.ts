@@ -138,7 +138,7 @@ describe('GitHubClient', () => {
       );
     });
 
-    it('returns empty array on API error without throwing', async () => {
+    it('surfaces GitHub API errors instead of interpreting them as no PRs', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 403,
@@ -151,8 +151,7 @@ describe('GitHubClient', () => {
         fetchFn: mockFetch,
       });
 
-      const prs = await client.getUserPullRequests('dev_user');
-      expect(prs).toEqual([]);
+      await expect(client.getUserPullRequests('dev_user')).rejects.toThrow(/GitHub PR lookup failed.*403/);
     });
   });
 
