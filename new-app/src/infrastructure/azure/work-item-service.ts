@@ -314,7 +314,7 @@ export class AzureWorkItemService implements WorkItemRepository {
         key: personIdentity.toLowerCase().trim(),
       };
 
-      const ids = result.workItems.slice(0, 150).map(w => w.id);
+      const ids = result.workItems.map(w => w.id);
       const CHUNK_SIZE = 100;
       const allFetched: WorkItem[] = [];
 
@@ -329,7 +329,7 @@ export class AzureWorkItemService implements WorkItemRepository {
       }
 
       for (const workItem of allFetched) {
-        if (workItem.fields['System.AssignedTo'] && !matchesPerson(workItem.fields['System.AssignedTo'], targetPerson)) {
+        if (!matchesPerson(workItem.fields['System.AssignedTo'], targetPerson)) {
           continue;
         }
         const title = workItem.fields['System.Title'];
@@ -358,6 +358,9 @@ export class AzureWorkItemService implements WorkItemRepository {
     endDate?: string,
     personIdentities?: string[]
   ): Promise<WorkItem[]> {
+    // WIQL selects only standard fields. Request work-item details without a
+    // rigid field list: custom date fields differ between Azure DevOps projects
+    // and asking for an absent Custom.* field makes the entire request fail.
     let whereClause = `[System.TeamProject] = '${this.escapeWiql(project)}'
       AND [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
       AND [System.State] <> 'Removed'`;
@@ -369,66 +372,62 @@ export class AzureWorkItemService implements WorkItemRepository {
       whereClause += ` AND [System.Title] CONTAINS '${this.escapeWiql(titlePrefix)}'`;
     }
 
-    const query = `
-      SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo],
-             [System.CreatedDate], [System.ChangedDate],
-             [Microsoft.VSTS.Scheduling.StartDate],
-             [Microsoft.VSTS.Scheduling.CompletedWork],
-             [Microsoft.VSTS.Scheduling.RemainingWork],
-             [Microsoft.VSTS.Scheduling.OriginalEstimate]
+    const queryFor = (where: string) => `
+      SELECT [System.Id]
       FROM WorkItems
-      WHERE ${whereClause}
+      WHERE ${where}
       ORDER BY [System.CreatedDate] DESC, [System.Id] DESC
     `;
 
     try {
       let result = await this.client.post<WiqlQueryResult>(
         `/${project}/_apis/wit/wiql?api-version=7.0`,
-        { query }
+        { query: queryFor(whereClause) }
       );
 
-      // Fallback if IN query yields no items (e.g. mock test data or different assignedTo format)
-      if ((!result.workItems || result.workItems.length === 0) && personIdentities && personIdentities.length > 0) {
-        const fallbackQuery = `
-          SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo],
-                 [System.CreatedDate], [System.ChangedDate],
-                 [Microsoft.VSTS.Scheduling.StartDate],
-                 [Microsoft.VSTS.Scheduling.CompletedWork],
-                 [Microsoft.VSTS.Scheduling.RemainingWork],
-                 [Microsoft.VSTS.Scheduling.OriginalEstimate]
-          FROM WorkItems
-          WHERE [System.TeamProject] = '${this.escapeWiql(project)}'
-            AND [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
-            AND [System.State] <> 'Removed'
-          ORDER BY [System.CreatedDate] DESC, [System.Id] DESC
-        `;
+      // Azure identity metadata can differ from stored email/name values.
+      // Fall back to project work items only when the scoped query found none;
+      // the caller still matches every item to configured members.
+      if (Array.isArray(result.workItems) && result.workItems.length === 0 &&
+        personIdentities && personIdentities.length > 0) {
+        const projectWhere = `[System.TeamProject] = '${this.escapeWiql(project)}'
+          AND [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
+          AND [System.State] <> 'Removed'`;
         result = await this.client.post<WiqlQueryResult>(
           `/${project}/_apis/wit/wiql?api-version=7.0`,
-          { query: fallbackQuery }
+          { query: queryFor(projectWhere) }
         );
       }
 
-      if (!result.workItems || result.workItems.length === 0) {
-        return [];
+      if (!Array.isArray(result.workItems)) {
+        throw new Error('Azure DevOps returned an invalid WIQL result.');
+      }
+      if (result.workItems.length === 0) return [];
+
+      // Never return a partial list as complete coverage: that can make
+      // existing work look missing and trigger accidental duplicate creation.
+      if (result.workItems.length > 5000) {
+        throw new Error('Too many matching Azure DevOps items (>5000). Narrow the team or query range.');
       }
 
-      const ids = result.workItems.slice(0, 500).map(w => w.id);
       const CHUNK_SIZE = 100;
-      const workItems: WorkItem[] = [];
-
-      for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
-        const chunk = ids.slice(i, i + CHUNK_SIZE).join(',');
-        const batchResult = await this.client.get<WorkItemBatchResult>(
-          `/${project}/_apis/wit/workitems?ids=${chunk}&fields=System.Id,System.Title,System.State,System.AssignedTo,System.CreatedDate,System.ChangedDate,System.Description,Microsoft.VSTS.Scheduling.StartDate,Microsoft.VSTS.Scheduling.CompletedWork,Microsoft.VSTS.Scheduling.RemainingWork,Microsoft.VSTS.Scheduling.OriginalEstimate,Custom.PlannedStartdate,Custom.PlannedStartDate,Custom.ActualStartdate,Custom.ActualStartDate,Custom.PlannedEnddate,Custom.ActualEnddate,Custom.ActualEndDate,Microsoft.VSTS.Common.ClosedDate,Custom.ActualClosedDate&api-version=7.0`
+      const items: WorkItem[] = [];
+      for (let i = 0; i < result.workItems.length; i += CHUNK_SIZE) {
+        const ids = result.workItems.slice(i, i + CHUNK_SIZE).map(w => w.id).join(',');
+        const batch = await this.client.get<WorkItemBatchResult>(
+          `/${project}/_apis/wit/workitems?ids=${ids}&api-version=7.0`
         );
-        if (batchResult.value) {
-          workItems.push(...batchResult.value);
+        if (!Array.isArray(batch.value)) {
+          throw new Error('Azure DevOps returned an invalid work-item batch.');
         }
+        items.push(...batch.value);
       }
-
-      return workItems;
-    } catch {
-      return [];
+      return items;
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      // Returning [] here would silently misreport connection/permission errors
+      // as genuine "MISSING" tasks in Explorer and EOD.
+      throw new Error(`Azure DevOps task discovery failed: ${reason}`);
     }
   }
 
