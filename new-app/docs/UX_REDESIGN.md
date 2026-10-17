@@ -159,3 +159,11 @@ A further test-first inspection found two misleading user journeys in the existi
 `tests/integration/ui-timezone-feedback.test.ts` includes a fixed UTC instant that falls on the following day in Asia/Kolkata, an ad-hoc date default contract, a VM-executed partial-failure toast assertion, and the fully-successful control case. GitHub Actions exercises these alongside the existing browser navigation and safe creation tests.
 
 **Not verified here:** live Azure DevOps creation, business-specific holiday/calendar rules, visual review with real data, and externally stored credential rotation. Avoid assuming success based solely on a green headless-browser fixture test.
+
+## My Work and Daily Burndown corrective redesign — October 17, 2026
+
+- **My Work stale data:** The previous implementation could render an outdated member's response after the user selected a different person. Selection request versions now guard the post-config fetch, stale-while-revalidate updates, and final response/error updates. A VM regression test resolves responses in reverse order to detect accidental cross-member rendering.
+- **Daily Burndown keyboard access:** Existing coverage cells used `onclick` on plain `<td>` elements. Actual inspection now sits on native buttons with descriptive titles and the common focus-visible styling, while the matrix data and visual status colors remain unchanged.
+- **Task links:** Some My Work links pointed to `#` when the API omitted a URL. They now use the existing Azure DevOps work-item URL helper with the numeric task ID as fallback rather than displaying a knowingly broken action.
+
+**Evidence:** `tests/integration/ui-work-views.test.ts` initially failed in CI on all three conditions; the corrected version is rerun in the same unit/integration + Chromium pipeline. Live Azure DevOps correctness and screen-reader operation must be checked separately.
