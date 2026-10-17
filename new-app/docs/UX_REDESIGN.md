@@ -159,3 +159,12 @@ A further test-first inspection found two misleading user journeys in the existi
 `tests/integration/ui-timezone-feedback.test.ts` includes a fixed UTC instant that falls on the following day in Asia/Kolkata, an ad-hoc date default contract, a VM-executed partial-failure toast assertion, and the fully-successful control case. GitHub Actions exercises these alongside the existing browser navigation and safe creation tests.
 
 **Not verified here:** live Azure DevOps creation, business-specific holiday/calendar rules, visual review with real data, and externally stored credential rotation. Avoid assuming success based solely on a green headless-browser fixture test.
+
+## Audit, Scheduler and Logs clarity — October 17, 2026
+
+- **Audit Log:** an empty journal previously appeared as a blank table, and fetch failure left stale content behind with only a toast. The view now differentiates loading, zero records and retrieval failures using a persistent live status and accessible table-level messages. Repair/export controls are unchanged.
+- **Scheduler:** the existing task-creation and EOD-closure controls now clearly identify remote Azure DevOps mutations and require users to inspect team/date settings and the read-only closure preview first. This is information design; it does not modify scheduler business logic.
+- **Unverified EOD defaults:** avoid rendering “Enabled” before actual scheduler status arrives. Initially display “Checking…” and leave the auto-close checkbox unselected until the server returns configuration.
+- **Logs:** the entire continually updated preformatted log is no longer an ARIA live region, avoiding a flood of announcements. The connection status remains a short polite live region, and the log surface itself is keyboard scrollable.
+
+**Evidence:** `tests/integration/ui-operations-recovery.test.ts` and Chromium route/empty-state checks with fixture data. Live Azure DevOps audit accuracy, log-stream reliability under disconnect, and scheduler production behavior remain separate verification gates.
