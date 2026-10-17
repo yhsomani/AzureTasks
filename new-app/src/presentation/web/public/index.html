@@ -375,7 +375,7 @@
           <header class="card-head">
             <div>
               <h2>Audit log</h2>
-              <p class="muted small">Cryptographic execution record of all created tasks, fields, and relations</p>
+              <p class="muted small">Review recorded operations, results, and any incomplete relation copies. Verify important updates in Azure DevOps.</p>
             </div>
             <div class="row gap" style="margin:0;">
               <button class="btn small ghost" id="journalRepairBtn">🔧 Repair Relations</button>
@@ -383,6 +383,7 @@
               <button class="btn small ghost" id="exportJson">Export JSON</button>
             </div>
           </header>
+          <p id="journalResultStatus" class="muted small" role="status" aria-live="polite">Loading audit history…</p>
           <div id="journalStats" class="stat-chips"></div>
           <div class="table-wrap">
             <table class="table" id="journalTable">
@@ -395,6 +396,9 @@
 
       <!-- 8. SCHEDULER VIEW -->
       <section class="view" id="view-scheduler">
+        <div class="workflow-note" role="note" id="schedulerSafetyNotice">
+          <strong>Remote task changes.</strong> Running or enabling the scheduler can create remote Azure DevOps work items. Review team assignments, timezone, and planned dates before enabling unattended creation.
+        </div>
         <article class="card">
           <header class="card-head">
             <div>
@@ -450,6 +454,10 @@
           </p>
         </article>
 
+        <div class="workflow-note" role="note" id="eodSafetyNotice" style="margin-top:18px;">
+          <strong>Closure is separate from task creation.</strong> EOD closure changes task states and work hours in Azure DevOps. Use a read-only preview first; leave automatic closure off unless explicitly approved.
+        </div>
+
         <!-- EOD AUTO-CLOSE CARD -->
         <article class="card" style="margin-top: 16px;">
           <header class="card-head">
@@ -464,7 +472,7 @@
           </header>
 
           <div class="grid cols-4" style="margin-top: 16px;">
-            <div class="mini"><span>Auto-Close Status</span><strong id="eodStatusPill" style="color:var(--ok);">Enabled</strong></div>
+            <div class="mini"><span>Auto-Close Status</span><strong id="eodStatusPill">Checking…</strong></div>
             <div class="mini"><span>Window</span><strong id="eodWindowDisplay">18:15 – 18:45</strong></div>
             <div class="mini"><span>Next Auto-Close</span><strong id="eodNextDisplay" style="color:var(--brand-glow);">—</strong></div>
             <div class="mini"><span>Last Auto-Close</span><strong id="eodLastDisplay">No runs yet</strong></div>
@@ -481,7 +489,7 @@
             </label>
             <div style="display:flex; flex-direction:column; gap:8px;">
               <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                <input type="checkbox" id="eodEnableCheck" checked />
+                <input type="checkbox" id="eodEnableCheck" />
                 <span>Enable automatic EOD task closure</span>
               </label>
               <button class="btn primary" id="eodSaveConfigBtn">💾 Save EOD Settings</button>
@@ -497,8 +505,9 @@
       <!-- 9. LOGS VIEW -->
       <section class="view" id="view-logs">
         <article class="card">
-          <header class="card-head"><h2>Live logs</h2><span class="pill" id="logStatus">connecting…</span></header>
-          <pre class="logs" id="logStream" aria-live="polite"></pre>
+          <header class="card-head"><h2>Live logs</h2><span class="pill" id="logStatus" role="status" aria-live="polite">Connecting…</span></header>
+          <p class="muted small">Operational events only. For item-level execution history, open the Audit log.</p>
+          <pre class="logs" id="logStream" tabindex="0" aria-label="Recent operational logs"></pre>
         </article>
       </section>
 

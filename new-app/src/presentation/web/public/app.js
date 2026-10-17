@@ -1831,21 +1831,32 @@ async function savePersonFromModal() {
 
 /* ---------------------------------------------------------------- audit log */
 async function refreshJournal() {
+  const status = $('#journalResultStatus');
+  if (status) status.textContent = 'Loading audit history…';
   try {
     const data = await api.get('/journal?limit=250');
-    state.journal = data.entries;
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    state.journal = entries;
     const stats = $('#journalStats');
     if (stats) {
       stats.innerHTML = '';
       stats.append(
-        el('div', { class: 'stat-chip' }, [el('b', {}, String(data.totalEntries)), el('span', {}, 'Total Log Entries')]),
+        el('div', { class: 'stat-chip' }, [el('b', {}, String(data.totalEntries ?? entries.length)), el('span', {}, 'Total Log Entries')]),
         el('div', { class: 'stat-chip' }, [el('b', {}, String(data.incompleteEntriesCount)), el('span', {}, 'Incomplete Relation Copies')]),
       );
     }
     const tbody = $('#journalTable tbody');
     if (!tbody) return;
     tbody.innerHTML = '';
-    for (const e of data.entries) {
+    if (status) status.textContent = entries.length
+      ? `${entries.length} audit record(s) loaded. Review incomplete relations before repairing them.`
+      : 'No audit records found for this workspace.';
+    if (entries.length === 0) {
+      tbody.append(el('tr', {}, el('td', { colspan: '8' },
+        el('span', { role: 'status', class: 'muted' }, 'No audit records. Created tasks and repairs will appear here when recorded.'))));
+      return;
+    }
+    for (const e of entries) {
       tbody.append(el('tr', {}, [
         el('td', {}, new Date(e.timestamp).toLocaleString()),
         el('td', {}, e.personName || '—'),
@@ -1863,6 +1874,12 @@ async function refreshJournal() {
       ]));
     }
   } catch (err) {
+    if (status) status.textContent = `Unable to load audit records: ${err.message}`;
+    const tbody = $('#journalTable tbody');
+    if (tbody) {
+      tbody.innerHTML = '';
+      tbody.append(el('tr', {}, el('td', { colspan: '8' }, `Unable to load audit records: ${err.message}`)));
+    }
     toast(err.message, 'err');
   }
 }
