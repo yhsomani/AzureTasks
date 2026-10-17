@@ -11,7 +11,8 @@ import {
   Person, 
   CreatedTask,
   parseTitleDate,
-  matchesPerson
+  matchesPerson,
+  matchesTaskSeries
 } from '../../domain/index.js';
 
 interface WiqlQueryResult {
@@ -125,6 +126,7 @@ export class AzureWorkItemService implements WorkItemRepository {
         continue;
       }
       const title = workItem.fields['System.Title'] || '';
+      if (!matchesTaskSeries(title, titlePrefix)) continue;
       const parsedDate = parseTitleDate(title, titlePrefix, true);
       if (parsedDate.isValid) {
         candidateTasks.push({
@@ -244,6 +246,7 @@ export class AzureWorkItemService implements WorkItemRepository {
           if (matchesPerson(assignedToVal, person)) {
             const title = workItem.fields['System.Title'] || '';
             const prefix = person.titlePrefix || titlePrefix;
+            if (!matchesTaskSeries(title, prefix)) continue;
             const parsedDate = parseTitleDate(title, prefix, true);
             if (parsedDate.isValid) {
               const list = personCandidateTasks.get(person.key) || [];
@@ -348,7 +351,7 @@ export class AzureWorkItemService implements WorkItemRepository {
           continue;
         }
         const title = workItem.fields['System.Title'];
-        if (!title) continue;
+        if (!title || !matchesTaskSeries(title, titlePrefix)) continue;
         const parsed = parseTitleDate(title, titlePrefix, true);
         if (!parsed.isValid) continue;
         if (parsed.isoDate < startDate || parsed.isoDate > endDate) continue;
