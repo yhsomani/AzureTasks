@@ -94,6 +94,31 @@ describe('CloseDailyTasksUseCase', () => {
     datePlanning = new DatePlanningService();
   });
 
+  it('does not close another work-item series just because the assigned person and date match', async () => {
+    (mockWorkItemRepo.findCandidateTasks as any).mockResolvedValue([
+      {
+        id: 8001,
+        fields: {
+          'System.Title': 'Unrelated_Project | 15 Oct',
+          'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+          'System.State': 'Active',
+          'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
+        },
+      },
+    ]);
+    const useCase = new CloseDailyTasksUseCase(
+      baseConfig, mockWorkItemRepo, datePlanning, mockGitHubClient as GitHubClient
+    );
+    const result = await useCase.execute({
+      asOf: '2026-10-15',
+      personKeys: ['yash_somani'],
+      dryRun: false,
+    });
+    expect(result.totalFound).toBe(0);
+    expect(result.totalClosed).toBe(0);
+    expect(mockWorkItemRepo.patchWorkItem).not.toHaveBeenCalled();
+  });
+
   it('successfully patches today tasks with RemainingWork=0, CompletedWork=8, Start date matched, and PR description', async () => {
     const targetDate = '2026-10-15';
     const candidateTasks = [
