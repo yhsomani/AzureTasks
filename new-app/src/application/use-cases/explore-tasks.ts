@@ -5,7 +5,7 @@
 
 import { WorkItemRepository, AppConfig } from '../../domain/ports/repositories.js';
 import { Person, PersonConfig, matchesPerson } from '../../domain/entities/person.js';
-import { WorkItem, parseTitleDate } from '../../domain/entities/task.js';
+import { WorkItem, parseTitleDate, matchesTaskSeries } from '../../domain/entities/task.js';
 import {
   getTodayIso,
   getNextThursdayIso,
@@ -297,6 +297,7 @@ export class ExploreTasksUseCase {
       for (const p of selectedPeople) {
         if (matchesPerson(assignedToVal, p)) {
           const personPrefix = p.titlePrefix || this.config.titlePrefix;
+          if (!matchesTaskSeries(title, personPrefix)) continue;
           const parsed = parseTitleDate(title, personPrefix, true);
           let itemDate = parsed.isValid ? parsed.isoDate : '';
 
