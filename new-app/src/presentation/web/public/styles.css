@@ -614,3 +614,20 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
 }
+
+/* Team editing uses explicit pending/saved states, never optimistic task success. */
+.team-save-bar {
+  margin-top: 19px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+.team-save-bar p { color: var(--text-muted); font-size: 12.5px; max-width: 64ch; }
+.team-save-bar .btn { flex-shrink: 0; }
+@media (max-width: 600px) {
+  .team-save-bar { align-items: stretch; flex-direction: column; }
+  .team-save-bar .btn { width: 100%; }
+}
