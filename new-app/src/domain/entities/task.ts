@@ -236,6 +236,19 @@ export function parseTitleDate(
 /**
  * Extracts the title prefix from a work item title (e.g. "Your_Relation | OCT 12" -> "Your_Relation |")
  */
+/**
+ * Restrict automatic task discovery and EOD operations to the configured task
+ * series. parseTitleDate(..., true) parses legacy date formats regardless of
+ * series, and must not be used alone as an authorization/ownership signal.
+ * Compare the full segment before the first "|" (case/spacing insensitive).
+ */
+export function matchesTaskSeries(title: string, configuredPrefix: string): boolean {
+  if (!title || !configuredPrefix || !title.includes('|')) return false;
+  const normalized = (value: string) => value.split('|', 1)[0].trim().toLowerCase();
+  const expected = normalized(configuredPrefix);
+  return expected.length > 0 && normalized(title) === expected;
+}
+
 export function extractTitlePrefix(title: string): string {
   if (!title) return '';
   const parts = title.split('|');

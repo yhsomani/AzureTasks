@@ -74,6 +74,15 @@ describe('ExploreTasksUseCase', () => {
             'Microsoft.VSTS.Scheduling.RemainingWork': 2,
           },
         },
+        {
+          id: 102,
+          fields: {
+            'System.Title': 'Unrelated_Project | 12 Oct',
+            'System.AssignedTo': { displayName: 'Alice Smith', uniqueName: 'alice@example.com' },
+            'System.State': 'Active',
+            'Microsoft.VSTS.Scheduling.StartDate': '2026-10-12T04:00:00Z',
+          },
+        },
       ]),
       getWorkItem: vi.fn(),
       createWorkItemWithReconciliation: vi.fn(),

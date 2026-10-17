@@ -6,6 +6,7 @@ import { FileLockRepository } from '../../src/infrastructure/lock/file-lock-repo
 import { FileJournalRepository } from '../../src/infrastructure/journal/file-journal-repo';
 import { FileConfigRepository } from '../../src/infrastructure/config/file-config-repo';
 import { NodeSchedulerRepository } from '../../src/infrastructure/scheduler/node-scheduler-repo';
+import { buildApp } from '../../src/container';
 import { JournalEntry } from '../../src/domain/ports/repositories';
 
 let dir: string;
@@ -141,6 +142,23 @@ describe('FileJournalRepository', () => {
     const json = JSON.parse(await journal.exportJson());
     expect(Array.isArray(json)).toBe(true);
     expect(json).toHaveLength(1);
+  });
+});
+
+describe('External configuration bootstrap', () => {
+  it('loads PAT from .env beside --config instead of only the process cwd', async () => {
+    const configPath = path.join(dir, 'people.json');
+    fs.writeFileSync(configPath, JSON.stringify({ people: [], schedulerEnabled: false, schedulerAutoStart: false }));
+    fs.writeFileSync(path.join(dir, '.env'), 'AZURE_DEVOPS_PAT=test-custom-config-pat\\n'.replace('\\n', '\n'));
+    const previous = process.env.AZURE_DEVOPS_PAT;
+    try {
+      delete process.env.AZURE_DEVOPS_PAT;
+      await buildApp(configPath, { autoStartScheduler: false });
+      expect(process.env.AZURE_DEVOPS_PAT).toBe('test-custom-config-pat');
+    } finally {
+      if (previous === undefined) delete process.env.AZURE_DEVOPS_PAT;
+      else process.env.AZURE_DEVOPS_PAT = previous;
+    }
   });
 });
 

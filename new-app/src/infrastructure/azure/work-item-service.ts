@@ -11,7 +11,8 @@ import {
   Person, 
   CreatedTask,
   parseTitleDate,
-  matchesPerson
+  matchesPerson,
+  matchesTaskSeries
 } from '../../domain/index.js';
 
 interface WiqlQueryResult {
@@ -102,17 +103,30 @@ export class AzureWorkItemService implements WorkItemRepository {
       key: personIdentity.toLowerCase().trim(),
     };
 
-    const ids = result.workItems.slice(0, 100).map(w => w.id).join(',');
-    const batchResult = await this.client.get<WorkItemBatchResult>(
-      `/${project}/_apis/wit/workitems?ids=${ids}&$expand=relations&api-version=7.0`
-    );
+    // CreatedDate order is not the same as the dated task title. A fixed
+    // first-100 slice can discard the chronologically latest task.
+    if (result.workItems.length > 5000) {
+      throw new Error('Too many source task candidates (>5000); narrow the member or task series.');
+    }
+    const allFetched: WorkItem[] = [];
+    for (let i = 0; i < result.workItems.length; i += 100) {
+      const ids = result.workItems.slice(i, i + 100).map(w => w.id).join(',');
+      const batch = await this.client.get<WorkItemBatchResult>(
+        `/${project}/_apis/wit/workitems?ids=${ids}&$expand=relations&api-version=7.0`
+      );
+      if (!Array.isArray(batch.value)) {
+        throw new Error('Azure DevOps returned an invalid source work-item batch.');
+      }
+      allFetched.push(...batch.value);
+    }
 
     const candidateTasks: DiscoveredTask[] = [];
-    for (const workItem of batchResult.value || []) {
+    for (const workItem of allFetched) {
       if (!matchesPerson(workItem.fields['System.AssignedTo'], targetPerson)) {
         continue;
       }
       const title = workItem.fields['System.Title'] || '';
+      if (!matchesTaskSeries(title, titlePrefix)) continue;
       const parsedDate = parseTitleDate(title, titlePrefix, true);
       if (parsedDate.isValid) {
         candidateTasks.push({
@@ -209,7 +223,10 @@ export class AzureWorkItemService implements WorkItemRepository {
     const personCandidateTasks = new Map<string, DiscoveredTask[]>();
 
     if (result.workItems && result.workItems.length > 0) {
-      const ids = result.workItems.slice(0, 200).map(w => w.id);
+      if (result.workItems.length > 5000) {
+        throw new Error('Too many source task candidates (>5000); narrow the team or task series.');
+      }
+      const ids = result.workItems.map(w => w.id);
       const CHUNK_SIZE = 100;
       const allFetched: WorkItem[] = [];
 
@@ -229,6 +246,7 @@ export class AzureWorkItemService implements WorkItemRepository {
           if (matchesPerson(assignedToVal, person)) {
             const title = workItem.fields['System.Title'] || '';
             const prefix = person.titlePrefix || titlePrefix;
+            if (!matchesTaskSeries(title, prefix)) continue;
             const parsedDate = parseTitleDate(title, prefix, true);
             if (parsedDate.isValid) {
               const list = personCandidateTasks.get(person.key) || [];
@@ -333,7 +351,7 @@ export class AzureWorkItemService implements WorkItemRepository {
           continue;
         }
         const title = workItem.fields['System.Title'];
-        if (!title) continue;
+        if (!title || !matchesTaskSeries(title, titlePrefix)) continue;
         const parsed = parseTitleDate(title, titlePrefix, true);
         if (!parsed.isValid) continue;
         if (parsed.isoDate < startDate || parsed.isoDate > endDate) continue;

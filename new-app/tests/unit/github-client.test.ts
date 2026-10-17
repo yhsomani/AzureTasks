@@ -138,7 +138,7 @@ describe('GitHubClient', () => {
       );
     });
 
-    it('returns empty array on API error without throwing', async () => {
+    it('surfaces GitHub API errors instead of interpreting them as no PRs', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 403,
@@ -151,8 +151,7 @@ describe('GitHubClient', () => {
         fetchFn: mockFetch,
       });
 
-      const prs = await client.getUserPullRequests('dev_user');
-      expect(prs).toEqual([]);
+      await expect(client.getUserPullRequests('dev_user')).rejects.toThrow(/GitHub PR lookup failed.*403/);
     });
   });
 
@@ -199,7 +198,7 @@ describe('GitHubClient', () => {
       expect(deliverables.summaryText).toContain('1 PR(s) created today: #11');
     });
 
-    it('generates standard activity description when user has no PRs today', async () => {
+    it('reports missing PR evidence without claiming unverified work', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -217,8 +216,8 @@ describe('GitHubClient', () => {
       });
       expect(deliverables.isToday).toBe(false);
       expect(deliverables.pullRequests).toHaveLength(0);
-      expect(deliverables.htmlDescription).toContain('Daily Deliverables');
-      expect(deliverables.summaryText).toContain('No PRs created today');
+      expect(deliverables.htmlDescription).toContain('No matching Pull Requests were found');
+      expect(deliverables.summaryText).toContain('manual work summary not verified');
     });
   });
 });

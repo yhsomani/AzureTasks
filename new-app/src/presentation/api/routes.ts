@@ -186,10 +186,13 @@ export function createApiRouter(deps: ApiDependencies): Router {
     }
   });
 
-  router.post('/tasks/repair', async (_req, res) => {
+  router.post('/tasks/repair', async (req, res) => {
     try {
       if (!deps.repairRelations) {
         return res.status(400).json({ success: false, error: 'RepairRelationsUseCase not configured' });
+      }
+      if (req.body?.confirm !== true) {
+        return res.status(400).json({ success: false, error: 'Explicit confirm=true is required to repair Azure relations.' });
       }
       logger.info('Repair API requested: re-copying missing relations...');
       const report = await deps.repairRelations.execute();
@@ -220,7 +223,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
       res.json({ success: true, data: result });
     } catch (err: any) {
       logger.error(`EOD task closure failed: ${err.message}`);
-      res.status(500).json({ success: false, error: err.message });
+      const invalidScope = /^(Select member keys|personKeys must|Choose personKeys)/.test(String(err.message));
+      res.status(invalidScope ? 400 : 500).json({ success: false, error: err.message });
     }
   });
 
@@ -348,8 +352,11 @@ export function createApiRouter(deps: ApiDependencies): Router {
     }
   });
 
-  router.post('/scheduler/run-now', async (_req, res) => {
+  router.post('/scheduler/run-now', async (req, res) => {
     try {
+      if (req.body?.confirm !== true || req.body?.all !== true) {
+        return res.status(400).json({ success: false, error: 'Scheduler run-now requires confirm=true and all=true.' });
+      }
       if (deps.scheduler.triggerRunNow) {
         const result = await deps.scheduler.triggerRunNow();
         res.json({ success: result.success, message: result.message, data: deps.scheduler.getStatus() });
@@ -361,8 +368,11 @@ export function createApiRouter(deps: ApiDependencies): Router {
     }
   });
 
-  router.post('/scheduler/trigger-autoclose', async (_req, res) => {
+  router.post('/scheduler/trigger-autoclose', async (req, res) => {
     try {
+      if (req.body?.confirm !== true || req.body?.all !== true) {
+        return res.status(400).json({ success: false, error: 'Scheduler auto-close requires confirm=true and all=true.' });
+      }
       if (deps.scheduler.triggerAutoCloseNow) {
         const result = await deps.scheduler.triggerAutoCloseNow();
         res.json({ success: result.success, message: result.message, data: deps.scheduler.getStatus() });

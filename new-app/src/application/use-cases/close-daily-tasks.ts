@@ -13,6 +13,7 @@ import {
   Person,
   matchesPerson,
   parseTitleDate,
+  matchesTaskSeries,
   zonedTimeToUtcIso,
   computeTaskCloseTimestamp,
   DatePlanningService,
@@ -94,9 +95,15 @@ export class CloseDailyTasksUseCase {
         .filter(p => p.enabled !== false)
         .map(p => new Person(p));
 
-      if (input.personKeys && input.personKeys.length > 0) {
-        const keys = new Set(input.personKeys.map(k => k.toLowerCase()));
+      if (input.personKeys !== undefined) {
+        if (!Array.isArray(input.personKeys) || input.personKeys.length === 0) {
+          throw new Error('EOD closure requires at least one member when personKeys is provided.');
+        }
+        const keys = new Set(input.personKeys.map(k => k.trim().toLowerCase()));
         selectedPeople = selectedPeople.filter(p => keys.has(p.key.toLowerCase()));
+        if (selectedPeople.length !== keys.size) {
+          throw new Error('EOD closure selected unknown or disabled members. Refresh the team list.');
+        }
       }
 
       if (selectedPeople.length === 0) {
@@ -135,6 +142,8 @@ export class CloseDailyTasksUseCase {
       for (const p of selectedPeople) {
         if (matchesPerson(assignedToVal, p)) {
           const personPrefix = p.titlePrefix || activeConfig.titlePrefix;
+          // Never close an unrelated work item merely because its date matches.
+          if (!matchesTaskSeries(title, personPrefix)) continue;
           const parsed = parseTitleDate(title, personPrefix, true);
           let itemDate = parsed.isValid ? parsed.isoDate : '';
 
@@ -229,8 +238,8 @@ export class CloseDailyTasksUseCase {
             sourceDate: targetDate,
             isToday: false,
             pullRequests: [],
-            htmlDescription: `<div><p>Daily deliverables completed: development, review, and validation tasks executed for ${targetDate}.</p></div>`,
-            summaryText: 'Standard daily deliverables executed as scheduled.',
+            htmlDescription: `<div><p>No verified GitHub PR evidence for ${targetDate}; work completion requires manual verification.</p></div>`,
+            summaryText: 'GitHub identity unavailable; no work evidence verified.',
           };
         }
 

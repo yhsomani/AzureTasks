@@ -47,3 +47,17 @@ The single-host execution lock now records a random ownership token. Only the ac
 **Limitations:** This is a single-host PID and filesystem lock, not a distributed lease. If two processes reclaim the same dead-PID lock simultaneously, there remains a reclamation race; multiple machines or shared/network filesystems are **not supported as a coordination mechanism**. Treat the app as a single-instance deployment until an external lease with fencing is designed and tested. A process with manual filesystem access can still delete its own lock, so the application's identity/auth controls remain essential.
 
 Regression tests live in `tests/unit/repositories.test.ts`; inspect the CI run for the exact release commit. Live concurrent Azure mutations were deliberately not performed.
+
+
+## Runtime and API safety improvements (17 October 2026)
+
+- `POST /api/tasks/close-today` requires an explicit `personKeys` array or `all:true` for actual closure. A `dryRun:true` preview may omit scope for backward-compatible inspection. The browser explicitly sends `all:true` when choosing all members.
+- `POST /api/tasks/repair` requires `confirm:true`.
+- `POST /api/scheduler/run-now` and `POST /api/scheduler/trigger-autoclose` require **both** `confirm:true` and `all:true`. Legacy clients must add these body fields; Basic authentication by itself is not a per-person permission system.
+- Invalid Explorer person keys and empty explicit selections are rejected instead of being expanded to the whole team.
+- Automatic source discovery, duplicate detection, Explorer and EOD require the configured full task-series segment before the first `|`; task titles belonging to other streams do not count, even if their assignee and date match. If your tenant uses legacy date-first title formats, migrate/validate those records before enabling automation.
+- With `--config /path/to/people.json`, the adjacent `/path/to/.env` is loaded without overwriting explicit deployment environment variables, so an existing PAT is found for custom-config launches.
+- The CLI `close-today` command requires explicit `--all` or `--person` plus `--yes` for remote closure. CLI `repair` requires `--yes`. Preview with `--dry-run` remains non-mutating.
+- Azure DevOps Explorer read failures now produce errors rather than fake zero-task coverage. Work-item details use available fields instead of assuming all tenants define the same `Custom.*` names. Source discovery no longer truncates to the first 100/200 candidates without warning; results over the bounded limit explicitly fail.
+- GitHub PR search errors are distinguished from zero PRs. The system must not report that development/review work was performed merely because GitHub returned no PRs.
+- The changes above have fixture/CI coverage only. They do not validate actual corporate identities, policies, remote work-item creation or closure, configured ingress/CSRF behavior, keychain storage or production restoration. Use the release gates in issue #11 before deployment.

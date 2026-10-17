@@ -180,3 +180,42 @@ describe('AzureWorkItemService duplicate detection with missing assignee', () =>
     expect((await svc.getExistingTasksForPerson('P', 'Task', prefix, 'a@b.com', date, date)).size).toBe(0);
   });
 });
+
+describe('AzureWorkItemService source discovery completeness', () => {
+  const prefix = '3in1_PWA_MyAccount |';
+
+  function candidateClient(count: number) {
+    const items = Array.from({ length: count }, (_, i) => ({
+      id: i + 1,
+      fields: {
+        'System.Title': i === count - 1
+          ? `${prefix} 16 Oct`
+          : `${prefix} 10 Oct`,
+        'System.AssignedTo': 'a@b.com',
+      },
+    }));
+    return {
+      async post<T>(): Promise<T> {
+        return { workItems: items.map(x => ({ id: x.id })) } as T;
+      },
+      async get<T>(url: string): Promise<T> {
+        const ids = new URL('https://test.invalid' + url).searchParams.get('ids')?.split(',').map(Number) || [];
+        return { value: items.filter(item => ids.includes(item.id)) } as T;
+      },
+    };
+  }
+
+  it('finds the latest title date even when it is beyond the first 100 IDs', async () => {
+    const service = new AzureWorkItemService(candidateClient(121) as any);
+    const source = await service.findLatestTaskForPerson('P', 'Task', prefix, 'a@b.com');
+    expect(source?.parsedDate.isoDate).toBe('2026-10-16');
+  });
+
+  it('finds a per-person source beyond the first 200 IDs during team discovery', async () => {
+    const service = new AzureWorkItemService(candidateClient(211) as any);
+    const sources = await service.discoverLatestTasksForPeople('P', 'Task', prefix, [
+      { key: 'p1', name: 'A', assignedTo: 'a@b.com', enabled: true } as any,
+    ]);
+    expect(sources.get('p1')?.parsedDate.isoDate).toBe('2026-10-16');
+  });
+});

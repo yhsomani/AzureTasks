@@ -414,19 +414,13 @@ async function refreshDashboard() {
   }).then(data => {
     renderOverviewCharts(data);
     generateInsights(data);
-  }).catch(() => {
-    api.get('/explorer?preset=current_month', {
-      swr: true,
-      maxAgeMs: 60000,
-      abortKey: 'dashboard-explorer',
-      onStale: (data) => {
-        renderOverviewCharts(data);
-        generateInsights(data);
-      },
-    }).then(data => {
-      renderOverviewCharts(data);
-      generateInsights(data);
-    }).catch(() => {});
+  }).catch(err => {
+    // A failed Azure read is not an empty workload or a different date range.
+    // Surface the error rather than swallowing it and leaving stale statistics.
+    if (insightsContainer) {
+      insightsContainer.textContent = `Live task coverage unavailable: ${err.message}. Check Azure DevOps connection and permissions.`;
+    }
+    state.explorerData = null;
   });
 }
 
@@ -2007,7 +2001,7 @@ async function runSchedulerNow() {
   if (!window.confirm('Run the scheduled task creation now for the configured team? This may create Azure DevOps work items.')) return;
   try {
     toast('Starting scheduler execution…');
-    const res = await api.post('/scheduler/run-now');
+    const res = await api.post('/scheduler/run-now', { confirm: true, all: true });
     if (res.success) {
       toast(res.message || 'Scheduler executed', 'ok');
     } else {
@@ -2641,7 +2635,7 @@ function wire() {
     toast('Repairing incomplete relationships...');
     if (btn) { btn.disabled = true; btn.textContent = 'Repairing...'; }
     try {
-      const res = await api.post('/tasks/repair');
+      const res = await api.post('/tasks/repair', { confirm: true });
       if (res.total === 0) {
         toast('No incomplete relations found. Everything is healthy!', 'ok');
       } else {

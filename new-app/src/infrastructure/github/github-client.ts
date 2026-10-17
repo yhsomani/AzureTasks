@@ -157,15 +157,18 @@ export class GitHubClient {
         };
       });
     } catch (err: any) {
-      logger.warn(`Failed to fetch GitHub PRs for user '${username}': ${err.message}`);
-      return [];
+      const reason = err instanceof Error ? err.message : String(err);
+      logger.warn(`Failed to fetch GitHub PRs for user '${username}': ${reason}`);
+      // Auth failures/rate limits cannot be represented as an empty PR list:
+      // doing so would allow EOD descriptions and closures based on false evidence.
+      throw new Error(`GitHub PR lookup failed for '${username}': ${reason}`);
     }
   }
 
   /**
    * Retrieves PR deliverables for a specific target date (YYYY-MM-DD in timezone).
    * Strictly filters to PRs created on the target date for this individual user.
-   * If user created NO PRs on target date -> formats a clean daily engineering deliverable description.
+   * If no matching PRs were returned, disclose the absence of verified PR evidence.
    */
   async getPrDeliverablesForDate(
     username: string,

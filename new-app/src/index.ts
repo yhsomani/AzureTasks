@@ -121,8 +121,8 @@ COMMANDS:
   run                 Create tasks now
   plan                Preview task creation (dry-run)
   daemon              Run the automated weekday scheduler
-  repair              Repair incomplete relationship copies
-  close-today         Close today's tasks for team members with PR descriptions
+  repair              Repair incomplete relationship copies (requires --yes)
+  close-today         Close today's tasks (--all/--person and --yes required for writes)
   help                Show this help
 
 OPTIONS:
@@ -194,6 +194,12 @@ async function main(): Promise<void> {
 
     case 'close-today': {
       const isDryRun = !!opts.dryRun;
+      if (!isDryRun && (!opts.yes || (!opts.all && !opts.personKeys?.length))) {
+        throw new Error('Live EOD closure requires an explicit --all or --person scope and --yes. Use --dry-run to inspect first.');
+      }
+      if (opts.all && opts.personKeys?.length) {
+        throw new Error('Use either --all or --person for EOD closure, not both.');
+      }
       logger.info(`Running EOD task closure (dryRun=${isDryRun})...`);
       const output = await app.closeDailyTasks.execute({
         personKeys: opts.personKeys,
@@ -241,6 +247,9 @@ async function main(): Promise<void> {
     }
 
     case 'repair': {
+      if (!opts.yes) {
+        throw new Error('Relation repair writes Azure DevOps links. Pass --yes after reviewing unfinished entries.');
+      }
       logger.info('Repair mode: re-copying missing relations...');
       const report = await app.repairRelations.execute();
 
