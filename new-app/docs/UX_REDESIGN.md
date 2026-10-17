@@ -159,3 +159,11 @@ A further test-first inspection found two misleading user journeys in the existi
 `tests/integration/ui-timezone-feedback.test.ts` includes a fixed UTC instant that falls on the following day in Asia/Kolkata, an ad-hoc date default contract, a VM-executed partial-failure toast assertion, and the fully-successful control case. GitHub Actions exercises these alongside the existing browser navigation and safe creation tests.
 
 **Not verified here:** live Azure DevOps creation, business-specific holiday/calendar rules, visual review with real data, and externally stored credential rotation. Avoid assuming success based solely on a green headless-browser fixture test.
+
+## Team Management draft and save flow — October 17, 2026
+
+The former Team UI had two competing persistence paths: typing directly into an editable row required `Save team`, but the Add Member modal immediately wrote the entire roster to the server. That could silently persist unrelated edits. Saving the roster also auto-selected every enabled member in Planner and Explorer and showed a “tasks synchronized everywhere” toast despite only changing configuration.
+
+The redesigned flow uses a single explicit commit: edit fields, add or remove members in a draft, observe the pending status, and click **Save team**. Draft edits persist when navigating away and back within the same session. A successful response marks the configuration saved, invalidates cached task plans, and **never expands the selected task-creation scope**; stale selected members that no longer exist are removed. Server failure leaves the draft pending, with a visible error. Adding a member does not create Azure DevOps work items or secretly persist other edits.
+
+**Verification:** Contract tests `ui-team-save.test.ts`, browser journey checks for draft retention/save feedback, and full CI on the exact branch commit. This does not verify that real Azure identities are assignable; a tenant read-only validation is required before enabling automatic creation.
