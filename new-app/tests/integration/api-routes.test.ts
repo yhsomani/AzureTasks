@@ -242,7 +242,11 @@ describe('API routes', () => {
   });
 
   it('POST /api/tasks/repair delegates to repairRelations use case', async () => {
-    const res = await json('/api/tasks/repair', { method: 'POST' });
+    const res = await json('/api/tasks/repair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true }),
+    });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.success).toBe(true);
@@ -315,6 +319,8 @@ describe('API routes', () => {
   it('POST /api/scheduler/run-now triggers immediate execution', async () => {
     const res = await json('/api/scheduler/run-now', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true, all: true }),
     });
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -364,11 +370,29 @@ describe('API routes', () => {
   it('POST /api/scheduler/trigger-autoclose triggers auto-close immediately', async () => {
     const res = await json('/api/scheduler/trigger-autoclose', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true, all: true }),
     });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.success).toBe(true);
     expect((deps.scheduler.triggerAutoCloseNow as any)).toHaveBeenCalled();
+  });
+
+  it('blocks unconfirmed repair and scheduler remote operations before use-case execution', async () => {
+    const repair = deps.repairRelations?.execute as any;
+    const schedule = deps.scheduler.triggerRunNow as any;
+    const closure = deps.scheduler.triggerAutoCloseNow as any;
+    repair.mockClear();
+    schedule.mockClear();
+    closure.mockClear();
+    for (const path of ['/api/tasks/repair', '/api/scheduler/run-now', '/api/scheduler/trigger-autoclose']) {
+      const res = await json(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      expect(res.status).toBe(400);
+    }
+    expect(repair).not.toHaveBeenCalled();
+    expect(schedule).not.toHaveBeenCalled();
+    expect(closure).not.toHaveBeenCalled();
   });
 
   it('GET /api/github/test-user resolves user and returns deliverables', async () => {
