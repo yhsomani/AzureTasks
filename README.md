@@ -31,6 +31,7 @@ CI runs these checks for the supported application.
 
 ## Documentation
 
+- [Product direction and feature decisions](new-app/docs/PRODUCT_DIRECTION.md)
 - [Setup, commands, deployment, and security](new-app/README.md)
 - [Current product requirements](new-app/PRD.md)
 - [UI redesign audit and user journeys](new-app/docs/UX_REDESIGN.md)

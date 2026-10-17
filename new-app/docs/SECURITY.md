@@ -4,7 +4,7 @@ This document applies to the supported `new-app/` application. It records verifi
 
 ## Trust boundaries
 
-- **Browser → application:** The web dashboard and API are same-origin by default. CORS browser access is disabled unless an explicit trusted `CORS_ORIGIN` is configured. Cross-origin restrictions are not a substitute for authentication.
+- **Browser → application:** The web dashboard and API are same-origin by default. The server rejects unsafe cross-origin browser API requests before their handlers execute, even if HTTP Basic credentials were supplied. CORS browser access is disabled unless an explicit trusted `CORS_ORIGIN` is configured. CORS alone is not protection against CSRF.
 - **API → Azure DevOps:** API calls can create and update real Azure DevOps work items. The task-creation API requires a non-empty `personKeys` array or an intentional `all: true` marker. Empty arrays and omitted scopes on mutation routes must be rejected.
 - **API → GitHub Enterprise:** Token is used for reads of PR/commit evidence. Avoid broad token scopes where narrower supported permissions suffice.
 - **Service → local files:** `.env`, journal and config files may contain sensitive organizational data. Protect runtime directories and backups, set restrictive filesystem permissions, and never commit credentials.
@@ -15,8 +15,8 @@ This document applies to the supported `new-app/` application. It records verifi
 2. Provide a long, randomly generated `API_AUTH_TOKEN` before starting the web server with `NODE_ENV=production`. Production server startup refuses to run if absent.
 3. Terminate HTTPS at a trusted reverse proxy (or equivalent TLS-enabled network boundary). HTTP Basic authentication is not sufficient over plaintext public networks.
 4. Keep `NODE_TLS_REJECT_UNAUTHORIZED` enabled and do not enable `ALLOW_INSECURE_TLS`. Use `NODE_EXTRA_CA_CERTS` for a trusted corporate CA where appropriate.
-5. Restrict CORS to an explicit origin only when the web client must be served from a different origin. Normal application use requires no CORS configuration.
-6. Start one scheduler instance per lock domain; coordinate shared locks if deploying multiple hosts.
+5. Restrict CORS to an explicit origin only when the web client must be served from a different origin. Normal application use requires no CORS configuration. For a TLS-terminating proxy that changes the scheme or Host seen by Node, set `PUBLIC_ORIGIN=https://your-public-host.example.com` (exact origin; no trailing slash/path), or preserve Host and configure the proxy correctly. The API checks browser `Origin` for POST/PUT/PATCH/DELETE and denies `Sec-Fetch-Site: cross-site` unless from an explicitly trusted CORS origin. CLI clients without browser headers still require authentication but can call the API.
+6. Keep automatic scheduling and auto-closure disabled on initial setup. A persisted deployment with automation enabled should be migrated explicitly, after reviewing its intended behavior. Start one scheduler instance per lock domain; coordinate shared locks if deploying multiple hosts.
 7. Test a **read-only plan** and inspect identities, date window, duplicate coverage and source work-item relationships before any actual task creation or closure.
 
 ## Expected HTTP behavior
