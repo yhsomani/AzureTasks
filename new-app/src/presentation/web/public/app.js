@@ -1723,6 +1723,7 @@ function input(value, onChange, type = 'text') {
 async function loadPeople() {
   if (state.teamDirty) return; // Preserve edits across navigation; never discard a draft.
   const cfg = await ensureConfig(true);
+  if (state.teamDirty) return; // Ignore an in-flight load after the user began editing.
   state.people = cfg.people.map(p => ({ ...p }));
   renderPeople();
   updateTeamDirtyState(false);
