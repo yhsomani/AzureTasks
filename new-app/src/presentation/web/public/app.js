@@ -2045,7 +2045,7 @@ async function triggerEodClosure(dryRun = false) {
   if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="muted" style="text-align:center; padding:24px;">Analyzing tasks for today...</td></tr>';
 
   try {
-    const res = await api.post('/tasks/close-today', { dryRun });
+    const res = await api.post('/tasks/close-today', { dryRun, all: true });
     state.lastEodResult = res;
 
     if (summaryEl) {
