@@ -614,3 +614,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
 }
+
+/* Screen-reader-only status messages remain accessible without visual clutter. */
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
