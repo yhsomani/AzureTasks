@@ -160,10 +160,13 @@ A further test-first inspection found two misleading user journeys in the existi
 
 **Not verified here:** live Azure DevOps creation, business-specific holiday/calendar rules, visual review with real data, and externally stored credential rotation. Avoid assuming success based solely on a green headless-browser fixture test.
 
-## My Work and Daily Burndown corrective redesign — October 17, 2026
+## Settings accessibility and credential transparency — October 17, 2026
 
-- **My Work stale data:** The previous implementation could render an outdated member's response after the user selected a different person. Selection request versions now guard the post-config fetch, stale-while-revalidate updates, and final response/error updates. A VM regression test resolves responses in reverse order to detect accidental cross-member rendering.
-- **Daily Burndown keyboard access:** Existing coverage cells used `onclick` on plain `<td>` elements. Actual inspection now sits on native buttons with descriptive titles and the common focus-visible styling, while the matrix data and visual status colors remain unchanged.
-- **Task links:** Some My Work links pointed to `#` when the API omitted a URL. They now use the existing Azure DevOps work-item URL helper with the numeric task ID as fallback rather than displaying a knowingly broken action.
+- Added a connection/setup sequence and a direct link to Team configuration. It does not change existing APIs.
+- Added clear security disclosure: local server configuration is sensitive, masked fields do not imply at-rest encryption, and HTTPS / credential rotation remain deployment responsibilities.
+- Corrected an unsupported claim that the Azure DevOps PAT was “stored securely in server .env.”
+- Added a labeled Azure DevOps token control, properly described timezone/start-time fields, labeled GitHub token help, and a token visibility button that updates accessible state when shown/hidden.
+- Added responsive layout for credential controls at 600px and below.
+- Existing form identifiers and navigation routes are retained; CI integration coverage checks this contract.
 
-**Evidence:** `tests/integration/ui-work-views.test.ts` initially failed in CI on all three conditions; the corrected version is rerun in the same unit/integration + Chromium pipeline. Live Azure DevOps correctness and screen-reader operation must be checked separately.
+**Outstanding:** a managed secret store migration, actual screen reader review, and secure deployment verification. These are not satisfied by a browser fixture test.

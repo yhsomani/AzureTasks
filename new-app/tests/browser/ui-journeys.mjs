@@ -63,6 +63,10 @@ async function attachFixtures(pageInstance) {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
     if (pathname === '/api/logs/stream' || pathname === '/api/health') return route.continue();
+    if (pathname === '/api/config/people' && request.method() === 'POST') {
+      // Settings-only synthetic fixture: no external Azure DevOps writes.
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { saved: true } }) });
+    }
     if (pathname === '/api/tasks/plan') {
       const payload = JSON.parse(request.postData() || '{}');
       const scoped = (payload.personKeys || []).length > 0;
@@ -100,6 +104,20 @@ try {
     assert.equal(await page.locator('.nav-item[data-view="' + view + '"]').getAttribute('aria-current'), 'page', 'current page: ' + view);
     assert.equal(new URL(page.url()).hash, '#' + view, 'hash route: ' + view);
   }
+
+  // Verify real keyboard operability, input labeling, and token visibility without
+  // entering any credentials or sending a settings mutation.
+  await page.locator('.nav-item[data-view="settings"]').click();
+  assert.equal(await page.locator('#setTz').getAttribute('aria-describedby'), 'settingsTimezoneHelp');
+  assert.equal(await page.locator('#setPat').getAttribute('type'), 'password');
+  await page.locator('#togglePatEye').focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await page.locator('#setPat').getAttribute('type'), 'text');
+  assert.equal(await page.locator('#togglePatEye').getAttribute('aria-label'), 'Hide Azure DevOps token');
+  await page.keyboard.press('Enter');
+  assert.equal(await page.locator('#setPat').getAttribute('type'), 'password');
+  assert.equal(await page.locator('#togglePatEye').getAttribute('aria-label'), 'Show Azure DevOps token');
+  assert.equal(mutationRequests.length, 0);
 
   await page.locator('.nav-item[data-view="explorer"]').click();
   await page.locator('#explorerDeselectAllBtn').click();

@@ -11,6 +11,7 @@ import express from 'express';
 import cors from 'cors';
 import { createApiRouter, ApiDependencies } from './routes.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import { unsafeRequestOriginGuard } from './request-origin.js';
 
 /**
  * HTTP Basic auth over a single shared secret. The browser supplies the login
@@ -80,6 +81,11 @@ export class AppServer {
     } else {
       logger.warn('HTTP authentication disabled. Set API_AUTH_TOKEN to require a login.');
     }
+
+    this.app.use(unsafeRequestOriginGuard({
+      publicOrigin: process.env.PUBLIC_ORIGIN?.trim(),
+      allowedOrigin,
+    }));
 
     this.app.use(express.json({ limit: '1mb' }));
 

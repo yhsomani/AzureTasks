@@ -69,10 +69,10 @@
       "enabled": true
     }
   ],
-  "schedulerEnabled": true,
-  "scheduleTime": "09:45",
-  "schedulerAutoStart": true,
-  "autoClose": true,
+  "schedulerEnabled": false,
+  "scheduleTime": "09:30",
+  "schedulerAutoStart": false,
+  "autoClose": false,
   "autoCloseStartTime": "18:15",
   "autoCloseEndTime": "18:45",
   "lastAutoClose": "2026-10-16T16:05:20.550Z"
