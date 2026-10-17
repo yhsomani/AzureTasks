@@ -13,6 +13,7 @@ const state = {
   explorerData: null,
   selectedExplorerKeys: new Set(),
   burndownData: null,
+  myWorkRequestVersion: 0,
   journal: [],
   scheduler: null,
   charts: { effort: null, status: null },
@@ -682,19 +683,21 @@ function renderBurndownTable(data) {
         tr.append(el('td', { class: 'cell-status cell-weekend' }, 'WO'));
       } else if (cell.status === 'CREATED' || cell.status === 'DUPLICATE') {
         const completed = cell.tasks.reduce((sum, t) => sum + (t.completedWork || 0), 0);
-        const td = el('td', {
-          class: 'cell-status cell-created',
-          title: `Tasks: ${cell.tasks.length} | Completed: ${completed}h`,
-          onclick: () => openDateInspectModal(cell, row.person),
-        }, completed > 0 ? `${completed}h` : String(cell.tasks.length));
-        tr.append(td);
+        tr.append(el('td', { class: 'cell-status cell-created' },
+          el('button', {
+            type: 'button',
+            class: 'matrix-cell-action',
+            title: `Inspect ${cell.tasks.length} task(s) for ${row.person.name} · ${d.formattedDate}`,
+            onclick: () => openDateInspectModal(cell, row.person),
+          }, completed > 0 ? `${completed}h` : String(cell.tasks.length))));
       } else {
-        const td = el('td', {
-          class: 'cell-status cell-missing',
-          title: 'Missing task',
-          onclick: () => openDateInspectModal(cell, row.person),
-        }, '0');
-        tr.append(td);
+        tr.append(el('td', { class: 'cell-status cell-missing' },
+          el('button', {
+            type: 'button',
+            class: 'matrix-cell-action',
+            title: `Inspect missing task for ${row.person.name} · ${d.formattedDate}`,
+            onclick: () => openDateInspectModal(cell, row.person),
+          }, '0')));
       }
     });
 
@@ -709,8 +712,10 @@ function renderBurndownTable(data) {
 
 /* ----------------------------------------------------------------- my work */
 async function refreshMyWork(options = {}) {
+  const requestVersion = ++state.myWorkRequestVersion;
   const forceFresh = options.forceFresh === true;
   const cfg = await ensureConfig(forceFresh);
+  if (requestVersion !== state.myWorkRequestVersion) return;
   const select = $('#myWorkPersonSelect');
   const activePeople = cfg.people.filter(p => p.enabled !== false);
 
@@ -763,11 +768,16 @@ async function refreshMyWork(options = {}) {
       forceFresh,
       maxAgeMs: 30000,
       abortKey: 'mywork-query',
-      onStale: (stale) => renderMyWorkContent(stale, personKey),
+      onStale: (stale) => {
+        if (requestVersion === state.myWorkRequestVersion && $('#myWorkPersonSelect')?.value === personKey) {
+          renderMyWorkContent(stale, personKey);
+        }
+      },
     });
+    if (requestVersion !== state.myWorkRequestVersion || $('#myWorkPersonSelect')?.value !== personKey) return;
     renderMyWorkContent(data, personKey);
   } catch (err) {
-    if (err.name === 'AbortError') return;
+    if (requestVersion !== state.myWorkRequestVersion || err.name === 'AbortError') return;
     if (container) container.innerHTML = `<p class="muted" style="color:var(--danger);">${escapeHtml(err.message)}</p>`;
   }
 }
@@ -805,11 +815,11 @@ function renderMyWorkContent(data, personKey) {
     const stateCls = (t.state || 'new').toLowerCase();
     tbody.append(el('tr', {}, [
       el('td', { style: 'font-weight:600;' }, t.formattedDate),
-      el('td', {}, el('a', { href: t.url || '#', target: '_blank', style: 'color:var(--accent); font-weight:600;' }, `#${t.taskId}`)),
+      el('td', {}, el('a', { href: t.url || getAdoWorkItemUrl(t.taskId), target: '_blank', style: 'color:var(--accent); font-weight:600;' }, `#${t.taskId}`)),
       el('td', { class: 'title-cell' }, t.title || '—'),
       el('td', {}, el('span', { class: `state-tag state-${stateCls}` }, t.state || 'New')),
       el('td', {}, `${t.completedWork || 0}h`),
-      el('td', {}, el('a', { href: t.url || '#', target: '_blank', class: 'btn small ghost' }, 'Open in ADO ↗')),
+      el('td', {}, el('a', { href: t.url || getAdoWorkItemUrl(t.taskId), target: '_blank', class: 'btn small ghost' }, 'Open in ADO ↗')),
     ]));
   });
   table.append(tbody);
