@@ -39,3 +39,11 @@ This document applies to the supported `new-app/` application. It records verifi
 The source/API regression suite, headless Chromium UX checks and authenticated HTTP smoke tests run in CI. They do **not** prove secure deployment architecture, correct organizational policy, live Azure permissions, credential rotation, audit logging of every failure, penetration test coverage or authorization between multiple independent app users.
 
 **Remaining security work:** Replace plaintext on-disk credentials with an approved OS/enterprise secret store where required; review CSRF and proxy origin settings for your deployment; perform a managed dependency scan and verify server logs never disclose secret material; do a tenant-scoped, explicitly authorized integration test. Historical credentials posted in conversations must be revoked and replaced.
+
+## File lock correctness (October 2026)
+
+The single-host execution lock now records a random ownership token. Only the acquiring instance with the matching token and PID may release the active lock; a second instance's `release()` does nothing. A live owner no longer loses its lock after an arbitrary five-minute timeout; a terminated PID still permits stale-lock recovery. Unparseable lock files are treated as locked and require operator investigation rather than automatic destructive recovery.
+
+**Limitations:** This is a single-host PID and filesystem lock, not a distributed lease. If two processes reclaim the same dead-PID lock simultaneously, there remains a reclamation race; multiple machines or shared/network filesystems are **not supported as a coordination mechanism**. Treat the app as a single-instance deployment until an external lease with fencing is designed and tested. A process with manual filesystem access can still delete its own lock, so the application's identity/auth controls remain essential.
+
+Regression tests live in `tests/unit/repositories.test.ts`; inspect the CI run for the exact release commit. Live concurrent Azure mutations were deliberately not performed.
