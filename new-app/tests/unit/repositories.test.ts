@@ -193,6 +193,49 @@ describe('FileConfigRepository', () => {
     expect(reloaded.people).toHaveLength(1);
   });
 
+  it('preserves EOD checkpoint, unknown settings and no plaintext token on full save', async () => {
+    const cfgPath = path.join(dir, 'people.json');
+    fs.writeFileSync(cfgPath, JSON.stringify({
+      lastAutoClose: '2026-10-16',
+      extensionSetting: 'retained',
+      githubToken: 'legacy-test-only-secret',
+      people: [],
+    }));
+    const repo = new FileConfigRepository(cfgPath);
+    const config = await repo.load();
+    await repo.save(config);
+    const persisted = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+    expect(persisted.lastAutoClose).toBe('2026-10-16');
+    expect(persisted.extensionSetting).toBe('retained');
+    expect(persisted.githubToken).toBeUndefined();
+    expect(fs.readFileSync(path.join(dir, '.env'), 'utf-8')).toContain('legacy-test-only-secret');
+  });
+
+  it('refuses to destroy unreadable configuration on people or settings changes', async () => {
+    const cfgPath = path.join(dir, 'people.json');
+    fs.writeFileSync(cfgPath, '{broken');
+    const repo = new FileConfigRepository(cfgPath);
+    await expect(repo.savePeople([])).rejects.toThrow(/Refusing to overwrite/);
+    await expect(repo.saveSettings({ timezone: 'UTC' })).rejects.toThrow(/Refusing to overwrite/);
+    expect(fs.readFileSync(cfgPath, 'utf-8')).toBe('{broken');
+  });
+
+  it('keeps injected config tokens out of people.json and saves local secrets in a restricted file', async () => {
+    const cfgPath = path.join(dir, 'people.json');
+    const repo = new FileConfigRepository(cfgPath);
+    const config = await repo.load();
+    config.githubToken = 'runtime-test-only-token';
+    await repo.save(config);
+    expect(fs.readFileSync(cfgPath, 'utf-8')).not.toContain('runtime-test-only-token');
+    await repo.saveSettings({ githubToken: 'new-test-only-token' });
+    expect(fs.readFileSync(cfgPath, 'utf-8')).not.toContain('new-test-only-token');
+    const env = path.join(dir, '.env');
+    expect(fs.readFileSync(env, 'utf-8')).toContain('new-test-only-token');
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(env).mode & 0o777).toBe(0o600);
+    }
+  });
+
   it('throws Configuration Error when config file exists but contains invalid JSON', async () => {
     const cfgPath = path.join(dir, 'people.json');
     fs.writeFileSync(cfgPath, '{ invalid json content');
