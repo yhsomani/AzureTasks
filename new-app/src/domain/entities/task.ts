@@ -244,6 +244,7 @@ export function parseWorkItemTaskDate(
   item: WorkItem,
   prefix: string,
   timezone = 'UTC',
+  requireRecordedWorkday = false,
 ): ParsedTaskDate {
   const title = String(item.fields['System.Title'] || '');
   if (!matchesTaskSeries(title, prefix)) {
@@ -300,6 +301,10 @@ export function parseWorkItemTaskDate(
   // A recorded date that contradicts the title is not permission to guess
   // a year or assign an unrelated work item to a target workday.
   if (hadRecordedDate) return { ...parsed, isoDate: '', year: 0, isValid: false };
+
+  // An EOD write must not close a historical item merely because its
+  // yearless title happens to match today's month and day.
+  if (requireRecordedWorkday) return { ...parsed, isoDate: '', year: 0, isValid: false };
 
   // Older tasks can lack scheduling fields. Their creation time can locate the
   // nearest year, but operators must verify distant/backfilled history.
