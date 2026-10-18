@@ -263,10 +263,9 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       ? new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date(this.status.lastAutoClose)) === nowLocalDateIso
       : false;
 
-    // If today's auto-close already ran successfully with closed tasks, do nothing
-    if (lastRunToday && this.status.lastAutoCloseResult === 'success') {
-      return;
-    }
+    // A previous failed/empty attempt must never cause unattended retries
+    // to patch the same Azure work items repeatedly.
+    if (lastRunToday || this.autoCloseTimer) return;
 
     const nowLocalTimeParts = new Intl.DateTimeFormat('en-GB', {
       timeZone: tz,
@@ -278,10 +277,12 @@ export class NodeSchedulerRepository implements SchedulerRepository {
 
     const nowSeconds = nowLocalTimeParts[0] * 3600 + nowLocalTimeParts[1] * 60 + nowLocalTimeParts[2];
     const [startH, startM] = this.autoCloseStartTime.split(':').map(n => parseInt(n, 10) || 0);
+    const [endH, endM] = this.autoCloseEndTime.split(':').map(n => parseInt(n, 10) || 0);
     const startSeconds = startH * 3600 + startM * 60;
+    const endSeconds = endH * 3600 + endM * 60;
 
-    // If current time is past start of window and today's auto-close hasn't succeeded:
-    if (nowSeconds >= startSeconds) {
+    // Only recover a missed timer within its authorized closure window.
+    if (nowSeconds >= startSeconds && nowSeconds < endSeconds) {
       if (this.status.nextAutoClose) {
         const nextTarget = new Date(this.status.nextAutoClose);
         const diffMs = nextTarget.getTime() - now.getTime();
@@ -362,7 +363,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       ? new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date(this.status.lastAutoClose)) === nowLocalDateIso
       : false;
 
-    // 1. If it is a weekday and today's auto-close has NOT run yet:
+    // 1. If it is a weekday and no closure attempt was recorded today:
     if (!isWeekend && !lastRunToday) {
       // 1a. If currently inside the active window (e.g. 18:15 - 18:45):
       // schedule within the remaining window minutes today
@@ -379,14 +380,14 @@ export class NodeSchedulerRepository implements SchedulerRepository {
         return { target, timeStr };
       }
 
-      // 1b. If after the active window today (e.g. after 18:45):
-      // DO NOT DEFER TODAY'S TASKS TO TOMORROW! Execute closure for today's tasks immediately or retry in 15m.
+      // After the window, do not silently retry remote EOD mutations.
       if (nowSeconds >= endSeconds) {
-        const delaySeconds = this.status.lastAutoCloseResult === 'empty' ? 15 * 60 : 5;
-        const target = new Date(from.getTime() + delaySeconds * 1000);
-        const timeStr = delaySeconds > 5 ? 'Retry in 15m (Catching up today)' : 'Immediate (Catching up today)';
-        logger.info(`Scheduler: Today's auto-close window (${this.autoCloseStartTime}-${this.autoCloseEndTime}) has passed but tasks were not closed yet today. Triggering ${timeStr}...`);
-        return { target, timeStr };
+        const nextDay = addDays(nowLocalDateIso, 1);
+        const nextTime = this.computeRandomizedTime(this.autoCloseStartTime, this.autoCloseEndTime);
+        return {
+          target: this.getNextRunTime(new Date(zonedTimeToUtcIso(nextDay, '00:00:00', tz)), nextTime),
+          timeStr: nextTime,
+        };
       }
 
       // 1c. If before the active window today (e.g. morning/afternoon before 18:15):
@@ -485,6 +486,9 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     }
 
     this.isAutoCloseExecuting = true;
+    // Checkpoint every attempt, even failures and empty scans. Subsequent
+    // automatic attempts on the same day require explicit operator action.
+    this.status.lastAutoClose = new Date().toISOString();
     logger.info(`Scheduler: running automated EOD task closure (window: ${this.autoCloseStartTime}-${this.autoCloseEndTime}, tz: ${this.timezone})...`);
     try {
       const result: any = await this.autoCloseFn();
@@ -495,27 +499,29 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       const totalFailed = typeof result?.totalFailed === 'number' ? result.totalFailed : 0;
 
       if (totalFound === 0 || (totalFound !== undefined && totalClosed === 0 && totalAlreadyClosed === 0)) {
-        logger.warn('Scheduler: auto-close executed but 0 candidate tasks were found or matched for today. Will NOT mark today as completed so heartbeat/retry can catch up.');
+        logger.warn('Scheduler: EOD scan found 0 candidate tasks. No unattended retry will run today; review the team and work-item source.');
         this.status.lastAutoCloseResult = 'empty';
         return;
       }
 
-      this.status.lastAutoClose = new Date().toISOString();
       this.status.lastAutoCloseResult = totalFailed > 0 ? 'partial' : 'success';
-      if (this.configRepo) {
-        try {
-          await this.configRepo.saveSettings({
-            lastAutoClose: this.status.lastAutoClose,
-          });
-        } catch (err: any) {
-          logger.warn(`Failed to persist lastAutoClose: ${err.message}`);
-        }
+      if (totalFailed > 0) {
+        logger.warn(`Scheduler: EOD closure incomplete (${totalClosed} closed, ${totalAlreadyClosed} already closed, ${totalFailed} failed). Review failures manually.`);
+      } else {
+        logger.success(`Scheduler: EOD closure request completed (${totalClosed} closed, ${totalAlreadyClosed} already closed, ${totalFailed} failed).`);
       }
-      logger.success(`Scheduler: EOD task auto-close completed successfully (${totalClosed} closed, ${totalAlreadyClosed} already closed, ${totalFailed} failed).`);
     } catch (error: any) {
       this.status.lastAutoCloseResult = 'failure';
       logger.error(`Scheduler: EOD task auto-close failed: ${error?.message || error}`);
     } finally {
+      if (this.configRepo && this.status.lastAutoClose) {
+        try {
+          await this.configRepo.saveSettings({ lastAutoClose: this.status.lastAutoClose });
+        } catch (error: any) {
+          this.status.lastAutoCloseResult = 'partial';
+          logger.error(`EOD attempt checkpoint could not be persisted: ${error?.message || error}. Disable the scheduler until recovery is verified.`);
+        }
+      }
       this.isAutoCloseExecuting = false;
     }
   }

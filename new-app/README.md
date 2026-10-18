@@ -191,3 +191,7 @@ Rotated journals remain available to the audit UI, exports and relation-repair d
 ## Live health probes
 
 `GET /api/health` is a web-process **liveness** check only; it deliberately does not assert that Azure DevOps or GitHub is online. `GET /api/ready` checks Azure DevOps project/type access using the current credentials and returns HTTP 503 if the integration is unavailable. Readiness is subject to normal API authentication. A successful readiness response is not proof that Azure write permissions or EOD transitions have been exercised.
+
+## EOD scheduler safety
+
+Automatic EOD closure is opt-in. When enabled, the scheduler makes at most **one automatic closure attempt per configured workday** within the configured time window. Empty scans, Azure failures and partial results are surfaced rather than retried silently into repeated remote patches; the attempt timestamp is persisted to prevent automatic replay after restart. An authorized operator may manually trigger another run after inspecting the result. The task state transition is subject to Azure DevOps workflow validation, and work hours/descriptions are not invented.
