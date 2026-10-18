@@ -203,7 +203,7 @@ export class CloseDailyTasksUseCase {
             nowUtc
           ),
           remainingWork: Number(item.fields['Microsoft.VSTS.Scheduling.RemainingWork'] || 0),
-          completedWork: Number(item.fields['Microsoft.VSTS.Scheduling.CompletedWork'] || 8),
+          completedWork: Number(item.fields['Microsoft.VSTS.Scheduling.CompletedWork'] ?? 0),
           prCount: 0,
           prSourceDate: targetDate,
           isTodayPr: false,
@@ -262,10 +262,16 @@ export class CloseDailyTasksUseCase {
           activeConfig.autoCloseEndTime || '18:45'
         );
 
+        // Closing is not evidence of 8 hours worked. Preserve actuals already
+        // recorded in Azure DevOps rather than fabricating a full workday.
+        const completedWork = Number(item.fields['Microsoft.VSTS.Scheduling.CompletedWork'] ?? 0);
+        const remainingWork = Number(item.fields['Microsoft.VSTS.Scheduling.RemainingWork'] ?? 0);
+        if (!Number.isFinite(completedWork) || completedWork < 0 ||
+            !Number.isFinite(remainingWork) || remainingWork < 0) {
+          throw new Error('Invalid Azure work tracking values; closure requires review.');
+        }
         // Build atomic JSON Patch operations
         const ops: any[] = [
-          { op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.RemainingWork', value: 0 },
-          { op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.CompletedWork', value: 8 },
           { op: 'add', path: '/fields/Custom.ActualStartdate', value: plannedStart },
           { op: 'add', path: '/fields/Custom.ActualEnddate', value: closedTimestamp },
           { op: 'add', path: '/fields/Microsoft.VSTS.Common.ClosedDate', value: closedTimestamp },
@@ -273,7 +279,7 @@ export class CloseDailyTasksUseCase {
           {
             op: 'add',
             path: '/fields/System.History',
-            value: `Automated EOD Task Closure: Remaining Work set to 0h, Completed Work set to 8h. ${prDeliverables.summaryText}`,
+            value: `EOD closure requested with existing Completed Work ${completedWork}h and Remaining Work ${remainingWork}h. No hours were inferred. ${prDeliverables.summaryText}`,
           },
           { op: 'add', path: '/fields/System.State', value: 'Closed' },
           { op: 'add', path: '/fields/System.Reason', value: 'Completed' },
@@ -291,8 +297,8 @@ export class CloseDailyTasksUseCase {
         }
 
         if (!isDryRun) {
-          await this.workItemRepo.patchWorkItem(taskId, ops, { bypassRules: true });
-          logger.info(`Closed task #${taskId} for ${person.name} with 8h completed work.`);
+          await this.workItemRepo.patchWorkItem(taskId, ops, { bypassRules: Boolean(input.bypassRules) });
+          logger.info(`Closed task #${taskId} for ${person.name}; preserved Azure recorded work hours.`);
           totalClosed++;
 
           // Record in Journal for persistent audit trail
@@ -328,8 +334,8 @@ export class CloseDailyTasksUseCase {
           plannedStartDate: String(plannedStart),
           actualStartDate: String(plannedStart),
           actualEndDate: closedTimestamp,
-          remainingWork: 0,
-          completedWork: 8,
+          remainingWork,
+          completedWork,
           githubUsername: githubUser,
           prCount: prDeliverables.pullRequests.length,
           prSourceDate: prDeliverables.sourceDate,

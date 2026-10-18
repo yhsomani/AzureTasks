@@ -8,72 +8,11 @@
   "thursdayMode": "CURRENT",
   "githubOrg": "3in1-AppFrontEnd",
   "githubUserSuffix": "_bflghec",
-  "people": [
-    {
-      "key": "yash_somani",
-      "name": "Yash Somani",
-      "assignedTo": "yash.somani@bajajfinserv.in",
-      "role": "Dev On-Role",
-      "enabled": true
-    },
-    {
-      "key": "yash_mutatkar",
-      "name": "Yash Mutatkar",
-      "assignedTo": "yash.mutatkar@bajajfinserv.in",
-      "role": "Dev On-Role",
-      "enabled": true
-    },
-    {
-      "key": "shubham_bugade",
-      "name": "Shubham Bugade",
-      "assignedTo": "shubham.bugade@bajajfinserv.in",
-      "role": "Dev On-Role",
-      "enabled": true
-    },
-    {
-      "key": "ajinkya_lendikar",
-      "name": "Ajinkya Lendikar",
-      "assignedTo": "ajinkya.lendikar@bajajfinserv.in",
-      "pod": "108_My Account Part 2",
-      "role": "SDM",
-      "enabled": true
-    },
-    {
-      "key": "mukul_ramteke",
-      "name": "Mukul Ramteke",
-      "assignedTo": "mukul.ramteke@bajajfinserv.in",
-      "pod": "107_My Account Part 1",
-      "role": "SDM",
-      "enabled": true
-    },
-    {
-      "key": "vishal_shinde",
-      "name": "Vishal Shinde17",
-      "assignedTo": "vishal.shinde17@bajajfinserv.in",
-      "pod": "105_FD Dep Mandate and DNC",
-      "role": "SDM",
-      "enabled": true
-    },
-    {
-      "key": "pranjal_Salunkhe",
-      "name": "Pranjal Salunkhe",
-      "assignedTo": "pranjal.salunkhe@bajajfinserv.in",
-      "pod": "106_Gold Loan Top up and Renewal and RAR",
-      "role": "Dev On-Role",
-      "enabled": true
-    },
-    {
-      "key": "mallinath_b",
-      "name": "Mallinath B",
-      "assignedTo": "mallinath.b@bajajfinserv.in",
-      "enabled": true
-    }
-  ],
+  "people": [],
   "schedulerEnabled": false,
   "scheduleTime": "09:30",
   "schedulerAutoStart": false,
   "autoClose": false,
   "autoCloseStartTime": "18:15",
-  "autoCloseEndTime": "18:45",
-  "lastAutoClose": "2026-10-16T16:05:20.550Z"
+  "autoCloseEndTime": "18:45"
 }

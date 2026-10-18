@@ -118,6 +118,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
         });
       } catch (err: any) {
         logger.warn(`Failed to persist scheduler start setting: ${err.message}`);
+        throw err;
       }
     }
   }
@@ -147,6 +148,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
         });
       } catch (err: any) {
         logger.warn(`Failed to persist scheduler stop setting: ${err.message}`);
+        throw err;
       }
     }
   }
@@ -188,6 +190,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
         });
       } catch (err: any) {
         logger.warn(`Failed to persist scheduler configuration: ${err.message}`);
+        throw err;
       }
     }
 
@@ -207,7 +210,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
 
     logger.info('Manual scheduler trigger requested.');
     void this.runScheduled();
-    return { success: true, message: 'Scheduled task creation triggered immediately.' };
+    return { success: true, message: 'Scheduled task creation queued. Check scheduler status and logs for the outcome.' };
   }
 
   async triggerAutoCloseNow(): Promise<{ success: boolean; message: string }> {
@@ -220,7 +223,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
 
     logger.info('Manual auto-close trigger requested.');
     void this.runAutoCloseScheduled();
-    return { success: true, message: 'EOD task closure triggered immediately.' };
+    return { success: true, message: 'EOD closure queued. Check scheduler status and logs for the outcome.' };
   }
 
   setScheduleFunction(fn: () => Promise<void>): void {
