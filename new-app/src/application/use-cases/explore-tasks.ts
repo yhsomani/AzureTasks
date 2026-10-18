@@ -5,7 +5,7 @@
 
 import { WorkItemRepository, AppConfig } from '../../domain/ports/repositories.js';
 import { Person, PersonConfig, matchesPerson } from '../../domain/entities/person.js';
-import { WorkItem, parseTitleDate, matchesTaskSeries } from '../../domain/entities/task.js';
+import { WorkItem, parseWorkItemTaskDate, matchesTaskSeries } from '../../domain/entities/task.js';
 import {
   getTodayIso,
   getNextThursdayIso,
@@ -308,7 +308,7 @@ export class ExploreTasksUseCase {
         if (matchesPerson(assignedToVal, p)) {
           const personPrefix = p.titlePrefix || this.config.titlePrefix;
           if (!matchesTaskSeries(title, personPrefix)) continue;
-          const parsed = parseTitleDate(title, personPrefix, true);
+          const parsed = parseWorkItemTaskDate(item, personPrefix, timezone);
           let itemDate = parsed.isValid ? parsed.isoDate : '';
 
           // Secondary fallback: Microsoft.VSTS.Scheduling.StartDate, Custom.PlannedStartdate, Custom.ActualStartdate
