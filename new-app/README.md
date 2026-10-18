@@ -173,3 +173,13 @@ new-app/
 ├─ people.json         # team + connection config
 └─ docs/               # architecture, parity, workflows, tests, readiness
 ```
+
+## Runtime configuration and audit integrity
+
+The checked-in `people.json` is intentionally an **empty team configuration**. Add your real Azure DevOps identities through the Team UI or your private runtime configuration; do not commit employee identifiers or credentials. Scheduling and EOD auto-close remain opt-in. The UI never supplies sample work items as a replacement for a failed live request.
+
+EOD closure preserves the Azure DevOps values for Completed Work and Remaining Work instead of asserting an unverified eight-hour workday. Closing a task does not prove work was completed or that GitHub evidence was sufficient; operators remain responsible for validating the work. The server reports a requested scheduler run as queued, not as completed. Verify the outcome in Logs.
+
+The local audit journal now fails visibly if its JSON is corrupt, instead of overwriting it with empty history. Archived partial relation records remain discoverable and repairable. Keep and back up journal archives; repair status is not proof of an independent Azure DevOps read-back.
+
+**Release limitations:** Production HTTPS/reverse-proxy authentication, credential rotation, live Azure DevOps write verification, GitHub evidence completeness, and production scheduler recovery still require environment-specific testing. Passing isolated CI tests does not establish those release gates. Never commit PATs.

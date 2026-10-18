@@ -2002,11 +2002,9 @@ async function runSchedulerNow() {
   try {
     toast('Starting scheduler execution…');
     const res = await api.post('/scheduler/run-now', { confirm: true, all: true });
-    if (res.success) {
-      toast(res.message || 'Scheduler executed', 'ok');
-    } else {
-      toast(res.message || 'Could not run scheduler', 'warn');
-    }
+    // api.post returns response.data; this endpoint returns scheduler status
+    // there. HTTP 200 means the run was accepted, not completed.
+    toast('Scheduler run requested. Check Activity and Logs for its result.', 'ok');
     setTimeout(refreshScheduler, 1500);
   } catch (err) {
     toast(err.message, 'err');

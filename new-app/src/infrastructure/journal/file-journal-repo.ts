@@ -18,7 +18,7 @@ export class FileJournalRepository implements JournalRepository {
     this.journalPath = journalPath 
       ? path.resolve(process.cwd(), journalPath)
       : path.resolve(process.cwd(), '.task-journal.json');
-    this.archiveDir = path.resolve(process.cwd(), '.journal-archives');
+    this.archiveDir = path.join(path.dirname(this.journalPath), '.journal-archives');
   }
 
   async record(entry: JournalEntry): Promise<void> {
@@ -27,20 +27,11 @@ export class FileJournalRepository implements JournalRepository {
       fs.mkdirSync(this.archiveDir, { recursive: true });
     }
 
-    // Check if rotation needed
+    // Validate the existing audit trail BEFORE any write or rotation. Never
+    // silently replace corrupt evidence with an empty journal.
+    this.readEntriesFrom(this.journalPath);
     await this.rotateIfNeeded();
-
-    let entries: JournalEntry[] = [];
-    if (fs.existsSync(this.journalPath)) {
-      try {
-        const raw = fs.readFileSync(this.journalPath, 'utf-8');
-        entries = JSON.parse(raw);
-        if (!Array.isArray(entries)) entries = [];
-      } catch {
-        entries = [];
-      }
-    }
-
+    let entries = this.readEntriesFrom(this.journalPath);
     entries.push(entry);
 
     // Trim if too many entries
@@ -51,29 +42,30 @@ export class FileJournalRepository implements JournalRepository {
     this.writeEntriesAtomically(entries);
   }
 
-  async getEntries(limit?: number): Promise<JournalEntry[]> {
-    if (!fs.existsSync(this.journalPath)) {
-      return [];
-    }
-
+  private readEntriesFrom(filename: string): JournalEntry[] {
+    if (!fs.existsSync(filename)) return [];
     try {
-      const raw = fs.readFileSync(this.journalPath, 'utf-8');
-      const entries = JSON.parse(raw);
-      if (!Array.isArray(entries)) return [];
-      
-      if (limit && limit > 0) {
-        return entries.slice(-limit).reverse(); // Newest first
-      }
-      return entries.reverse(); // Newest first
-    } catch {
-      return [];
+      const entries: unknown = JSON.parse(fs.readFileSync(filename, 'utf-8'));
+      if (!Array.isArray(entries)) throw new Error('Expected an array of journal entries.');
+      return entries as JournalEntry[];
+    } catch (error) {
+      throw new Error(`Audit journal at "${filename}" is unreadable or corrupt. Preserve the file and restore from backup before writing: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
+  async getEntries(limit?: number): Promise<JournalEntry[]> {
+    const entries = this.readEntriesFrom(this.journalPath);
+    return (limit && limit > 0 ? entries.slice(-limit) : entries).reverse();
+  }
+
   async getUnfinishedRelations(): Promise<JournalEntry[]> {
-    const entries = await this.getEntries();
-    // Only entries that actually produced a work item can have missing relations
-    // to repair. A task-creation failure has no target and is not repairable.
+    const archives = fs.existsSync(this.archiveDir)
+      ? fs.readdirSync(this.archiveDir).filter(name => /^task-journal-.*\.json$/.test(name)).sort().reverse()
+      : [];
+    const entries = [
+      ...await this.getEntries(),
+      ...archives.flatMap(name => this.readEntriesFrom(path.join(this.archiveDir, name)).reverse()),
+    ];
     return entries.filter(e =>
       e.createdWorkItemId != null &&
       (e.relationCopyStatus === 'PARTIAL' || e.relationCopyStatus === 'FAILED')
@@ -85,32 +77,28 @@ export class FileJournalRepository implements JournalRepository {
     status: JournalEntry['relationCopyStatus'],
     note: string
   ): Promise<boolean> {
-    if (!fs.existsSync(this.journalPath)) return false;
-
-    let entries: JournalEntry[];
-    try {
-      const parsed = JSON.parse(fs.readFileSync(this.journalPath, 'utf-8'));
-      if (!Array.isArray(parsed)) return false;
-      entries = parsed;
-    } catch {
-      return false;
+    const files = [this.journalPath,
+      ...(fs.existsSync(this.archiveDir)
+        ? fs.readdirSync(this.archiveDir).filter(name => /^task-journal-.*\.json$/.test(name)).map(name => path.join(this.archiveDir, name))
+        : []),
+    ];
+    for (const filename of files) {
+      const entries = this.readEntriesFrom(filename);
+      const index = entries.findIndex(e =>
+        e.runId === entry.runId && e.timestamp === entry.timestamp &&
+        e.createdWorkItemId === entry.createdWorkItemId
+      );
+      if (index === -1) continue;
+      entries[index] = {
+        ...entries[index],
+        relationCopyStatus: status,
+        verified: status === 'SUCCESS',
+        error: note || entries[index].error,
+      };
+      this.writeEntriesAtomically(entries, filename);
+      return true;
     }
-
-    // A recorded entry is uniquely identified by its run + timestamp.
-    const index = entries.findIndex(
-      e => e.runId === entry.runId && e.timestamp === entry.timestamp &&
-           e.createdWorkItemId === entry.createdWorkItemId
-    );
-    if (index === -1) return false;
-
-    entries[index] = {
-      ...entries[index],
-      relationCopyStatus: status,
-      verified: status === 'SUCCESS',
-      error: note || entries[index].error,
-    };
-    this.writeEntriesAtomically(entries);
-    return true;
+    return false;
   }
 
   async exportCsv(): Promise<string> {
@@ -160,10 +148,11 @@ export class FileJournalRepository implements JournalRepository {
     return JSON.stringify(entries, null, 2);
   }
 
-  private writeEntriesAtomically(entries: JournalEntry[]): void {
-    const tmpPath = `${this.journalPath}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(entries, null, 2), 'utf-8');
-    fs.renameSync(tmpPath, this.journalPath);
+  private writeEntriesAtomically(entries: JournalEntry[], filename = this.journalPath): void {
+    fs.mkdirSync(path.dirname(filename), { recursive: true });
+    const tmpPath = `${filename}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(entries, null, 2), { encoding: 'utf-8', flag: 'wx', mode: 0o600 });
+    fs.renameSync(tmpPath, filename);
   }
 
   private async rotateIfNeeded(): Promise<void> {
@@ -184,8 +173,18 @@ export class FileJournalRepository implements JournalRepository {
       .sort()
       .reverse();
     
+    // Never delete an archive containing unfinished relations: operators must
+    // retain the ability to reconcile work items after partial Azure writes.
     for (const archive of archives.slice(10)) {
-      fs.unlinkSync(path.join(this.archiveDir, archive));
+      const filename = path.join(this.archiveDir, archive);
+      try {
+        const rows = this.readEntriesFrom(filename);
+        if (rows.some(e => e.createdWorkItemId != null &&
+          (e.relationCopyStatus === 'PARTIAL' || e.relationCopyStatus === 'FAILED'))) continue;
+        fs.unlinkSync(filename);
+      } catch {
+        // Preserve unreadable evidence for manual recovery instead of deleting it.
+      }
     }
   }
 }

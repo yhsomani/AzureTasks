@@ -278,6 +278,14 @@ describe('NodeSchedulerRepository', () => {
     expect(scheduler.getStatus().timezone).toBe('Europe/London');
   });
 
+  it('reports scheduler persistence failures instead of confirming a saved setting', async () => {
+    const configRepo = { saveSettings: vi.fn().mockRejectedValue(new Error('disk unavailable')) } as any;
+    const scheduler = new NodeSchedulerRepository({ timezone: 'UTC', startTime: '10:00' }, configRepo);
+    await expect(scheduler.start(true)).rejects.toThrow('disk unavailable');
+    await expect(scheduler.stop(true)).rejects.toThrow('disk unavailable');
+    await expect(scheduler.configure({ startTime: '11:00' })).rejects.toThrow('disk unavailable');
+  });
+
   it('persists schedulerEnabled on start(true) and stop(true)', async () => {
     const cfgPath = path.join(dir, 'people.json');
     fs.writeFileSync(cfgPath, JSON.stringify({ people: [] }));

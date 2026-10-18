@@ -119,7 +119,7 @@ describe('CloseDailyTasksUseCase', () => {
     expect(mockWorkItemRepo.patchWorkItem).not.toHaveBeenCalled();
   });
 
-  it('successfully patches today tasks with RemainingWork=0, CompletedWork=8, Start date matched, and PR description', async () => {
+  it('closes without fabricating remaining or completed work hours', async () => {
     const targetDate = '2026-10-15';
     const candidateTasks = [
       {
@@ -158,8 +158,8 @@ describe('CloseDailyTasksUseCase', () => {
     const result = output.results[0];
     expect(result.status).toBe('closed');
     expect(result.taskId).toBe(5001);
-    expect(result.remainingWork).toBe(0);
-    expect(result.completedWork).toBe(8);
+    expect(result.remainingWork).toBe(4);
+    expect(result.completedWork).toBe(4);
     expect(result.actualStartDate).toBe('2026-10-15T04:00:00.000Z');
     expect(result.githubUsername).toBe('yash-somani_bflghec');
     expect(result.isTodayPr).toBe(true);
@@ -172,8 +172,8 @@ describe('CloseDailyTasksUseCase', () => {
 
     // Verify atomic patch operations
     const opMap = new Map(ops.map((o: any) => [o.path, o.value]));
-    expect(opMap.get('/fields/Microsoft.VSTS.Scheduling.RemainingWork')).toBe(0);
-    expect(opMap.get('/fields/Microsoft.VSTS.Scheduling.CompletedWork')).toBe(8);
+    expect(opMap.has('/fields/Microsoft.VSTS.Scheduling.RemainingWork')).toBe(false);
+    expect(opMap.has('/fields/Microsoft.VSTS.Scheduling.CompletedWork')).toBe(false);
     expect(opMap.get('/fields/Custom.ActualStartdate')).toBe('2026-10-15T04:00:00.000Z');
     expect(opMap.get('/fields/System.State')).toBe('Closed');
     expect(opMap.get('/fields/System.Reason')).toBe('Completed');
