@@ -58,6 +58,13 @@ function resolvePersonScope(
 export function createApiRouter(deps: ApiDependencies): Router {
   const router = Router();
 
+  // Auth role is set by the server after Basic credential verification, never
+  // accepted from a browser-provided header. Client uses it to hide mutations.
+  router.get('/session', (req, res) => {
+    const role = (req as typeof req & { authRole?: string }).authRole === 'viewer' ? 'viewer' : 'operator';
+    res.json({ success: true, data: { role } });
+  });
+
   // Liveness says only that the web process can answer HTTP requests.
   // It must not pretend that Azure DevOps or GitHub integrations are working.
   router.get('/health', (_req, res) => {

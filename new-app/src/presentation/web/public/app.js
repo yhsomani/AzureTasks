@@ -6,6 +6,7 @@
 /* ------------------------------------------------------------------ state */
 const state = {
   currentView: 'dashboard',
+  viewerMode: false,
   status: null,
   config: null,
   people: [],
@@ -89,6 +90,10 @@ const api = {
   },
 
   async post(url, body) {
+    if (state.viewerMode && !(url === '/tasks/plan' ||
+      (url === '/tasks/close-today' && body?.dryRun === true))) {
+      throw new Error('Read-only viewer credentials cannot change Azure tasks, scheduling or settings.');
+    }
     const res = await fetch(`/api${url}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2739,6 +2744,33 @@ function wire() {
   window.addEventListener('hashchange', handleHashNavigation);
 }
 
+// One read-only session check determines whether write controls should appear
+// actionable. The server still enforces the role on every HTTP request.
+function applyViewerMode() {
+  if (!state.viewerMode) return;
+  const main = document.querySelector('main');
+  if (main && !$('#viewerModeNotice')) {
+    main.prepend(el('div', {
+      id: 'viewerModeNotice', class: 'workflow-note', role: 'status'
+    }, 'Read-only viewer: inspect data and previews here. Task creation, closure, scheduler changes and configuration edits require operator credentials.'));
+  }
+  [
+    '#executeBtn', '#openAdHocModalBtn', '#savePeopleBtn', '#addPersonBtn',
+    '#schedSaveConfigBtn', '#schedRunNowBtn', '#eodSaveConfigBtn',
+    '#btnExecuteEodConfirmed', '#saveSettingsBtn', '#savePatBtn',
+    '#saveGhSettingsBtn', '#journalRepairBtn', '#btnRepairAll',
+  ].forEach(selector => {
+    const button = $(selector);
+    if (button) {
+      button.disabled = true;
+      button.setAttribute('aria-disabled', 'true');
+      button.title = 'Operator authorization required';
+    }
+  });
+  const schedulerToggle = $('#schedToggle');
+  if (schedulerToggle) schedulerToggle.disabled = true;
+}
+
 /* ---------------------------------------------------------------- bootstrap */
 async function bootstrap() {
   try {
@@ -2748,6 +2780,17 @@ async function bootstrap() {
 
   wire();
   connectLogStream();
+  try {
+    const session = await api.get('/session', { forceFresh: true });
+    state.viewerMode = session?.role === 'viewer';
+    applyViewerMode();
+  } catch (error) {
+    // Permission failure is visible. Never assume a failed role lookup grants
+    // operator rights on a production session.
+    state.viewerMode = true;
+    applyViewerMode();
+    toast('Could not verify operator permissions; write controls are disabled.', 'warn');
+  }
 
   const initial = location.hash.slice(1) || 'dashboard';
   switchView(initial);

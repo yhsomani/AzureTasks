@@ -34,6 +34,11 @@ describe('Production web server access controls', () => {
         headers: { Authorization: auth('auditor', 'viewer-test-secret') },
       });
       expect(read.status).toBe(200);
+      const viewerSession = await fetch(`${target}/api/session`, {
+        headers: { Authorization: auth('auditor', 'viewer-test-secret') },
+      });
+      expect(viewerSession.status).toBe(200);
+      expect((await viewerSession.json()).data.role).toBe('viewer');
       const denied = await fetch(`${target}/api/scheduler/run-now`, {
         method: 'POST',
         headers: { Authorization: auth('auditor', 'viewer-test-secret'), 'Content-Type': 'application/json' },
@@ -48,6 +53,10 @@ describe('Production web server access controls', () => {
         body: JSON.stringify({ confirm: true, all: true }),
       });
       expect(accepted.status).toBe(200);
+      const operatorSession = await fetch(`${target}/api/session`, {
+        headers: { Authorization: auth('admin', 'operator-test-secret') },
+      });
+      expect((await operatorSession.json()).data.role).toBe('operator');
       expect(triggerRunNow).toHaveBeenCalledOnce();
       const unauthenticated = await fetch(`${target}/api/status`);
       expect(unauthenticated.status).toBe(401);

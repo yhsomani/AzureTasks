@@ -30,8 +30,12 @@ function basicAuth(user: string, token: string, viewerUser?: string, viewerToken
     const [scheme, encoded] = (req.headers.authorization ?? '').split(' ');
     if (scheme === 'Basic' && encoded) {
       const provided = Buffer.from(encoded, 'base64');
-      if (matches(provided, operator)) return next();
+      if (matches(provided, operator)) {
+        (req as express.Request & { authRole?: string }).authRole = 'operator';
+        return next();
+      }
       if (viewer && matches(provided, viewer)) {
+        (req as express.Request & { authRole?: string }).authRole = 'viewer';
         // Viewer credentials may read the UI and API but cannot mutate local
         // configuration, credentials, scheduling or remote Azure work items.
         if (['GET', 'HEAD', 'OPTIONS'].includes(req.method.toUpperCase())) return next();
