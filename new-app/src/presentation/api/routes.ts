@@ -62,7 +62,7 @@ function resolvePersonScope(
 /** Keep user-controlled response sizes finite and predictable. */
 function parsePageLimit(value: unknown, fallback: number, max: number): number {
   if (value === undefined) return fallback;
-  if (typeof value !== 'string' || !/^[1-9]\\d*$/.test(value)) {
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) {
     throw new Error(`limit must be a positive integer up to ${max}.`);
   }
   const parsed = Number(value);
@@ -378,7 +378,10 @@ export function createApiRouter(deps: ApiDependencies): Router {
         data: { totalEntries: entries.length, incompleteEntriesCount: unfinished.length, entries },
       });
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+      // Invalid client query limits are bad requests; journal corruption or I/O
+      // failures remain server errors and must never be hidden.
+      const invalidLimit = err instanceof Error && err.message.startsWith('limit must be a positive integer');
+      res.status(invalidLimit ? 400 : 500).json({ success: false, error: err.message });
     }
   });
 

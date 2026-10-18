@@ -73,6 +73,40 @@ describe('operations and recovery UI trust', () => {
     expect(result.announcedFailure).toBe(true);
   });
 
+  it('never reports partial EOD closure as a complete success or enables execution after a failed preview', async () => {
+    const ctx = {
+      document: { querySelector: () => null, querySelectorAll: () => [], addEventListener: () => {} },
+      location: { hash: '#scheduler' }, window: { confirm: () => true },
+      console, setTimeout,
+    };
+    runInNewContext(js, ctx);
+    const output = await runInNewContext(`(async () => {
+      const messages = [];
+      toast = (message, status) => messages.push({ message, status });
+      showModal = () => {};
+      refreshDashboard = () => {};
+      api.post = async () => ({ totalFound: 2, totalClosed: 1, totalFailed: 1,
+        totalAlreadyClosed: 0, results: [] });
+      await triggerEodClosure(true);
+      const readyAfterPartialPreview = state.eodPreviewReadyAt;
+      state.eodPreviewReadyAt = Date.now();
+      await triggerEodClosure(false);
+      return { messages, readyAfterPartialPreview };
+    })()`, ctx);
+    expect(output.readyAfterPartialPreview).toBe(0);
+    expect(output.messages.filter((m: any) => m.status === 'warn')).toHaveLength(2);
+    expect(output.messages.some((m: any) => m.message.includes('Successfully closed'))).toBe(false);
+  });
+
+  it('refreshes saved configuration from the server instead of a stale GET cache', () => {
+    for (const fn of ['async function saveSettings()', 'async function saveGhSettings()', 'async function savePat()']) {
+      const start = js.indexOf(fn);
+      const end = js.indexOf('\nasync function ', start + fn.length);
+      const body = js.slice(start, end < 0 ? undefined : end);
+      expect(body).toContain("api.invalidateCache('/config')");
+    }
+  });
+
   it('preserves operational actions', () => {
     for(const id of ['schedRunNowBtn','schedToggle','schedSaveConfigBtn','eodPreviewBtn','eodRunNowBtn','eodSaveConfigBtn','journalRepairBtn','exportCsv','exportJson']) expect(html).toContain(`id="${id}"`);
   });

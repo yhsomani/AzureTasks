@@ -176,6 +176,13 @@ export class CloseDailyTasksUseCase {
     let totalFailed = 0;
 
     for (const { person, item } of matchedTasks) {
+      // Report only dates actually stored in Azure; a failed PATCH does not close a task.
+      const recordedActualEnd = String(
+        item.fields['Microsoft.VSTS.Common.ClosedDate'] ||
+        item.fields['Custom.ActualClosedDate'] ||
+        item.fields['Custom.ActualEnddate'] ||
+        item.fields['Custom.ActualEndDate'] || ''
+      );
       const currentState = String(item.fields['System.State'] || 'New');
       const taskId = item.id;
       const taskTitle = String(item.fields['System.Title'] || `Task #${taskId}`);
@@ -196,13 +203,7 @@ export class CloseDailyTasksUseCase {
           taskTitle,
           previousState: currentState,
           newState: currentState,
-          actualEndDate: String(
-            item.fields['Microsoft.VSTS.Common.ClosedDate'] ||
-            item.fields['Custom.ActualClosedDate'] ||
-            item.fields['Custom.ActualEnddate'] ||
-            item.fields['Custom.ActualEndDate'] ||
-            ''
-          ),
+          actualEndDate: recordedActualEnd,
           remainingWork: readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.RemainingWork']),
           completedWork: readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.CompletedWork']),
           prCount: 0,
@@ -338,7 +339,7 @@ export class CloseDailyTasksUseCase {
           taskTitle,
           previousState: currentState,
           newState: currentState,
-          actualEndDate: nowUtc,
+          actualEndDate: recordedActualEnd,
           remainingWork: readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.RemainingWork']),
           completedWork: readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.CompletedWork']),
           prCount: 0,

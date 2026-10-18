@@ -316,6 +316,26 @@ describe('API routes', () => {
     expect(body.data.entries).toHaveLength(1);
   });
 
+  it('accepts positive integer pagination limits on journal and live logs', async () => {
+    const journal = await json('/api/journal?limit=10');
+    expect(journal.status).toBe(200);
+    expect((await journal.json()).success).toBe(true);
+
+    const logs = await json('/api/logs/recent?limit=25');
+    expect(logs.status).toBe(200);
+    expect((await logs.json()).success).toBe(true);
+  });
+
+  it('rejects malformed or out-of-range pagination limits with HTTP 400', async () => {
+    for (const route of ['/api/journal', '/api/logs/recent']) {
+      for (const limit of ['0', '-1', '1garbage', '999999', '1.5']) {
+        const res = await json(`${route}?limit=${limit}`);
+        expect(res.status).toBe(400);
+        expect((await res.json()).error).toContain('positive integer');
+      }
+    }
+  });
+
   it('GET /api/journal/export?format=csv sets a download header', async () => {
     const res = await json('/api/journal/export?format=csv');
     expect(res.headers.get('content-type')).toContain('text/csv');

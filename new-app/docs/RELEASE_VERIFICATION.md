@@ -59,9 +59,9 @@
 
 Use `npm run verify:staging:readonly` with `RELEASE_BASE_URL`, `API_AUTH_USER` and an operator `API_AUTH_TOKEN` provided by your secrets manager. The script validates the HTTPS origin, unauthenticated liveness semantics, authenticated live Azure readiness, readable configuration/journal, and hostile/same-origin behavior **on a nonexistent POST endpoint**. It never creates or closes work items. Record the operator, timestamp, sanitized command output, deployment URL, and release SHA as evidence. Manual production gates remain open until explicitly verified.
 
-## Verified CI snapshot (18 October 2026)
+## Historical CI snapshot — PR #26 (18 October 2026)
 
-- Branch: `fix/remaining-release-gates-20261018` (draft PR #26).
+- Branch: `fix/remaining-release-gates-20261018` (merged PR #26).
 - Tested commit: `e0e91b1f5b6d2258554ed65d5dd901f7513e8719`.
 - GitHub Actions CI run: [#39123868203](https://github.com/yhsomani/AzureTasks/actions/runs/39123868203), completed with conclusion **success**.
 - Evidence scope: repository CI only; no live Azure mutations, restored production backup or deployment acceptance were established.
@@ -74,4 +74,14 @@ Use `npm run verify:staging:readonly` with `RELEASE_BASE_URL`, `API_AUTH_USER` a
 - Explorer single-cell creation performs real confirmation, sends `confirm:true`, prevents overlapping writes and retains the modal when a request fails.
 - Missing Azure completed/remaining hours are represented as *not recorded* rather than silently treated as zero; charts omit unrecorded daily data and indicate partial aggregation.
 - Safe staging topology probe `npm run verify:staging:readonly` performs read-only checks and tests Origin using a **nonexistent** route, never an Azure mutation endpoint.
-- CI succeeded on the tested commit above. Later commits require new CI; environment-specific release gates remain open until evidenced.
+- CI succeeded on the historical tested commit above. Subsequent PR-head run #39128223792 failed two journal-pagination regressions, so it is not the release acceptance reference.
+- PR #26 is merged; the post-merge defects are addressed in the follow-up PR #27. Environment-specific release gates remain open.
+
+## Post-audit follow-up — PR #27 (18 October 2026)
+
+- Repair the pagination regex and map invalid journal query limits to HTTP 400, preserving HTTP 500 for genuine storage failures.
+- Reject disabled users from ad-hoc task creation and prevent fabricated end times for failed EOD transitions.
+- Report partial EOD failures honestly, block execution after an incomplete preview, and invalidate stale frontend config caches.
+- Strengthen independent create read-back checks to include title, assignee, type, state, configured planned start and copyable source relations. Read-back remains an observation at a point in time, not a transaction or full tenant acceptance.
+- Add API, domain and UI regression tests. CI on the code commit `289a78b1` passed Linux, Windows and macOS ([run #39143692822](https://github.com/yhsomani/AzureTasks/actions/runs/39143692822)).
+- The ledger update itself requires a newer exact-SHA CI run before merge/release signoff. No live Azure writes, PAT rotation, HTTPS deployment, scheduler restart, backup/restore or operator acceptance are established by CI.
