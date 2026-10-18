@@ -12,7 +12,8 @@ import {
   CreatedTask,
   parseTitleDate,
   matchesPerson,
-  matchesTaskSeries
+  matchesTaskSeries,
+  validateSourceTaskOwnership,
 } from '../../domain/index.js';
 
 interface WiqlQueryResult {
@@ -49,10 +50,7 @@ export class AzureWorkItemService implements WorkItemRepository {
   ): Promise<DiscoveredTask | null> {
     if (sourceTaskIdOverride) {
       const workItem = await this.getWorkItem(sourceTaskIdOverride);
-      const parsedDate = parseTitleDate(workItem.fields['System.Title'] || '', titlePrefix, true);
-      if (!parsedDate.isValid) {
-        return null;
-      }
+      const parsedDate = validateSourceTaskOwnership(workItem, project, workItemType, titlePrefix, personIdentity);
       return {
         workItem,
         parsedDate,
@@ -157,7 +155,7 @@ export class AzureWorkItemService implements WorkItemRepository {
 
     // Resolve explicit source overrides first.
     const discoveryPeople: Person[] = [];
-    const overrideCache = new Map<number, { workItem: WorkItem; parsedDate: ReturnType<typeof parseTitleDate> } | null>();
+    const overrideCache = new Map<number, WorkItem>();
 
     for (const person of people) {
       const overrideId = person.sourceTaskId ?? sourceTaskIdOverride;
@@ -166,17 +164,14 @@ export class AzureWorkItemService implements WorkItemRepository {
         continue;
       }
 
-      let resolved = overrideCache.get(overrideId);
-      if (resolved === undefined) {
-        const workItem = await this.getWorkItem(overrideId);
-        const prefix = person.titlePrefix || titlePrefix;
-        const parsedDate = parseTitleDate(workItem.fields['System.Title'] || '', prefix, true);
-        resolved = parsedDate.isValid ? { workItem, parsedDate } : null;
-        overrideCache.set(overrideId, resolved);
+      let workItem = overrideCache.get(overrideId);
+      if (!workItem) {
+        workItem = await this.getWorkItem(overrideId);
+        overrideCache.set(overrideId, workItem);
       }
-      if (resolved) {
-        results.set(person.key, { ...resolved, key: person.key });
-      }
+      const prefix = person.titlePrefix || titlePrefix;
+      const parsedDate = validateSourceTaskOwnership(workItem, project, workItemType, prefix, person.assignedTo);
+      results.set(person.key, { workItem, parsedDate, key: person.key });
     }
 
     if (discoveryPeople.length === 0) {

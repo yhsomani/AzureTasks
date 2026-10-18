@@ -11,6 +11,7 @@ import {
   WorkItem, 
   CreatedTask,
   parseTitleDate,
+  validateSourceTaskOwnership,
   extractTitlePrefix
 } from '../../domain/entities/task.js';
 import { 
@@ -257,7 +258,9 @@ export class CreateTasksUseCase {
       let sourceTask: DiscoveredTask | null = null;
       if (input.sourceTaskId) {
         const item = await this.workItemRepo.getWorkItem(input.sourceTaskId);
-        const parsedDate = parseTitleDate(item.fields['System.Title'] || '', memberPrefix, true);
+        const parsedDate = validateSourceTaskOwnership(
+          item, this.config.project, this.config.workItemType, memberPrefix, person.assignedTo
+        );
         sourceTask = {
           workItem: item,
           parsedDate,
