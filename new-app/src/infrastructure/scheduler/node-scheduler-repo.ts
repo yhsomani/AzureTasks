@@ -491,6 +491,17 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     this.status.lastAutoClose = new Date().toISOString();
     logger.info(`Scheduler: running automated EOD task closure (window: ${this.autoCloseStartTime}-${this.autoCloseEndTime}, tz: ${this.timezone})...`);
     try {
+      // Crash safety: record today's attempt before Azure is called. If disk
+      // persistence fails, do not perform any unattended remote write.
+      if (this.configRepo) {
+        try {
+          await this.configRepo.saveSettings({ lastAutoClose: this.status.lastAutoClose });
+        } catch (error) {
+          this.status.lastAutoCloseResult = 'failure';
+          logger.error(`EOD checkpoint could not be persisted; Azure closure was not attempted: ${error instanceof Error ? error.message : String(error)}`);
+          return;
+        }
+      }
       const result: any = await this.autoCloseFn();
 
       const totalFound = typeof result?.totalFound === 'number' ? result.totalFound : undefined;
@@ -514,14 +525,6 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       this.status.lastAutoCloseResult = 'failure';
       logger.error(`Scheduler: EOD task auto-close failed: ${error?.message || error}`);
     } finally {
-      if (this.configRepo && this.status.lastAutoClose) {
-        try {
-          await this.configRepo.saveSettings({ lastAutoClose: this.status.lastAutoClose });
-        } catch (error: any) {
-          this.status.lastAutoCloseResult = 'partial';
-          logger.error(`EOD attempt checkpoint could not be persisted: ${error?.message || error}. Disable the scheduler until recovery is verified.`);
-        }
-      }
       this.isAutoCloseExecuting = false;
     }
   }
