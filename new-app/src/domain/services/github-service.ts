@@ -100,8 +100,8 @@ export function formatPrTaskDescription(options: {
     .join('\n');
 
   const commitItemsHtml = commits.map(commit =>
-    `<li><code>[${escapeHtml(commit.repositoryName)}:${escapeHtml(commit.branch)}]</code> <a href="${escapeHtml(commit.htmlUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(commit.sha.slice(0, 10))}</a> — ${escapeHtml(commit.message.split('\\n')[0])}</li>`
-  ).join('\\n');
+    `<li><code>[${escapeHtml(commit.repositoryName)}:${escapeHtml(commit.branch)}]</code> <a href="${escapeHtml(commit.htmlUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(commit.sha.slice(0, 10))}</a> — ${escapeHtml(commit.message.split('\n')[0])}</li>`
+  ).join('\n');
   const prSection = pullRequests.length ? `<p>PRs created on this date (not proof of completion):</p><ul>${prItemsHtml}</ul>` : '<p>No PRs created on this date.</p>';
   const commitSection = commits.length
     ? `<p>Commits authored on this date on configured repositories/branches:</p><ul>${commitItemsHtml}</ul>`
