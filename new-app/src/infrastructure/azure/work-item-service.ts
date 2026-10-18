@@ -10,7 +10,7 @@ import {
   DiscoveredTask, 
   Person, 
   CreatedTask,
-  parseTitleDate,
+  parseWorkItemTaskDate,
   matchesPerson,
   matchesTaskSeries,
   validateSourceTaskOwnership,
@@ -26,7 +26,7 @@ interface WorkItemBatchResult {
 }
 
 export class AzureWorkItemService implements WorkItemRepository {
-  constructor(private readonly client: AzureDevOpsClient) {}
+  constructor(private readonly client: AzureDevOpsClient, private readonly timezone: () => string = () => 'UTC') {}
 
   private requireCompleteBatch(batch: WorkItemBatchResult, ids: number[], purpose: string): WorkItem[] {
     const expected = new Set(ids);
@@ -62,9 +62,11 @@ export class AzureWorkItemService implements WorkItemRepository {
     if (sourceTaskIdOverride) {
       const workItem = await this.getWorkItem(sourceTaskIdOverride);
       const parsedDate = validateSourceTaskOwnership(workItem, project, workItemType, titlePrefix, personIdentity);
+      const anchoredDate = parseWorkItemTaskDate(workItem, titlePrefix, this.timezone());
+      if (!anchoredDate.isValid) throw new Error('Source task title and recorded Azure dates conflict.');
       return {
         workItem,
-        parsedDate,
+        parsedDate: anchoredDate,
         key: personIdentity.toLowerCase().trim(),
       };
     }
@@ -133,7 +135,7 @@ export class AzureWorkItemService implements WorkItemRepository {
       }
       const title = workItem.fields['System.Title'] || '';
       if (!matchesTaskSeries(title, titlePrefix)) continue;
-      const parsedDate = parseTitleDate(title, titlePrefix, true);
+      const parsedDate = parseWorkItemTaskDate(workItem, titlePrefix, this.timezone());
       if (parsedDate.isValid) {
         candidateTasks.push({
           workItem,
@@ -248,7 +250,7 @@ export class AzureWorkItemService implements WorkItemRepository {
             const title = workItem.fields['System.Title'] || '';
             const prefix = person.titlePrefix || titlePrefix;
             if (!matchesTaskSeries(title, prefix)) continue;
-            const parsedDate = parseTitleDate(title, prefix, true);
+            const parsedDate = parseWorkItemTaskDate(workItem, prefix, this.timezone());
             if (parsedDate.isValid) {
               const list = personCandidateTasks.get(person.key) || [];
               list.push({ workItem, parsedDate, key: person.key });
@@ -356,7 +358,7 @@ export class AzureWorkItemService implements WorkItemRepository {
       for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
         const chunk = ids.slice(i, i + CHUNK_SIZE).join(',');
         const batchResult = await this.client.get<WorkItemBatchResult>(
-          `/${project}/_apis/wit/workitems?ids=${chunk}&fields=System.Id,System.Title,System.AssignedTo&api-version=7.0`
+          `/${project}/_apis/wit/workitems?ids=${chunk}&api-version=7.0`
         );
         allFetched.push(...this.requireCompleteBatch(batchResult, ids.slice(i, i + CHUNK_SIZE), 'duplicate-detection work-item batch'));
       }
@@ -367,7 +369,7 @@ export class AzureWorkItemService implements WorkItemRepository {
         }
         const title = workItem.fields['System.Title'];
         if (!title || !matchesTaskSeries(title, titlePrefix)) continue;
-        const parsed = parseTitleDate(title, titlePrefix, true);
+        const parsed = parseWorkItemTaskDate(workItem, titlePrefix, this.timezone());
         if (!parsed.isValid) continue;
         if (parsed.isoDate < startDate || parsed.isoDate > endDate) continue;
 
