@@ -547,14 +547,14 @@
             <button type="button" class="btn ghost" id="togglePatEye" aria-label="Show Azure DevOps token" title="Show token">Show</button>
             <button class="btn primary" id="savePatBtn">Update PAT</button>
           </div>
-          <p class="muted small" style="margin-top:6px;">Use the least Azure DevOps permissions required by your workflows. Secrets may be persisted in server configuration; protect the filesystem and backups. Never expose this application over plaintext HTTP.</p>
+          <p class="muted small" style="margin-top:6px;">Use the least Azure DevOps permissions required by your workflows. Production defaults to externally managed credentials: provision PATs through your approved secret manager (the web form cannot save them in external mode). Local-file secret persistence requires an explicit, security-approved opt-in. Never expose this application over plaintext HTTP.</p>
         </article>
 
         <!-- GITHUB INTEGRATION CARD -->
         <article class="card">
           <header class="card-head"><h2>GitHub Integration &amp; EMU Settings</h2></header>
           <div class="grid cols-3">
-            <label class="field" for="setGhToken"><span>GitHub access token</span><input type="password" id="setGhToken" placeholder="Enter GitHub token" autocomplete="off" aria-describedby="githubTokenHelp" /><small class="field-help" id="githubTokenHelp">Optional. Restrict repository access and rotate exposed tokens.</small></label>
+            <label class="field" for="setGhToken"><span>GitHub access token</span><input type="password" id="setGhToken" placeholder="Enter GitHub token" autocomplete="off" aria-describedby="githubTokenHelp" /><small class="field-help" id="githubTokenHelp">Optional. Production defaults to externally managed credentials; the save field is unavailable in external mode. Rotate previously exposed tokens and grant read-only repository access.</small></label>
             <label class="field"><span>GitHub Organization</span><input type="text" id="setGhOrg" placeholder="e.g. BFLDevOpsOrg" /></label>
             <label class="field"><span>Enterprise Suffix</span><input type="text" id="setGhSuffix" placeholder="_bflghec" value="_bflghec" /></label>
           </div>
