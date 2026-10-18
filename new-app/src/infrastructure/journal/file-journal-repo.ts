@@ -5,6 +5,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'node:crypto';
 import { JournalRepository, JournalEntry } from '../../domain/ports/repositories.js';
 
 const MAX_JOURNAL_SIZE = 10 * 1024 * 1024; // 10MB
@@ -123,7 +124,11 @@ export class FileJournalRepository implements JournalRepository {
 
     const escapeCsv = (val: any): string => {
       if (val === undefined || val === null) return '""';
-      const str = String(val).replace(/"/g, '""');
+      // Quoted CSV values can still execute formulas in spreadsheet clients.
+      // Prefix spreadsheet control characters before escaping embedded quotes.
+      const plain = String(val);
+      const safe = /^[=+@\\-\\t\\r\\n]/.test(plain) ? "'" + plain : plain;
+      const str = safe.replace(/"/g, '""');
       return `"${str}"`;
     };
 
@@ -152,9 +157,20 @@ export class FileJournalRepository implements JournalRepository {
 
   private writeEntriesAtomically(entries: JournalEntry[], filename = this.journalPath): void {
     fs.mkdirSync(path.dirname(filename), { recursive: true });
-    const tmpPath = `${filename}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(entries, null, 2), { encoding: 'utf-8', flag: 'wx', mode: 0o600 });
-    fs.renameSync(tmpPath, filename);
+    const tmpPath = `${filename}.${randomUUID()}.tmp`;
+    let fd: number | undefined;
+    try {
+      fd = fs.openSync(tmpPath, 'wx', 0o600);
+      fs.writeFileSync(fd, JSON.stringify(entries, null, 2), 'utf8');
+      fs.fsyncSync(fd);
+      fs.closeSync(fd);
+      fd = undefined;
+      fs.renameSync(tmpPath, filename);
+    } catch (error) {
+      if (fd !== undefined) fs.closeSync(fd);
+      try { fs.unlinkSync(tmpPath); } catch { /* no temp file remains */ }
+      throw error;
+    }
   }
 
   private async rotateIfNeeded(force = false): Promise<void> {
