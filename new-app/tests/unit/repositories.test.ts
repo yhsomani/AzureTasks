@@ -152,6 +152,14 @@ describe('FileJournalRepository', () => {
     expect(csv).toContain('has ""quotes""');
   });
 
+  it('neutralizes spreadsheet formulas from untrusted Azure task titles during CSV export', async () => {
+    const journal = new FileJournalRepository(path.join(dir, '.journal.json'));
+    await journal.record(entry({ title: '=HYPERLINK("https://invalid.example","open")' }));
+    const csv = await journal.exportCsv();
+    expect(csv).toContain("'=HYPERLINK");
+    expect(csv).not.toContain('"=HYPERLINK');
+  });
+
   it('exports JSON', async () => {
     const journal = new FileJournalRepository(path.join(dir, '.journal.json'));
     await journal.record(entry());

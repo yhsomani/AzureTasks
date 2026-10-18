@@ -180,7 +180,11 @@ export class AzureWorkItemService implements WorkItemRepository {
         overrideCache.set(overrideId, workItem);
       }
       const prefix = person.titlePrefix || titlePrefix;
-      const parsedDate = validateSourceTaskOwnership(workItem, project, workItemType, prefix, person.assignedTo);
+      validateSourceTaskOwnership(workItem, project, workItemType, prefix, person.assignedTo);
+      const parsedDate = parseWorkItemTaskDate(workItem, prefix, this.timezone());
+      if (!parsedDate.isValid) {
+        throw new Error(`Source work item #${workItem.id} has conflicting title and recorded Azure dates.`);
+      }
       results.set(person.key, { workItem, parsedDate, key: person.key });
     }
 
@@ -370,7 +374,9 @@ export class AzureWorkItemService implements WorkItemRepository {
         const title = workItem.fields['System.Title'];
         if (!title || !matchesTaskSeries(title, titlePrefix)) continue;
         const parsed = parseWorkItemTaskDate(workItem, titlePrefix, this.timezone());
-        if (!parsed.isValid) continue;
+        if (!parsed.isValid) {
+          throw new Error(`Cannot prove workday for existing Azure task #${workItem.id} in this series. Resolve its title/scheduling fields before creating more tasks.`);
+        }
         if (parsed.isoDate < startDate || parsed.isoDate > endDate) continue;
 
         const existing = existingMap.get(parsed.isoDate);

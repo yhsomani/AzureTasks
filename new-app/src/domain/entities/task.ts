@@ -244,10 +244,38 @@ export function parseWorkItemTaskDate(
   item: WorkItem,
   prefix: string,
   timezone = 'UTC',
+  requireRecordedWorkday = false,
 ): ParsedTaskDate {
   const title = String(item.fields['System.Title'] || '');
-  const parsed = parseTitleDate(title, prefix, true);
-  if (!parsed.isValid || !matchesTaskSeries(title, prefix)) return { ...parsed, isValid: false };
+  if (!matchesTaskSeries(title, prefix)) {
+    return { isoDate: '', formattedTitleDate: '', year: 0, isValid: false };
+  }
+  // Legacy work item titles sometimes contain an explicit year, including
+  // DD-MM-YYYY. That year is authoritative and must NOT be replaced with
+  // the process's current year or merely compared by month/day.
+  const titleSegment = title.split('|')[1]?.trim() || '';
+  const numeric = titleSegment.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:\s|$)/);
+  const named = titleSegment.match(/^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})(?:\s|$)/);
+  let parsed = parseTitleDate(title, prefix, true);
+  let explicitYear = false;
+  if (numeric || named) {
+    const day = Number((numeric || named)![1]);
+    const month = numeric
+      ? Number(numeric[2])
+      : new Date(`${named![2]} 1, 2000`).getUTCMonth() + 1;
+    const year = Number((numeric || named)![3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    const valid = month >= 1 && month <= 12 && day >= 1 && day <= 31 &&
+      date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 &&
+      date.getUTCDate() === day;
+    parsed = {
+      isoDate: valid ? date.toISOString().slice(0, 10) : '',
+      formattedTitleDate: valid ? date.toISOString().slice(5, 10) : '',
+      year, isValid: valid,
+    };
+    explicitYear = true;
+  }
+  if (!parsed.isValid) return { ...parsed, isValid: false };
 
   const fieldNames = [
     'Custom.PlannedStartdate', 'Custom.PlannedStartDate',
@@ -266,13 +294,17 @@ export function parseWorkItemTaskDate(
     }).formatToParts(date);
     const part = (type: string) => parts.find(p => p.type === type)?.value || '';
     const isoDate = `${part('year')}-${part('month')}-${part('day')}`;
-    if (isoDate.slice(5) === parsed.isoDate.slice(5)) {
+    if (explicitYear ? isoDate === parsed.isoDate : isoDate.slice(5) === parsed.isoDate.slice(5)) {
       return { ...parsed, isoDate, year: Number(isoDate.slice(0, 4)) };
     }
   }
   // A recorded date that contradicts the title is not permission to guess
   // a year or assign an unrelated work item to a target workday.
   if (hadRecordedDate) return { ...parsed, isoDate: '', year: 0, isValid: false };
+
+  // An EOD write must not close a historical item merely because its
+  // yearless title happens to match today's month and day.
+  if (requireRecordedWorkday) return { ...parsed, isoDate: '', year: 0, isValid: false };
 
   // Older tasks can lack scheduling fields. Their creation time can locate the
   // nearest year, but operators must verify distant/backfilled history.
