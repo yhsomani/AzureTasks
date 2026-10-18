@@ -62,7 +62,7 @@ function resolvePersonScope(
 /** Keep user-controlled response sizes finite and predictable. */
 function parsePageLimit(value: unknown, fallback: number, max: number): number {
   if (value === undefined) return fallback;
-  if (typeof value !== 'string' || !/^[1-9]\\d*$/.test(value)) {
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) {
     throw new Error(`limit must be a positive integer up to ${max}.`);
   }
   const parsed = Number(value);
