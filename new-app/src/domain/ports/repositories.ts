@@ -165,7 +165,8 @@ export interface JournalRepository {
   markRepaired(
     entry: JournalEntry,
     status: JournalEntry['relationCopyStatus'],
-    note: string
+    note: string,
+    verified?: boolean
   ): Promise<boolean>;
   exportCsv(): Promise<string>;
   exportJson(): Promise<string>;
