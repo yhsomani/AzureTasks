@@ -11,6 +11,23 @@ describe('Production web server access controls', () => {
     expect(() => new AppServer({} as ApiDependencies, 0))
       .toThrow(/API_AUTH_TOKEN must be configured in production/);
   });
+  it('disallows inline scripts in the web security policy', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('API_AUTH_TOKEN', 'test-only-secret');
+    const server = new AppServer({} as ApiDependencies, 0);
+    const port = await server.start();
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/`, {
+        headers: { Authorization: `Basic ${Buffer.from('admin:test-only-secret').toString('base64')}` },
+      });
+      expect(response.headers.get('content-security-policy')).toMatch(/script-src 'self' https:\/\/cdn\.jsdelivr\.net/);
+      expect(response.headers.get('content-security-policy')?.split('style-src')[0]).not.toContain('unsafe-inline');
+      expect(response.headers.get('content-security-policy')).toContain("object-src 'none'");
+    } finally {
+      await server.stop();
+    }
+  });
+
   it('allows the configured public HTTPS origin behind a local reverse proxy', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('API_AUTH_TOKEN', 'test-only-secret');

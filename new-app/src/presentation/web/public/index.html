@@ -7,7 +7,7 @@
   <title>Azure DevOps 3in1 Task Automation Studio</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230078d4'/%3E%3Cpath d='M9 16l4 4 10-10' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/styles.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -659,7 +659,7 @@
         <button class="icon-btn" id="btnClosePersonModal" style="width:28px; height:28px;" aria-label="Close dialog">✕</button>
       </div>
       <div class="modal-body">
-        <form id="personModalForm" onsubmit="return false;">
+        <form id="personModalForm">
           <input type="hidden" id="editPersonIndex" />
           <label class="field"><span>Key (Unique identifier) *</span><input type="text" id="personKeyInput" placeholder="Unique member key" required /></label>
           <label class="field"><span>Display Name *</span><input type="text" id="personNameInput" placeholder="Member full name" required /></label>
@@ -708,7 +708,7 @@
         <button class="icon-btn" id="btnCloseAdHocModal" style="width:28px; height:28px;" aria-label="Close dialog">✕</button>
       </div>
       <div class="modal-body">
-        <form id="adHocForm" onsubmit="return false;">
+        <form id="adHocForm">
           <div class="grid cols-2">
             <label class="field">
               <span>Assignee *</span>

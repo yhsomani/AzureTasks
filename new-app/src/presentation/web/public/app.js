@@ -1843,6 +1843,11 @@ async function savePersonFromModal() {
   toast(`Added ${name} to the draft. Select Save team to apply changes.`, 'warn');
 }
 
+// Prevent Enter submission without inline event handlers. The browser shell
+// intentionally disallows inline scripts through Content-Security-Policy.
+$('#personModalForm')?.addEventListener('submit', e => e.preventDefault());
+$('#adHocForm')?.addEventListener('submit', e => e.preventDefault());
+
 /* ---------------------------------------------------------------- audit log */
 async function refreshJournal() {
   const status = $('#journalResultStatus');
