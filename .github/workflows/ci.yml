@@ -27,7 +27,20 @@ jobs:
       - name: Production dependency vulnerability audit
         run: npm audit --omit=dev --audit-level=high
       - name: Enforce complete dependency security audit (including development tooling)
-        run: npm audit --audit-level=high
+        run: |
+          set -euo pipefail
+          # Query the committed dependency graph, not the mutable node_modules tree.
+          # Retry registry transport/availability failures without suppressing
+          # high/critical advisories: every unsuccessful attempt blocks release.
+          for attempt in 1 2 3; do
+            if npm audit --package-lock-only --audit-level=high; then
+              exit 0
+            fi
+            echo "Full npm audit unsuccessful (attempt ${attempt}/3)."
+            sleep 2
+          done
+          echo "Full npm audit never passed; release blocked."
+          exit 1
       - name: Typecheck
         run: npm run typecheck
       - name: Lint
@@ -77,7 +90,7 @@ jobs:
         run: node tests/browser/ui-journeys.mjs
       - name: Upload browser evidence
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ui-browser-screenshots
           path: new-app/artifacts/*.png
