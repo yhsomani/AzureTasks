@@ -152,7 +152,7 @@ export class CloseDailyTasksUseCase {
           if (!matchesTaskSeries(title, personPrefix)) continue;
           // Do not bypass title/date conflicts using raw StartDate strings.
           // Both series and date must independently match before mutation.
-          const parsed = parseWorkItemTaskDate(item, personPrefix, activeConfig.timezone);
+          const parsed = parseWorkItemTaskDate(item, personPrefix, activeConfig.timezone, true);
           if (parsed.isValid && parsed.isoDate === targetDate) {
             seenTaskIds.add(item.id);
             matchedTasks.push({ person: p, item });
