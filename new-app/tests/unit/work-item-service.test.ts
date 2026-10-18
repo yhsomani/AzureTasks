@@ -84,6 +84,7 @@ describe('AzureWorkItemService.createWorkItemWithReconciliation', () => {
   it('passes application/json-patch+json content type to client.post', async () => {
     let capturedOptions: any = null;
     let capturedPath = '';
+    let capturedBody: any = null;
     const fakeClient = {
       baseUrl: 'https://dev.azure.com',
       organization: 'test-org',
@@ -111,6 +112,7 @@ describe('AzureWorkItemService.createWorkItemWithReconciliation', () => {
     expect(result.id).toBe(1234);
     expect(capturedPath).toContain('/TestProject/_apis/wit/workitems/$Task');
     expect(capturedOptions?.headers?.['Content-Type']).toBe('application/json-patch+json');
+    expect(capturedBody[0].value.attributes).toBeUndefined(); // read-only isLocked omitted
   });
 });
 
@@ -123,6 +125,7 @@ describe('AzureWorkItemService.copyRelations', () => {
       organization: 'test-org',
       async patch<T>(path: string, _body: any, options?: any): Promise<T> {
         capturedPath = path;
+        capturedBody = _body;
         capturedOptions = options;
         return { id: 5678 } as T;
       },
