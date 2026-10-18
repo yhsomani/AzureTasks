@@ -153,3 +153,27 @@ describe('year-aware Azure workday interpretation', () => {
     expect(parseWorkItemTaskDate(item, prefix, 'Asia/Kolkata').isValid).toBe(false);
   });
 });
+
+describe('explicit-year title validation', () => {
+  const prefix = '3in1_PWA_MyAccount |';
+  it('accepts legacy DD-MM-YYYY when workday metadata agrees', () => {
+    const task = { id: 501, rev: 1, fields: {
+      'System.Title': '3in1_PWA_MyAccount | 15-10-2025',
+      'Custom.PlannedStartdate': '2025-10-15T04:00:00.000Z',
+    } } as any;
+    expect(parseWorkItemTaskDate(task, prefix, 'Asia/Kolkata').isoDate).toBe('2025-10-15');
+  });
+  it('does not reinterpret an explicit historical year from a later planned date', () => {
+    const task = { id: 502, rev: 1, fields: {
+      'System.Title': '3in1_PWA_MyAccount | 15 Oct 2025',
+      'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
+    } } as any;
+    expect(parseWorkItemTaskDate(task, prefix, 'Asia/Kolkata').isValid).toBe(false);
+  });
+  it('refuses impossible day-month-year titles', () => {
+    const task = { id: 503, rev: 1, fields: {
+      'System.Title': '3in1_PWA_MyAccount | 31-02-2026',
+    } } as any;
+    expect(parseWorkItemTaskDate(task, prefix, 'Asia/Kolkata').isValid).toBe(false);
+  });
+});
