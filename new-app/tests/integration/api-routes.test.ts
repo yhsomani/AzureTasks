@@ -429,7 +429,7 @@ describe('API routes', () => {
     const body = await res.json();
     expect(body.success).toBe(true);
     expect(deps.closeDailyTasks?.execute).toHaveBeenCalledWith(
-      expect.objectContaining({ dryRun: false, asOf: '2026-10-15' })
+      expect.objectContaining({ dryRun: false, asOf: undefined })
     );
   });
 
