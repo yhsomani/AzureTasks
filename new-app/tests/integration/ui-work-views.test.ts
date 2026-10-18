@@ -53,9 +53,9 @@ describe('My Work member and async state', () => {
 
 describe('work-hour accuracy in explorer presentation', () => {
   it('never fabricates missing work-hour values as zero in tables and charts', () => {
-    expect(js).not.toContain('t.completedWork || 0');
-    expect(js).not.toContain('t.remainingWork || 0');
-    expect(js).toContain('Not recorded');
-    expect(js).toContain('hasRecordedHours ? dailyWork : null');
+    expect(source).not.toContain('t.completedWork || 0');
+    expect(source).not.toContain('t.remainingWork || 0');
+    expect(source).toContain('Not recorded');
+    expect(source).toContain('hasRecordedHours ? dailyWork : null');
   });
 });
