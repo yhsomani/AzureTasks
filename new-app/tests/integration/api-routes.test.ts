@@ -106,7 +106,7 @@ describe('API routes', () => {
   it('GET /api/health', async () => {
     const res = await json('/api/health');
     expect(res.status).toBe(200);
-    expect((await res.json()).status).toBe('healthy');
+    expect((await res.json()).status).toBe('alive');
   });
 
   it('does not grant cross-origin browser access by default', async () => {
