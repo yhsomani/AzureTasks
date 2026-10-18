@@ -51,8 +51,10 @@ export interface UserMatrixRow {
     duplicateCount: number;
     coveragePercent: number;
     stateCounts: Record<string, number>;
-    totalCompletedWork: number;
-    totalRemainingWork: number;
+    totalCompletedWork: number | null;
+    totalRemainingWork: number | null;
+    recordedCompletedWorkTasks: number;
+    unrecordedCompletedWorkTasks: number;
   };
 }
 
@@ -106,8 +108,10 @@ export interface ExploreTasksOutput {
       Resolved: number;
       Other: number;
     };
-    totalCompletedWork: number;
-    totalRemainingWork: number;
+    totalCompletedWork: number | null;
+    totalRemainingWork: number | null;
+    recordedCompletedWorkTasks: number;
+    unrecordedCompletedWorkTasks: number;
   };
   users: PersonConfig[];
   dates: Array<{
@@ -119,6 +123,12 @@ export interface ExploreTasksOutput {
   matrix: UserMatrixRow[];
   detailedTasks: DetailedTaskItem[];
   warnings?: string[];
+}
+
+function readRecordedHours(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const number = Number(raw);
+  return Number.isFinite(number) && number >= 0 ? number : undefined;
 }
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -340,6 +350,9 @@ export class ExploreTasksUseCase {
     let overallDuplicates = 0;
     let overallCompletedWork = 0;
     let overallRemainingWork = 0;
+    let overallRecordedCompleted = 0;
+    let overallUnrecordedCompleted = 0;
+    let overallRecordedRemaining = 0;
 
     const baseOrgUrl = `${this.baseUrl.replace(/\/$/, '')}/${this.config.organization}/${this.config.project}/_workitems/edit`;
 
@@ -354,6 +367,9 @@ export class ExploreTasksUseCase {
       let userDuplicates = 0;
       let userCompletedWork = 0;
       let userRemainingWork = 0;
+      let userRecordedCompleted = 0;
+      let userUnrecordedCompleted = 0;
+      let userRecordedRemaining = 0;
 
       for (const cal of calendarDates) {
         const rawTasks = dateMap.get(cal.dateIso) || [];
@@ -365,12 +381,20 @@ export class ExploreTasksUseCase {
           else if (st === 'Resolved') userStateCounts.Resolved++;
           else userStateCounts.Other = (userStateCounts.Other || 0) + 1;
 
-          const completed = Number(t.fields['Microsoft.VSTS.Scheduling.CompletedWork'] || 0);
-          const remaining = Number(t.fields['Microsoft.VSTS.Scheduling.RemainingWork'] || 0);
-          const orig = Number(t.fields['Microsoft.VSTS.Scheduling.OriginalEstimate'] || 0);
+          const completed = readRecordedHours(t.fields['Microsoft.VSTS.Scheduling.CompletedWork']);
+          const remaining = readRecordedHours(t.fields['Microsoft.VSTS.Scheduling.RemainingWork']);
+          const orig = readRecordedHours(t.fields['Microsoft.VSTS.Scheduling.OriginalEstimate']);
 
-          userCompletedWork += completed;
-          userRemainingWork += remaining;
+          if (completed !== undefined) {
+            userCompletedWork += completed;
+            userRecordedCompleted++;
+          } else {
+            userUnrecordedCompleted++;
+          }
+          if (remaining !== undefined) {
+            userRemainingWork += remaining;
+            userRecordedRemaining++;
+          }
 
           return {
             id: t.id,
@@ -478,8 +502,10 @@ export class ExploreTasksUseCase {
           duplicateCount: userDuplicates,
           coveragePercent,
           stateCounts: userStateCounts,
-          totalCompletedWork: userCompletedWork,
-          totalRemainingWork: userRemainingWork,
+          totalCompletedWork: userRecordedCompleted ? userCompletedWork : null,
+          totalRemainingWork: userRecordedRemaining ? userRemainingWork : null,
+          recordedCompletedWorkTasks: userRecordedCompleted,
+          unrecordedCompletedWorkTasks: userUnrecordedCompleted,
         },
       });
 
@@ -488,6 +514,9 @@ export class ExploreTasksUseCase {
       overallDuplicates += userDuplicates;
       overallCompletedWork += userCompletedWork;
       overallRemainingWork += userRemainingWork;
+      overallRecordedCompleted += userRecordedCompleted;
+      overallUnrecordedCompleted += userUnrecordedCompleted;
+      overallRecordedRemaining += userRecordedRemaining;
       overallStateCounts.New += userStateCounts.New;
       overallStateCounts.Active += userStateCounts.Active;
       overallStateCounts.Closed += userStateCounts.Closed;
@@ -518,8 +547,10 @@ export class ExploreTasksUseCase {
         duplicateCombinations: overallDuplicates,
         overallCoveragePercent,
         stateCounts: overallStateCounts,
-        totalCompletedWork: overallCompletedWork,
-        totalRemainingWork: overallRemainingWork,
+        totalCompletedWork: overallRecordedCompleted ? overallCompletedWork : null,
+        totalRemainingWork: overallRecordedRemaining ? overallRemainingWork : null,
+        recordedCompletedWorkTasks: overallRecordedCompleted,
+        unrecordedCompletedWorkTasks: overallUnrecordedCompleted,
       },
       users: selectedPeople.map(p => p.toConfig()),
       dates: calendarDates,

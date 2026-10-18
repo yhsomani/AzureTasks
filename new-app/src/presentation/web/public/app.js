@@ -555,13 +555,18 @@ function renderOverviewCharts(data) {
       if (!d.isWeekend) {
         labels.push(d.formattedDate);
         let dailyWork = 0;
+        let hasRecordedHours = false;
         data.matrix.forEach(row => {
           const cell = row.cells[d.dateIso];
-          if (cell?.tasks) {
-            dailyWork += cell.tasks.reduce((sum, t) => sum + (t.completedWork || 0), 0);
+          for (const task of cell?.tasks || []) {
+            if (task.completedWork != null) {
+              dailyWork += task.completedWork;
+              hasRecordedHours = true;
+            }
           }
         });
-        values.push(dailyWork);
+        // Chart.js skips null rather than drawing a fictional zero-hours bar.
+        values.push(hasRecordedHours ? dailyWork : null);
       }
     });
 
@@ -673,7 +678,10 @@ function renderBurndownTable(data) {
       el('div', { style: 'font-weight:600;' }, row.person.name),
       el('div', { class: 'muted small' }, `${row.person.pod || 'Team'} · ${row.person.role || 'Member'}`),
     ]));
-    tr.append(el('td', { style: 'font-weight:bold; color:var(--accent);' }, `${row.stats.totalCompletedWork}h`));
+    const completedLabel = row.stats.totalCompletedWork == null
+      ? 'Not recorded'
+      : `${row.stats.totalCompletedWork}h${row.stats.unrecordedCompletedWorkTasks ? ' (partial)' : ''}`;
+    tr.append(el('td', { style: 'font-weight:bold; color:var(--accent);' }, completedLabel));
     tr.append(el('td', {}, String(row.stats.createdCount)));
 
     dates.forEach(d => {
@@ -681,14 +689,15 @@ function renderBurndownTable(data) {
       if (cell.isWeekend) {
         tr.append(el('td', { class: 'cell-status cell-weekend' }, 'WO'));
       } else if (cell.status === 'CREATED' || cell.status === 'DUPLICATE') {
-        const completed = cell.tasks.reduce((sum, t) => sum + (t.completedWork || 0), 0);
+        const recorded = cell.tasks.filter(t => t.completedWork != null);
+        const completed = recorded.reduce((sum, t) => sum + t.completedWork, 0);
         tr.append(el('td', { class: 'cell-status cell-created' },
           el('button', {
             type: 'button',
             class: 'matrix-cell-action',
             title: `Inspect ${cell.tasks.length} task(s) for ${row.person.name} · ${d.formattedDate}`,
             onclick: () => openDateInspectModal(cell, row.person),
-          }, completed > 0 ? `${completed}h` : String(cell.tasks.length))));
+          }, recorded.length ? `${completed}h${recorded.length < cell.tasks.length ? '*' : ''}` : '—')));
       } else {
         tr.append(el('td', { class: 'cell-status cell-missing' },
           el('button', {
@@ -696,7 +705,7 @@ function renderBurndownTable(data) {
             class: 'matrix-cell-action',
             title: `Inspect missing task for ${row.person.name} · ${d.formattedDate}`,
             onclick: () => openDateInspectModal(cell, row.person),
-          }, '0')));
+          }, '—')));
       }
     });
 
@@ -817,7 +826,7 @@ function renderMyWorkContent(data, personKey) {
       el('td', {}, el('a', { href: t.url || getAdoWorkItemUrl(t.taskId), target: '_blank', style: 'color:var(--accent); font-weight:600;' }, `#${t.taskId}`)),
       el('td', { class: 'title-cell' }, t.title || '—'),
       el('td', {}, el('span', { class: `state-tag state-${stateCls}` }, t.state || 'New')),
-      el('td', {}, `${t.completedWork || 0}h`),
+      el('td', {}, t.completedWork == null ? 'Not recorded' : `${t.completedWork}h`),
       el('td', {}, el('a', { href: t.url || getAdoWorkItemUrl(t.taskId), target: '_blank', class: 'btn small ghost' }, 'Open in ADO ↗')),
     ]));
   });
@@ -1148,7 +1157,7 @@ function openDateInspectModal(cell, person) {
             el('a', { href: t.url, target: '_blank', style: 'color:var(--accent); text-decoration:none;' }, `#${t.id} — ${t.title}`),
           ]),
           el('div', { class: 'muted small', style: 'margin-top:4px;' },
-            `State: ${t.state} | Completed: ${t.completedWork || 0}h | Remaining: ${t.remainingWork || 0}h`),
+            `State: ${t.state} | Completed: ${t.completedWork == null ? 'Not recorded' : `${t.completedWork}h`} | Remaining: ${t.remainingWork == null ? 'Not recorded' : `${t.remainingWork}h`}`),
         ]));
       });
     } else {
@@ -1201,7 +1210,7 @@ function openUserInspectModal(row) {
     sumBox.innerHTML = `
       <div class="stat-chip"><b>${row.stats.createdCount}/${row.stats.totalWorkingDays}</b><span>Created / Days</span></div>
       <div class="stat-chip"><b>${row.stats.coveragePercent}%</b><span>Coverage</span></div>
-      <div class="stat-chip"><b>${row.stats.totalCompletedWork}h</b><span>Completed Work</span></div>
+      <div class="stat-chip"><b>${row.stats.totalCompletedWork == null ? 'Not recorded' : `${row.stats.totalCompletedWork}h${row.stats.unrecordedCompletedWorkTasks ? ' (partial)' : ''}`}</b><span>Completed Work</span></div>
       <div class="stat-chip"><b>${row.stats.missingCount}</b><span>Missing Tasks</span></div>
     `;
   }
