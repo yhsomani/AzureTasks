@@ -84,7 +84,6 @@ describe('AzureWorkItemService.createWorkItemWithReconciliation', () => {
   it('passes application/json-patch+json content type to client.post', async () => {
     let capturedOptions: any = null;
     let capturedPath = '';
-    let capturedBody: any = null;
     const fakeClient = {
       baseUrl: 'https://dev.azure.com',
       organization: 'test-org',
@@ -112,7 +111,6 @@ describe('AzureWorkItemService.createWorkItemWithReconciliation', () => {
     expect(result.id).toBe(1234);
     expect(capturedPath).toContain('/TestProject/_apis/wit/workitems/$Task');
     expect(capturedOptions?.headers?.['Content-Type']).toBe('application/json-patch+json');
-    expect(capturedBody[0].value.attributes).toBeUndefined(); // read-only isLocked omitted
   });
 });
 
@@ -120,6 +118,7 @@ describe('AzureWorkItemService.copyRelations', () => {
   it('passes application/json-patch+json content type to client.patch', async () => {
     let capturedOptions: any = null;
     let capturedPath = '';
+    let capturedBody: any = null;
     const fakeClient = {
       baseUrl: 'https://dev.azure.com',
       organization: 'test-org',
@@ -154,6 +153,7 @@ describe('AzureWorkItemService.copyRelations', () => {
     expect(result.copiedCount).toBe(1);
     expect(capturedPath).toContain('/_apis/wit/workitems/5678');
     expect(capturedOptions?.headers?.['Content-Type']).toBe('application/json-patch+json');
+    expect(capturedBody[0].value.attributes).toBeUndefined(); // read-only metadata omitted
   });
 });
 
