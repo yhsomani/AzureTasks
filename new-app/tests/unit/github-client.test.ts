@@ -302,7 +302,8 @@ describe('GitHubClient', () => {
       const client = new GitHubClient({ fetchFn });
       expect(await client.getUserCommitsForDate('dev', '2026-10-15', 'UTC', [])).toEqual([]);
       expect(fetchFn).not.toHaveBeenCalled();
-      await expect(client.getUserCommitsForDate('dev', '2026-10-15', 'UTC', ['../secret'])).rejects.toThrow();
+      await expect(client.getUserCommitsForDate('dev', '2026-10-15', 'UTC', ['../secret'])).rejects.toThrow(/Invalid GitHub owner\/repo/);
+      await expect(client.getUserCommitsForDate('dev', '2026-10-15', 'UTC', ['team/..'])).rejects.toThrow(/Invalid GitHub owner\/repo/);
     });
 
     it('does not treat a partial GitHub commit page as a complete result', async () => {

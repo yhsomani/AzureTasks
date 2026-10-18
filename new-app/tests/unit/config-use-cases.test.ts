@@ -52,7 +52,7 @@ describe('ConfigUseCases', () => {
 
   it('rejects unsafe repository paths and branch names in a team member', async () => {
     await expect(useCases.savePeople({ people: [{
-      key: 'a', name: 'A', assignedTo: 'a@b.com', githubRepositories: ['../../secrets'],
+      key: 'a', name: 'A', assignedTo: 'a@b.com', githubRepositories: ['../secrets'],
     }] })).rejects.toThrow(/GitHub repositories/);
     await expect(useCases.savePeople({ people: [{
       key: 'a', name: 'A', assignedTo: 'a@b.com', githubBranches: ['../../secret'],

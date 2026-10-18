@@ -112,8 +112,10 @@ export function validatePerson(person: PersonConfig): { valid: boolean; errors: 
   }
   if (person.githubRepositories !== undefined &&
       (!Array.isArray(person.githubRepositories) || person.githubRepositories.length > 12 ||
-       person.githubRepositories.some(repo =>
-         typeof repo !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)))) {
+       person.githubRepositories.some(repo => {
+         if (typeof repo !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return true;
+         return repo.split('/').some(segment => segment === '.' || segment === '..');
+       }))) {
     errors.push('GitHub repositories must be up to 12 owner/repo names.');
   }
   if (person.githubBranches !== undefined &&

@@ -213,7 +213,10 @@ export class GitHubClient {
     const until = new Date(day.getTime() + 2 * 86400000 - 1).toISOString();
     const items = new Map<string, GitHubCommit>();
     for (const repo of normalizedRepos) {
-      if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) throw new Error('Invalid GitHub owner/repo configuration.');
+      if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo) ||
+          repo.split('/').some(segment => segment === '.' || segment === '..')) {
+        throw new Error('Invalid GitHub owner/repo configuration.');
+      }
       for (const branch of normalizedBranches.length ? normalizedBranches : ['']) {
         if (branch && (!/^[A-Za-z0-9_./-]+$/.test(branch) || branch.includes('..') ||
             branch.startsWith('/') || branch.endsWith('/'))) {
