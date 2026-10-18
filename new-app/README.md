@@ -187,3 +187,7 @@ The local audit journal now fails visibly if its JSON is corrupt, instead of ove
 ## Audit history retention (additional hardening)
 
 Rotated journals remain available to the audit UI, exports and relation-repair discovery. At the 10 MB or 10,000-entry threshold the active file is archived, not silently truncated. Archives are not automatically deleted: back them up and apply an explicit retention policy. A relation-repair PATCH by itself is **not** an independent verification of the final Azure work-item relations. An API error, missing identity, or journal write failure must remain visible, not become a fabricated success.
+
+## Live health probes
+
+`GET /api/health` is a web-process **liveness** check only; it deliberately does not assert that Azure DevOps or GitHub is online. `GET /api/ready` checks Azure DevOps project/type access using the current credentials and returns HTTP 503 if the integration is unavailable. Readiness is subject to normal API authentication. A successful readiness response is not proof that Azure write permissions or EOD transitions have been exercised.

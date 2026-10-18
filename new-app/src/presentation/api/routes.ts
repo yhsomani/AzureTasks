@@ -58,9 +58,30 @@ function resolvePersonScope(
 export function createApiRouter(deps: ApiDependencies): Router {
   const router = Router();
 
-  // Health check
+  // Liveness says only that the web process can answer HTTP requests.
+  // It must not pretend that Azure DevOps or GitHub integrations are working.
   router.get('/health', (_req, res) => {
-    res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+    res.json({ status: 'alive', dependenciesChecked: false, timestamp: new Date().toISOString() });
+  });
+
+  // Readiness performs live read-only Azure project and work-item type checks.
+  // Keep this under normal API authentication (unlike the liveness probe).
+  router.get('/ready', async (_req, res) => {
+    try {
+      const status = await deps.getStatus.execute();
+      if (!status.connected || !status.projectValid || !status.workItemTypeValid) {
+        return res.status(503).json({
+          success: false,
+          data: { status: 'unavailable', azureDevOpsConnected: false },
+        });
+      }
+      return res.json({ success: true, data: { status: 'ready', azureDevOpsConnected: true } });
+    } catch {
+      return res.status(503).json({
+        success: false,
+        data: { status: 'unavailable', azureDevOpsConnected: false },
+      });
+    }
   });
 
   // Status

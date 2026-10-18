@@ -435,6 +435,19 @@ describe('API routes', () => {
     controller.abort();
   });
 
+  it('distinguishes liveness from live Azure DevOps readiness', async () => {
+    const health = await json('/api/health');
+    expect(health.status).toBe(200);
+    expect((await health.json()).status).toBe('alive');
+
+    (deps.getStatus.execute as any).mockResolvedValueOnce({
+      connected: false, projectValid: false, workItemTypeValid: false,
+    });
+    const unavailable = await json('/api/ready');
+    expect(unavailable.status).toBe(503);
+    expect((await unavailable.json()).data.status).toBe('unavailable');
+  });
+
   it('serves the SPA at /', async () => {
     const res = await json('/');
     expect(res.status).toBe(200);
