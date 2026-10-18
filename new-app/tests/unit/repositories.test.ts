@@ -124,8 +124,24 @@ describe('FileJournalRepository', () => {
 
     const [row] = await journal.getEntries();
     expect(row.relationCopyStatus).toBe('SUCCESS');
-    expect(row.verified).toBe(true);
+    expect(row.verified).toBe(false);
     expect(row.error).toContain('Repaired');
+  });
+
+  it('includes rotated archived audit records in reads and exports', async () => {
+    const filename = path.join(dir, '.journal.json');
+    const archiveDir = path.join(dir, '.journal-archives');
+    fs.mkdirSync(archiveDir);
+    fs.writeFileSync(path.join(archiveDir, 'task-journal-2026-10-01.json'), JSON.stringify([
+      entry({ runId: 'old-run', title: 'Archived task' }),
+    ]));
+    const journal = new FileJournalRepository(filename);
+    await journal.record(entry({ runId: 'new-run', title: 'Current task' }));
+    const entries = await journal.getEntries();
+    expect(entries.map(e => e.runId)).toEqual(['new-run', 'old-run']);
+    expect((await journal.getEntries(1))[0].runId).toBe('new-run');
+    expect(await journal.exportCsv()).toContain('Archived task');
+    expect(await journal.exportJson()).toContain('Archived task');
   });
 
   it('exports CSV with escaped values', async () => {

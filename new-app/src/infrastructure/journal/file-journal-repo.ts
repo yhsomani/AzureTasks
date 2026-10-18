@@ -29,16 +29,10 @@ export class FileJournalRepository implements JournalRepository {
 
     // Validate the existing audit trail BEFORE any write or rotation. Never
     // silently replace corrupt evidence with an empty journal.
-    this.readEntriesFrom(this.journalPath);
-    await this.rotateIfNeeded();
-    let entries = this.readEntriesFrom(this.journalPath);
+    const existing = this.readEntriesFrom(this.journalPath);
+    await this.rotateIfNeeded(existing.length >= MAX_ENTRIES);
+    const entries = this.readEntriesFrom(this.journalPath);
     entries.push(entry);
-
-    // Trim if too many entries
-    if (entries.length > MAX_ENTRIES) {
-      entries = entries.slice(-MAX_ENTRIES);
-    }
-
     this.writeEntriesAtomically(entries);
   }
 
@@ -53,19 +47,29 @@ export class FileJournalRepository implements JournalRepository {
     }
   }
 
+  private listArchiveFiles(): string[] {
+    return fs.existsSync(this.archiveDir)
+      ? fs.readdirSync(this.archiveDir)
+          .filter(name => /^task-journal-.*\\.json$/.test(name))
+          .sort().reverse()
+          .map(name => path.join(this.archiveDir, name))
+      : [];
+  }
+
   async getEntries(limit?: number): Promise<JournalEntry[]> {
-    const entries = this.readEntriesFrom(this.journalPath);
-    return (limit && limit > 0 ? entries.slice(-limit) : entries).reverse();
+    // Newest segment first; never silently omit rotated history from
+    // the UI, CSV export or audit search.
+    const entries = this.readEntriesFrom(this.journalPath).reverse();
+    const max = limit && limit > 0 ? limit : Infinity;
+    for (const archive of this.listArchiveFiles()) {
+      if (entries.length >= max) break;
+      entries.push(...this.readEntriesFrom(archive).reverse());
+    }
+    return entries.slice(0, max);
   }
 
   async getUnfinishedRelations(): Promise<JournalEntry[]> {
-    const archives = fs.existsSync(this.archiveDir)
-      ? fs.readdirSync(this.archiveDir).filter(name => /^task-journal-.*\.json$/.test(name)).sort().reverse()
-      : [];
-    const entries = [
-      ...await this.getEntries(),
-      ...archives.flatMap(name => this.readEntriesFrom(path.join(this.archiveDir, name)).reverse()),
-    ];
+    const entries = await this.getEntries();
     return entries.filter(e =>
       e.createdWorkItemId != null &&
       (e.relationCopyStatus === 'PARTIAL' || e.relationCopyStatus === 'FAILED')
@@ -77,11 +81,7 @@ export class FileJournalRepository implements JournalRepository {
     status: JournalEntry['relationCopyStatus'],
     note: string
   ): Promise<boolean> {
-    const files = [this.journalPath,
-      ...(fs.existsSync(this.archiveDir)
-        ? fs.readdirSync(this.archiveDir).filter(name => /^task-journal-.*\.json$/.test(name)).map(name => path.join(this.archiveDir, name))
-        : []),
-    ];
+    const files = [this.journalPath, ...this.listArchiveFiles()];
     for (const filename of files) {
       const entries = this.readEntriesFrom(filename);
       const index = entries.findIndex(e =>
@@ -92,7 +92,8 @@ export class FileJournalRepository implements JournalRepository {
       entries[index] = {
         ...entries[index],
         relationCopyStatus: status,
-        verified: status === 'SUCCESS',
+        // API-level relation repair is not an independent work-item read-back.
+        verified: false,
         error: note || entries[index].error,
       };
       this.writeEntriesAtomically(entries, filename);
@@ -155,11 +156,11 @@ export class FileJournalRepository implements JournalRepository {
     fs.renameSync(tmpPath, filename);
   }
 
-  private async rotateIfNeeded(): Promise<void> {
+  private async rotateIfNeeded(force = false): Promise<void> {
     if (!fs.existsSync(this.journalPath)) return;
 
     const stats = fs.statSync(this.journalPath);
-    if (stats.size < MAX_JOURNAL_SIZE) return;
+    if (!force && stats.size < MAX_JOURNAL_SIZE) return;
 
     // Archive current journal
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -167,24 +168,7 @@ export class FileJournalRepository implements JournalRepository {
     
     fs.renameSync(this.journalPath, archivePath);
     
-    // Clean old archives (keep last 10)
-    const archives = fs.readdirSync(this.archiveDir)
-      .filter(f => f.startsWith('task-journal-') && f.endsWith('.json'))
-      .sort()
-      .reverse();
-    
-    // Never delete an archive containing unfinished relations: operators must
-    // retain the ability to reconcile work items after partial Azure writes.
-    for (const archive of archives.slice(10)) {
-      const filename = path.join(this.archiveDir, archive);
-      try {
-        const rows = this.readEntriesFrom(filename);
-        if (rows.some(e => e.createdWorkItemId != null &&
-          (e.relationCopyStatus === 'PARTIAL' || e.relationCopyStatus === 'FAILED'))) continue;
-        fs.unlinkSync(filename);
-      } catch {
-        // Preserve unreadable evidence for manual recovery instead of deleting it.
-      }
-    }
+    // Do not automatically prune audit evidence. Operators must configure
+    // retention/backup policies and remove historical archives explicitly.
   }
 }

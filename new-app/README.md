@@ -183,3 +183,7 @@ EOD closure preserves the Azure DevOps values for Completed Work and Remaining W
 The local audit journal now fails visibly if its JSON is corrupt, instead of overwriting it with empty history. Archived partial relation records remain discoverable and repairable. Keep and back up journal archives; repair status is not proof of an independent Azure DevOps read-back.
 
 **Release limitations:** Production HTTPS/reverse-proxy authentication, credential rotation, live Azure DevOps write verification, GitHub evidence completeness, and production scheduler recovery still require environment-specific testing. Passing isolated CI tests does not establish those release gates. Never commit PATs.
+
+## Audit history retention (additional hardening)
+
+Rotated journals remain available to the audit UI, exports and relation-repair discovery. At the 10 MB or 10,000-entry threshold the active file is archived, not silently truncated. Archives are not automatically deleted: back them up and apply an explicit retention policy. A relation-repair PATCH by itself is **not** an independent verification of the final Azure work-item relations. An API error, missing identity, or journal write failure must remain visible, not become a fabricated success.
