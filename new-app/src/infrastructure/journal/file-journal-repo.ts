@@ -79,7 +79,8 @@ export class FileJournalRepository implements JournalRepository {
   async markRepaired(
     entry: JournalEntry,
     status: JournalEntry['relationCopyStatus'],
-    note: string
+    note: string,
+    verified = false
   ): Promise<boolean> {
     const files = [this.journalPath, ...this.listArchiveFiles()];
     for (const filename of files) {
@@ -92,8 +93,8 @@ export class FileJournalRepository implements JournalRepository {
       entries[index] = {
         ...entries[index],
         relationCopyStatus: status,
-        // API-level relation repair is not an independent work-item read-back.
-        verified: false,
+        // Caller must independently read back target relations first.
+        verified,
         error: note || entries[index].error,
       };
       this.writeEntriesAtomically(entries, filename);
