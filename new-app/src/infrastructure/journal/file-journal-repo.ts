@@ -127,7 +127,7 @@ export class FileJournalRepository implements JournalRepository {
       // Quoted CSV values can still execute formulas in spreadsheet clients.
       // Prefix spreadsheet control characters before escaping embedded quotes.
       const plain = String(val);
-      const safe = /^[=+@\\-\\t\\r\\n]/.test(plain) ? "'" + plain : plain;
+      const safe = /^(?:[=+@-]|\t|\r|\n)/.test(plain) ? "'" + plain : plain;
       const str = safe.replace(/"/g, '""');
       return `"${str}"`;
     };
