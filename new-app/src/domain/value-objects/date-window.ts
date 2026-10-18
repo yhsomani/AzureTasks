@@ -212,23 +212,10 @@ export function planCreationDates(input: DatePlanInput): DatePlan {
   const nextThursdayIso = getNextThursdayIso(todayIso, thursdayMode, stopDayOfWeek);
   const plannedDates: PlannedDate[] = [];
 
-  // If latest existing task is beyond the window, warn
-  if (latestExistingTaskIso && latestExistingTaskIso > nextThursdayIso) {
-    return {
-      plannedDates: [],
-      effectiveStartDate: todayIso,
-      nextThursday: nextThursdayIso,
-      warningMessage: `Latest task date (${latestExistingTaskIso}) is ahead of creation window ending on Thursday (${nextThursdayIso}).`,
-    };
-  }
-
-  // Start from the day after the latest existing task, or today if no tasks exist
-  let currentIso = latestExistingTaskIso ? addDays(latestExistingTaskIso, 1) : todayIso;
-
-  // Don't go before today
-  if (currentIso < todayIso) {
-    currentIso = todayIso;
-  }
+  // Always inspect the entire requested window. The latest source task is a
+  // copy template, never a watermark proving earlier person/date coverage.
+  // Later-dated tasks must not hide missing dates or suppress backfill.
+  let currentIso = todayIso;
 
   // Evaluate each date up to and including nextThursday
   while (currentIso <= nextThursdayIso) {
