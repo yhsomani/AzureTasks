@@ -108,3 +108,7 @@ Post-deploy verification (read-only first; do NOT use the Create missing action 
 - The configuration repository now avoids persisting tokens in people.json, but `.env` remains plaintext on disk. Deployments prohibiting plaintext tokens require a separately tested secret-store migration.
 - Config writes use same-directory atomic rename; do not claim crash consistency on every filesystem or concurrent multi-host safety.
 - A source-level fix does not close an acceptance gate. Record an exact release SHA, test time, CI URL, staging restore trace, and authorized tenant evidence.
+
+### Secret-storage mode
+
+Production defaults to `SECRET_STORAGE_MODE=external`: API writes of Azure DevOps and GitHub secrets are rejected, and credentials must be injected from a trusted secret manager at process startup. An operator may explicitly opt into `SECRET_STORAGE_MODE=local-file` for an approved single-host deployment, but this creates sensitive plaintext `.env` files and requires secured filesystem/backup access. Switching the mode does **not** revoke previously exposed secrets or clean old credentials; rotate those separately and confirm no secrets appear in logs or release artifacts. Verify the actual production topology before promoting a release.

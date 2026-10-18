@@ -246,6 +246,17 @@ export class FileConfigRepository implements ConfigRepository {
   }
 
   private saveEnvVariable(key: string, value: string): void {
+    // Production secrets must be provisioned by the deployment's secret store,
+    // not written through a web request to a plaintext .env file. Local-file
+    // persistence requires an explicit, documented opt-in in production.
+    const mode = process.env.SECRET_STORAGE_MODE ||
+      (process.env.NODE_ENV === 'production' ? 'external' : 'local-file');
+    if (mode !== 'local-file' && mode !== 'external') {
+      throw new Error('SECRET_STORAGE_MODE must be external or local-file.');
+    }
+    if (mode === 'external') {
+      throw new Error(`Cannot save ${key} via the application while SECRET_STORAGE_MODE=external. Provision the secret through an approved deployment secret manager and restart the service.`);
+    }
     const existing = fs.existsSync(this.envPath) ? fs.readFileSync(this.envPath, 'utf-8') : '';
     const prefix = `${key}=`;
     const updated = `${key}=${JSON.stringify(value)}`;
