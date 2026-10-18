@@ -31,7 +31,7 @@ export class FileJournalRepository implements JournalRepository {
     // silently replace corrupt evidence with an empty journal.
     this.readEntriesFrom(this.journalPath);
     await this.rotateIfNeeded();
-    const entries = this.readEntriesFrom(this.journalPath);
+    let entries = this.readEntriesFrom(this.journalPath);
     entries.push(entry);
 
     // Trim if too many entries
