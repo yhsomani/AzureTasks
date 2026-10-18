@@ -76,7 +76,12 @@ describe('AzureWorkItemService.discoverLatestTasksForPeople', () => {
         },
       },
     ];
-    const overrideItem = { id: 77, fields: { 'System.Title': '3in1_PWA_MyAccount | Sep 30' } };
+    const overrideItem = { id: 77, fields: {
+      'System.Title': '3in1_PWA_MyAccount | Sep 30',
+      'System.TeamProject': 'Proj',
+      'System.WorkItemType': '3in1 Task',
+      'System.AssignedTo': { displayName: 'Alice Able', uniqueName: 'alice@b.com' },
+    } };
 
     const client = {
       async post(path: string) {
@@ -111,7 +116,12 @@ describe('AzureWorkItemService.discoverLatestTasksForPeople', () => {
     ];
     const defaultItem = {
       id: 99,
-      fields: { 'System.Title': '3in1_PWA_MyAccount | Oct 1' },
+      fields: {
+        'System.Title': '3in1_PWA_MyAccount | Oct 1',
+        'System.TeamProject': 'Proj',
+        'System.WorkItemType': '3in1 Task',
+        'System.AssignedTo': { uniqueName: 'bob@b.com', displayName: 'Bob Baker' },
+      },
     };
 
     const client = {
@@ -133,5 +143,34 @@ describe('AzureWorkItemService.discoverLatestTasksForPeople', () => {
 
     expect(result.get('alice_key')!.workItem.id).toBe(1);
     expect(result.get('bob_key')!.workItem.id).toBe(99);
+  });
+
+  it('never uses a different member\'s task as the default source', async () => {
+    const aliceOnly = [{
+      id: 10,
+      fields: {
+        'System.AssignedTo': { uniqueName: 'alice@b.com', displayName: 'Alice Able' },
+        'System.Title': '3in1_PWA_MyAccount | Oct 6',
+      },
+    }];
+    const client = {
+      async post<T>(): Promise<T> { return { workItems: aliceOnly.map(x => ({ id: x.id })) } as T; },
+      async get<T>(url: string): Promise<T> {
+        if (url.includes('/workitems/99')) return {
+          id: 99,
+          fields: {
+            'System.Title': '3in1_PWA_MyAccount | Oct 1',
+            'System.TeamProject': 'Proj',
+            'System.WorkItemType': '3in1 Task',
+            'System.AssignedTo': { uniqueName: 'alice@b.com', displayName: 'Alice Able' },
+          },
+        } as T;
+        return { value: aliceOnly, count: 1 } as T;
+      },
+    } as unknown as AzureDevOpsClient;
+    const sources = await new AzureWorkItemService(client).discoverLatestTasksForPeople(
+      'Proj', '3in1 Task', '3in1_PWA_MyAccount |', people, undefined, 99
+    );
+    expect(sources.has('bob_key')).toBe(false);
   });
 });

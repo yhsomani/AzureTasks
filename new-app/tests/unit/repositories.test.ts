@@ -124,8 +124,24 @@ describe('FileJournalRepository', () => {
 
     const [row] = await journal.getEntries();
     expect(row.relationCopyStatus).toBe('SUCCESS');
-    expect(row.verified).toBe(true);
+    expect(row.verified).toBe(false);
     expect(row.error).toContain('Repaired');
+  });
+
+  it('includes rotated archived audit records in reads and exports', async () => {
+    const filename = path.join(dir, '.journal.json');
+    const archiveDir = path.join(dir, '.journal-archives');
+    fs.mkdirSync(archiveDir);
+    fs.writeFileSync(path.join(archiveDir, 'task-journal-2026-10-01.json'), JSON.stringify([
+      entry({ runId: 'old-run', title: 'Archived task' }),
+    ]));
+    const journal = new FileJournalRepository(filename);
+    await journal.record(entry({ runId: 'new-run', title: 'Current task' }));
+    const entries = await journal.getEntries();
+    expect(entries.map(e => e.runId)).toEqual(['new-run', 'old-run']);
+    expect((await journal.getEntries(1))[0].runId).toBe('new-run');
+    expect(await journal.exportCsv()).toContain('Archived task');
+    expect(await journal.exportJson()).toContain('Archived task');
   });
 
   it('exports CSV with escaped values', async () => {
@@ -192,7 +208,7 @@ describe('FileConfigRepository', () => {
     const repo = new FileConfigRepository(path.join(dir, 'nope.json'));
     const config = await repo.load();
     expect(config.organization).toBeTruthy();
-    expect(Array.isArray(config.people)).toBe(true);
+    expect(config.people).toEqual([]);
   });
 
   it('keeps unattended creation and closure disabled on a fresh configuration', async () => {
@@ -263,6 +279,19 @@ describe('FileConfigRepository', () => {
 });
 
 describe('NodeSchedulerRepository', () => {
+  it('defaults EOD closure to disabled when config omits autoClose', () => {
+    const scheduler = new NodeSchedulerRepository({ timezone: 'UTC', startTime: '09:30' });
+    expect(scheduler.getStatus().autoCloseEnabled).toBe(false);
+  });
+
+  it('rejects invalid scheduler dates before modifying runtime settings', async () => {
+    const scheduler = new NodeSchedulerRepository({ timezone: 'UTC', startTime: '09:30' });
+    await expect(scheduler.configure({ startTime: '99:99' })).rejects.toThrow(/Invalid scheduler/);
+    await expect(scheduler.configure({ timezone: 'Made/Up' })).rejects.toThrow(/IANA timezone/);
+    expect(scheduler.getStatus().timezone).toBe('UTC');
+    expect(scheduler.getStatus().startTime).toBe('09:30');
+  });
+
   it('reflects timezone changes from the live config', () => {
     const config = { timezone: 'UTC', startTime: '09:30' };
     const scheduler = new NodeSchedulerRepository(config);
@@ -282,8 +311,13 @@ describe('NodeSchedulerRepository', () => {
     const configRepo = { saveSettings: vi.fn().mockRejectedValue(new Error('disk unavailable')) } as any;
     const scheduler = new NodeSchedulerRepository({ timezone: 'UTC', startTime: '10:00' }, configRepo);
     await expect(scheduler.start(true)).rejects.toThrow('disk unavailable');
+    expect(scheduler.getStatus().running).toBe(false);
+    await scheduler.start(false);
     await expect(scheduler.stop(true)).rejects.toThrow('disk unavailable');
+    expect(scheduler.getStatus().running).toBe(true);
     await expect(scheduler.configure({ startTime: '11:00' })).rejects.toThrow('disk unavailable');
+    expect(scheduler.getStatus().startTime).toBe('10:00');
+    await scheduler.stop(false);
   });
 
   it('persists schedulerEnabled on start(true) and stop(true)', async () => {

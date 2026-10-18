@@ -305,11 +305,8 @@ export class FileConfigRepository implements ConfigRepository {
       schedulerEnabled: false,
       schedulerAutoStart: false,
       scheduleTime: '09:30',
-      people: [
-        { key: 'person1', name: 'Person 1', assignedTo: 'person1@company.com', enabled: true },
-        { key: 'person2', name: 'Person 2', assignedTo: 'person2@company.com', enabled: true },
-        { key: 'person3', name: 'Person 3', assignedTo: 'person3@company.com', enabled: true },
-      ],
+      // No synthetic identities: all team members must be explicitly configured.
+      people: [],
     };
   }
 }

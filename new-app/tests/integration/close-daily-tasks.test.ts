@@ -160,7 +160,7 @@ describe('CloseDailyTasksUseCase', () => {
     expect(result.taskId).toBe(5001);
     expect(result.remainingWork).toBe(4);
     expect(result.completedWork).toBe(4);
-    expect(result.actualStartDate).toBe('2026-10-15T04:00:00.000Z');
+    expect(result.actualStartDate).toBe('');
     expect(result.githubUsername).toBe('yash-somani_bflghec');
     expect(result.isTodayPr).toBe(true);
 
@@ -174,10 +174,13 @@ describe('CloseDailyTasksUseCase', () => {
     const opMap = new Map(ops.map((o: any) => [o.path, o.value]));
     expect(opMap.has('/fields/Microsoft.VSTS.Scheduling.RemainingWork')).toBe(false);
     expect(opMap.has('/fields/Microsoft.VSTS.Scheduling.CompletedWork')).toBe(false);
-    expect(opMap.get('/fields/Custom.ActualStartdate')).toBe('2026-10-15T04:00:00.000Z');
+    expect(opMap.has('/fields/Custom.ActualStartdate')).toBe(false);
+    expect(opMap.has('/fields/Custom.ActualEnddate')).toBe(false);
+    expect(opMap.has('/fields/Microsoft.VSTS.Common.ClosedDate')).toBe(false);
     expect(opMap.get('/fields/System.State')).toBe('Closed');
-    expect(opMap.get('/fields/System.Reason')).toBe('Completed');
-    expect(opMap.get('/fields/System.Description')).toContain('Daily Deliverables &amp; Pull Requests');
+    expect(opMap.has('/fields/System.Reason')).toBe(false);
+    expect(opMap.has('/fields/System.Description')).toBe(false);
+    expect(opMap.get('/fields/System.History')).toContain('unchanged');
   });
 
   it('properly generates current-day deliverable description when individual user has no PRs today', async () => {
@@ -215,6 +218,9 @@ describe('CloseDailyTasksUseCase', () => {
     expect(result.prCount).toBe(0);
     expect(result.prSourceDate).toBe('2026-10-15');
     expect(result.htmlDescription).toContain('No Pull Requests were created today');
+    const [, ops] = (mockWorkItemRepo.patchWorkItem as any).mock.calls[0];
+    expect(ops.some((op: any) => op.path === '/fields/System.Description')).toBe(false);
+    expect(ops.some((op: any) => op.path === '/fields/Custom.ActualEnddate')).toBe(false);
   });
 
   it('skips tasks that are already Closed without calling patch', async () => {
@@ -453,65 +459,27 @@ describe('CloseDailyTasksUseCase', () => {
     expect(output.results[0].error).toContain('Rule validation failed');
   });
 
-  it('sets Actual End date and Closed Date to the exact same randomized timestamp between 6:15pm and 6:45pm (<= now)', async () => {
-    const targetDate = '2026-10-15';
-    const candidateTasks = [
-      {
-        id: 7001,
-        fields: {
-          'System.Id': 7001,
-          'System.Title': '3in1_PWA_MyAccount | 15-10-2026',
-          'System.AssignedTo': 'yash.somani@bajajfinserv.in',
-          'System.State': 'Active',
-          'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
-          'Custom.ActualEndDate': null,
-          'Custom.ActualClosedDate': null,
-        },
+  it('never invents a closure time or work end time', async () => {
+    (mockWorkItemRepo.findCandidateTasks as any).mockResolvedValue([{
+      id: 7001,
+      fields: {
+        'System.Id': 7001,
+        'System.Title': '3in1_PWA_MyAccount | 15-10-2026',
+        'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+        'System.State': 'Active',
+        'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
+        'Custom.ActualEndDate': null,
+        'Custom.ActualClosedDate': null,
       },
-    ];
-
-    (mockWorkItemRepo.findCandidateTasks as any).mockResolvedValue(candidateTasks);
-
+    }]);
     const useCase = new CloseDailyTasksUseCase(
-      baseConfig,
-      mockWorkItemRepo,
-      datePlanning,
-      mockGitHubClient as unknown as GitHubClient
+      baseConfig, mockWorkItemRepo, datePlanning, mockGitHubClient as unknown as GitHubClient
     );
-
-    const output = await useCase.execute({ asOf: targetDate, dryRun: false });
-    expect(output.totalClosed).toBe(1);
-
-    expect(mockWorkItemRepo.patchWorkItem).toHaveBeenCalledTimes(1);
+    const result = await useCase.execute({ asOf: '2026-10-15', dryRun: false });
+    expect(result.totalClosed).toBe(1);
     const [, ops] = (mockWorkItemRepo.patchWorkItem as any).mock.calls[0];
-    const opMap = new Map(ops.map((o: any) => [o.path, o.value]));
-
-    const actualEndLower = opMap.get('/fields/Custom.ActualEnddate');
-    const actualEndPascal = opMap.get('/fields/Custom.ActualEndDate');
-    const closedDate = opMap.get('/fields/Microsoft.VSTS.Common.ClosedDate');
-    const actualClosedDate = opMap.get('/fields/Custom.ActualClosedDate');
-
-    // Requirement: Actual End date and Actual Closed Date should be same
-    expect(actualEndLower).toBeDefined();
-    expect(closedDate).toBe(actualEndLower);
-    expect(actualEndPascal).toBe(actualEndLower);
-    expect(actualClosedDate).toBe(actualEndLower);
-    expect(output.results[0].actualEndDate).toBe(actualEndLower);
-
-    // Requirement: randomized between 6:15pm and 6:45pm in target timezone (Asia/Kolkata)
-    const localTimeParts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: baseConfig.timezone,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    }).format(new Date(actualEndLower)).split(':').map(Number);
-
-    const sec = localTimeParts[0] * 3600 + localTimeParts[1] * 60 + localTimeParts[2];
-    expect(sec).toBeGreaterThanOrEqual(18 * 3600 + 15 * 60);
-    expect(sec).toBeLessThanOrEqual(18 * 3600 + 45 * 60);
-
-    // Requirement: smaller than or equal to current time so it will not give any error
-    expect(new Date(actualEndLower).getTime()).toBeLessThanOrEqual(Date.now());
+    const paths = ops.map((op: any) => op.path);
+    expect(paths).toEqual(['/fields/System.History', '/fields/System.State']);
+    expect(result.results[0].actualEndDate).toBe('');
   });
 });

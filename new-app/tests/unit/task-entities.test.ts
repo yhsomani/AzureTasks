@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { validateSourceTaskOwnership } from '../../src/domain/entities/task';
 import {
   parseTitleDate,
   matchesTaskSeries,
@@ -85,5 +86,30 @@ describe('task: relation filtering', () => {
   it('exposes a frozen-safe list of copyable types', () => {
     expect(COPYABLE_RELATION_TYPES.length).toBeGreaterThan(0);
     expect(COPYABLE_RELATION_TYPES).toContain('System.LinkTypes.Related');
+  });
+});
+
+describe('source task ownership validation', () => {
+  const prefix = '3in1_PWA_MyAccount |';
+  const source = {
+    id: 77,
+    rev: 1,
+    fields: {
+      'System.Title': '3in1_PWA_MyAccount | 15 Oct 2026',
+      'System.TeamProject': 'Project-A',
+      'System.WorkItemType': '3in1 Task',
+      'System.AssignedTo': { displayName: 'Member A', uniqueName: 'member-a@company.test' },
+    },
+  };
+
+  it('accepts a matching project, type, series and exact Azure assignee', () => {
+    expect(validateSourceTaskOwnership(source, 'Project-A', '3in1 Task', prefix, 'member-a@company.test').isValid).toBe(true);
+  });
+
+  it('blocks cross-person, cross-project and cross-series overrides', () => {
+    expect(() => validateSourceTaskOwnership(source, 'Project-A', '3in1 Task', prefix, 'member-b@company.test')).toThrow(/not assigned/);
+    expect(() => validateSourceTaskOwnership(source, 'Project-B', '3in1 Task', prefix, 'member-a@company.test')).toThrow(/project and task type/);
+    expect(() => validateSourceTaskOwnership(source, 'Project-A', 'Bug', prefix, 'member-a@company.test')).toThrow(/project and task type/);
+    expect(() => validateSourceTaskOwnership(source, 'Project-A', '3in1 Task', 'OtherSeries |', 'member-a@company.test')).toThrow(/different task series/);
   });
 });

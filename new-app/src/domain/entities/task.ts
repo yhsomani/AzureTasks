@@ -8,7 +8,7 @@ export interface WorkItemFields {
   'System.Title'?: string;
   'System.State'?: string;
   'System.WorkItemType'?: string;
-  'System.AssignedTo'?: { displayName: string; uniqueName: string };
+  'System.AssignedTo'?: string | { displayName: string; uniqueName: string };
   'System.CreatedDate'?: string;
   'System.ChangedDate'?: string;
   'System.AreaPath'?: string;
@@ -247,6 +247,48 @@ export function matchesTaskSeries(title: string, configuredPrefix: string): bool
   const normalized = (value: string) => value.split('|', 1)[0].trim().toLowerCase();
   const expected = normalized(configuredPrefix);
   return expected.length > 0 && normalized(title) === expected;
+}
+
+/**
+ * Explicit source IDs are not permission to copy another person's work item,
+ * or to cross project, work-item type or task series boundaries. Validate
+ * the original Azure record before cloning fields and relations.
+ */
+export function validateSourceTaskOwnership(
+  workItem: WorkItem,
+  project: string,
+  workItemType: string,
+  titlePrefix: string,
+  assignedTo: string,
+): ParsedTaskDate {
+  const fields = workItem.fields;
+  const same = (a: unknown, b: string) =>
+    typeof a === 'string' && a.trim().toLowerCase() === b.trim().toLowerCase();
+  if (!same(fields['System.TeamProject'], project) ||
+      !same(fields['System.WorkItemType'], workItemType)) {
+    throw new Error(`Source work item #${workItem.id} does not belong to the configured project and task type.`);
+  }
+  const title = String(fields['System.Title'] || '');
+  if (!matchesTaskSeries(title, titlePrefix)) {
+    throw new Error(`Source work item #${workItem.id} belongs to a different task series.`);
+  }
+
+  // Azure's uniqueName is preferred to display-name substring heuristics.
+  const raw = fields['System.AssignedTo'];
+  let actualIdentity: string | undefined;
+  if (typeof raw === 'string') {
+    actualIdentity = raw.match(/<([^>]+)>/)?.[1] || raw.trim();
+  } else if (raw && typeof raw === 'object') {
+    actualIdentity = String((raw as any).uniqueName || (raw as any).displayName || '').trim();
+  }
+  if (!actualIdentity || !same(actualIdentity, assignedTo)) {
+    throw new Error(`Source work item #${workItem.id} is not assigned to the selected team member.`);
+  }
+  const parsed = parseTitleDate(title, titlePrefix, true);
+  if (!parsed.isValid) {
+    throw new Error(`Source work item #${workItem.id} has no unambiguous dated task title.`);
+  }
+  return parsed;
 }
 
 export function extractTitlePrefix(title: string): string {

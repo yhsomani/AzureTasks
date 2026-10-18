@@ -106,7 +106,7 @@ describe('API routes', () => {
   it('GET /api/health', async () => {
     const res = await json('/api/health');
     expect(res.status).toBe(200);
-    expect((await res.json()).status).toBe('healthy');
+    expect((await res.json()).status).toBe('alive');
   });
 
   it('does not grant cross-origin browser access by default', async () => {
@@ -292,6 +292,19 @@ describe('API routes', () => {
     expect(res.headers.get('content-disposition')).toContain('attachment');
   });
 
+  it('rejects ad-hoc duplicate bypass and invalid numeric fields at the HTTP boundary', async () => {
+    const bypass = await json('/api/tasks/adhoc', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personKey: 'p1', targetIsoDate: '2026-11-02', bypassDuplicateCheck: true }),
+    });
+    expect(bypass.status).toBe(400);
+    const badSource = await json('/api/tasks/adhoc', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personKey: 'p1', targetIsoDate: '2026-11-02', sourceTaskId: '123oops' }),
+    });
+    expect(badSource.status).toBe(400);
+  });
+
   it('POST /api/scheduler/toggle enables the scheduler', async () => {
     const res = await json('/api/scheduler/toggle', {
       method: 'POST',
@@ -300,6 +313,17 @@ describe('API routes', () => {
     });
     expect(res.status).toBe(200);
     expect((deps.scheduler.start as any)).toHaveBeenCalledWith(true);
+  });
+
+  it('reports a refused scheduler run as HTTP 409, not a successful queued run', async () => {
+    (deps.scheduler.triggerRunNow as any).mockResolvedValueOnce({ success: false, message: 'Already executing' });
+    const res = await json('/api/scheduler/run-now', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true, all: true }),
+    });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain('Already executing');
   });
 
   it('POST /api/scheduler/config reconfigures schedule settings', async () => {
@@ -409,6 +433,19 @@ describe('API routes', () => {
     const res = await fetch(base + '/api/logs/stream', { signal: controller.signal });
     expect(res.headers.get('content-type')).toContain('text/event-stream');
     controller.abort();
+  });
+
+  it('distinguishes liveness from live Azure DevOps readiness', async () => {
+    const health = await json('/api/health');
+    expect(health.status).toBe(200);
+    expect((await health.json()).status).toBe('alive');
+
+    (deps.getStatus.execute as any).mockResolvedValueOnce({
+      connected: false, projectValid: false, workItemTypeValid: false,
+    });
+    const unavailable = await json('/api/ready');
+    expect(unavailable.status).toBe(503);
+    expect((await unavailable.json()).data.status).toBe('unavailable');
   });
 
   it('serves the SPA at /', async () => {

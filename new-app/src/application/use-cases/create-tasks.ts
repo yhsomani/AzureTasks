@@ -4,13 +4,16 @@
  */
 
 import * as readline from 'node:readline/promises';
+import { logger } from '../../infrastructure/logging/logger.js';
 import { WorkItemRepository, JournalRepository, LockRepository, AppConfig } from '../../domain/ports/repositories.js';
-import { Person } from '../../domain/entities/person.js';
+import { Person, matchesPerson } from '../../domain/entities/person.js';
 import { 
   DiscoveredTask, 
   WorkItem, 
   CreatedTask,
   parseTitleDate,
+  validateSourceTaskOwnership,
+  matchesTaskSeries,
   extractTitlePrefix
 } from '../../domain/entities/task.js';
 import { 
@@ -53,6 +56,7 @@ export interface CreateAdHocTaskOutput {
   task?: CreatedTask;
   sourceTaskId?: number;
   relationResult?: { copiedCount: number; failedCount: number; totalRelations: number };
+  auditWarning?: string;
   error?: string;
 }
 
@@ -77,6 +81,7 @@ export interface PersonExecutionResult {
   failedTasks: PlannedDate[];
   relationsProcessed: number;
   relationsFailed: number;
+  auditWarnings?: string[];
 }
 
 export interface CreateTasksOutput {
@@ -117,6 +122,19 @@ export class CreateTasksUseCase {
     this.relationCopy = new RelationCopyService(workItemRepo);
     this.datePlanning = new DatePlanningService();
     this.execution = new TaskExecutionService(workItemRepo, this.fieldCopy, this.relationCopy);
+  }
+
+  private async verifyCreatedTask(id: number, title: string, person: Person, relationFailures: number): Promise<boolean> {
+    if (relationFailures > 0) return false;
+    try {
+      const actual = await this.workItemRepo.getWorkItem(id);
+      return actual.id === id &&
+        String(actual.fields['System.Title'] || '') === title &&
+        matchesPerson(actual.fields['System.AssignedTo'], person);
+    } catch (error) {
+      logger.warn(`Azure DevOps read-back unavailable for created work item #${id}: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
   }
 
   async execute(input: CreateTasksInput, onProgress?: (event: ProgressEvent) => void): Promise<CreateTasksOutput> {
@@ -201,6 +219,9 @@ export class CreateTasksUseCase {
         }
       }
 
+      // Validate the local audit store before any remote mutation.
+      await this.journalRepo.getEntries(1);
+
       // Execute
       onProgress?.({ type: 'progress', message: `Creating ${totalToCreate} tasks...`, timestamp: new Date().toISOString() });
 
@@ -235,6 +256,18 @@ export class CreateTasksUseCase {
     if (!input.personKey || !input.targetIsoDate) {
       throw new Error('Both personKey and targetIsoDate (YYYY-MM-DD) are required.');
     }
+    const date = new Date(`${input.targetIsoDate}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.targetIsoDate) ||
+      Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== input.targetIsoDate) {
+      throw new Error('targetIsoDate must be a valid YYYY-MM-DD date.');
+    }
+    validateNotPastDate(input.targetIsoDate, this.datePlanning.getTodayIso(this.config.timezone));
+    if (this.config.skipWeekends && [0, 6].includes(date.getUTCDay())) {
+      throw new Error('Weekend task creation is disabled in project settings.');
+    }
+    if (input.bypassDuplicateCheck) {
+      throw new Error('Bypassing duplicate detection is disabled for task safety.');
+    }
 
     const personConfig = this.config.people.find(p => 
       p.key === input.personKey || p.assignedTo.toLowerCase() === input.personKey.toLowerCase()
@@ -252,12 +285,15 @@ export class CreateTasksUseCase {
 
     const runId = `adhoc-${Date.now()}`;
     try {
+      await this.journalRepo.getEntries(1);
       // 1. Resolve source task
       const memberPrefix = person.titlePrefix || this.config.titlePrefix;
       let sourceTask: DiscoveredTask | null = null;
       if (input.sourceTaskId) {
         const item = await this.workItemRepo.getWorkItem(input.sourceTaskId);
-        const parsedDate = parseTitleDate(item.fields['System.Title'] || '', memberPrefix, true);
+        const parsedDate = validateSourceTaskOwnership(
+          item, this.config.project, this.config.workItemType, memberPrefix, person.assignedTo
+        );
         sourceTask = {
           workItem: item,
           parsedDate,
@@ -281,6 +317,10 @@ export class CreateTasksUseCase {
       const effectivePrefix = person.titlePrefix || extractTitlePrefix(sourceTask.workItem.fields['System.Title'] || '') || this.config.titlePrefix;
       const fullTitle = input.customTitle?.trim() 
         || `${effectivePrefix} ${formatTitleDate(input.targetIsoDate)}`;
+      if (!matchesTaskSeries(fullTitle, effectivePrefix) ||
+          parseTitleDate(fullTitle, effectivePrefix, true).isoDate !== input.targetIsoDate) {
+        throw new Error('Task title must use the configured series and match the selected date.');
+      }
 
       // 3. Duplicate check unless bypassed
       if (!input.bypassDuplicateCheck) {
@@ -337,28 +377,32 @@ export class CreateTasksUseCase {
         person
       );
 
-      // 5. Record in audit journal
-      await this.journalRepo.record({
-        runId,
-        timestamp: new Date().toISOString(),
-        personKey: person.key,
-        personName: person.name,
-        assignedTo: person.assignedTo,
-        targetIsoDate: input.targetIsoDate,
-        title: fullTitle,
-        sourceTaskId: sourceTask.workItem.id,
-        createdWorkItemId: task.id,
-        fieldCopyStatus: 'SUCCESS',
-        relationCopyStatus: relationResult.failedCount === 0 ? 'SUCCESS' : 'PARTIAL',
-        verified: true,
-      });
+      // A successful Azure write must never be relabeled as a creation failure
+      // because local journaling or the verification read-back failed.
+      const verified = await this.verifyCreatedTask(task.id, fullTitle, person, relationResult.failedCount);
+      let auditWarning: string | undefined;
+      try {
+        await this.journalRepo.record({
+          runId,
+          timestamp: new Date().toISOString(),
+          personKey: person.key,
+          personName: person.name,
+          assignedTo: person.assignedTo,
+          targetIsoDate: input.targetIsoDate,
+          title: fullTitle,
+          sourceTaskId: sourceTask.workItem.id,
+          createdWorkItemId: task.id,
+          fieldCopyStatus: 'SUCCESS',
+          relationCopyStatus: relationResult.failedCount === 0 ? 'SUCCESS' : 'PARTIAL',
+          verified,
+          error: verified ? undefined : 'Azure creation accepted, but complete independent read-back / relation verification is pending.',
+        });
+      } catch (err) {
+        auditWarning = `Created Azure task #${task.id}, but local journal write failed: ${err instanceof Error ? err.message : String(err)}`;
+        logger.error(auditWarning);
+      }
 
-      return {
-        success: true,
-        task,
-        sourceTaskId: sourceTask.workItem.id,
-        relationResult,
-      };
+      return { success: true, task, sourceTaskId: sourceTask.workItem.id, relationResult, auditWarning };
     } finally {
       this.lockRepo.release();
     }
@@ -551,6 +595,7 @@ export class CreateTasksUseCase {
       const toCreate = plan.plannedDates.filter(d => d.status === 'PLANNED');
       const createdTasks: CreatedTask[] = [];
       const failedTasks: PlannedDate[] = [];
+      const auditWarnings: string[] = [];
       let relsProcessed = 0;
       let relsFailed = 0;
 
@@ -578,21 +623,32 @@ export class CreateTasksUseCase {
             timestamp: new Date().toISOString(),
           });
 
-          // Record in journal
-          await this.journalRepo.record({
-            runId,
-            timestamp: new Date().toISOString(),
-            personKey: person.key,
-            personName: person.name,
-            assignedTo: person.assignedTo,
-            targetIsoDate: item.isoDate,
-            title: item.fullTitle,
-            sourceTaskId: sourceTask.workItem.id,
-            createdWorkItemId: task.id,
-            fieldCopyStatus: 'SUCCESS',
-            relationCopyStatus: relationResult.failedCount === 0 ? 'SUCCESS' : 'PARTIAL',
-            verified: true,
-          });
+          const verified = await this.verifyCreatedTask(task.id, item.fullTitle, person, relationResult.failedCount);
+          if (!verified) {
+            auditWarnings.push(`Task #${task.id} was created but Azure field/relation read-back is not verified.`);
+          }
+          try {
+            await this.journalRepo.record({
+              runId,
+              timestamp: new Date().toISOString(),
+              personKey: person.key,
+              personName: person.name,
+              assignedTo: person.assignedTo,
+              targetIsoDate: item.isoDate,
+              title: item.fullTitle,
+              sourceTaskId: sourceTask.workItem.id,
+              createdWorkItemId: task.id,
+              fieldCopyStatus: 'SUCCESS',
+              relationCopyStatus: relationResult.failedCount === 0 ? 'SUCCESS' : 'PARTIAL',
+              verified,
+              error: verified ? undefined : 'Independent Azure field/relation verification pending.',
+            });
+          } catch (journalError) {
+            const warning = `Azure task #${task.id} was created, but local audit journal write failed: ${journalError instanceof Error ? journalError.message : String(journalError)}`;
+            auditWarnings.push(warning);
+            logger.error(warning);
+            onProgress?.({ type: 'progress', message: warning, timestamp: new Date().toISOString() });
+          }
         } catch (error) {
           item.status = 'FAILED';
           item.errorMessage = error instanceof Error ? error.message : String(error);
@@ -605,26 +661,33 @@ export class CreateTasksUseCase {
             timestamp: new Date().toISOString(),
           });
 
-          await this.journalRepo.record({
-            runId,
-            timestamp: new Date().toISOString(),
-            personKey: person.key,
-            personName: person.name,
-            assignedTo: person.assignedTo,
-            targetIsoDate: item.isoDate,
-            title: item.fullTitle,
-            sourceTaskId: sourceTask.workItem.id,
-            fieldCopyStatus: 'FAILED',
-            relationCopyStatus: 'FAILED',
-            verified: false,
-            error: item.errorMessage,
-          });
+          try {
+            await this.journalRepo.record({
+              runId,
+              timestamp: new Date().toISOString(),
+              personKey: person.key,
+              personName: person.name,
+              assignedTo: person.assignedTo,
+              targetIsoDate: item.isoDate,
+              title: item.fullTitle,
+              sourceTaskId: sourceTask.workItem.id,
+              fieldCopyStatus: 'FAILED',
+              relationCopyStatus: 'FAILED',
+              verified: false,
+              error: item.errorMessage,
+            });
+          } catch (journalError) {
+            const warning = `Could not audit failed task plan for ${person.name} on ${item.isoDate}: ${journalError instanceof Error ? journalError.message : String(journalError)}`;
+            auditWarnings.push(warning);
+            logger.error(warning);
+          }
         }
       }
 
       let status: PersonExecutionResult['status'] = 'SUCCESS';
       if (failedTasks.length > 0 && createdTasks.length > 0) status = 'PARTIAL';
       else if (failedTasks.length > 0 && createdTasks.length === 0) status = 'FAILED';
+      else if (auditWarnings.length > 0 || relsFailed > 0) status = 'PARTIAL';
 
       resultsMap.set(personKey, {
         person,
@@ -637,6 +700,7 @@ export class CreateTasksUseCase {
         failedTasks,
         relationsProcessed: relsProcessed,
         relationsFailed: relsFailed,
+        auditWarnings,
       });
     }
 

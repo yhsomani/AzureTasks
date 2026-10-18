@@ -436,7 +436,8 @@ function renderPlanPreview(plan) {
     const block = el('div', {}, [
       el('div', { class: 'day' }, [
         el('strong', {}, p.person.name),
-        el('span', { class: 'muted small' }, planned.length ? `${planned.length} to create` : 'up to date'),
+        el('span', { class: 'muted small' }, planned.length ? `${planned.length} to create` :
+          p.status === 'SOURCE_NOT_FOUND' ? 'Source unavailable' : 'Nothing to create'),
       ]),
     ]);
     for (const d of planned) {
@@ -507,7 +508,7 @@ function generateInsights(data) {
   });
 
   if (insights.length === 0) {
-    container.innerHTML = `<p style="color:var(--ok);">✨ All configured team members are completely up to date with zero task gaps for this period!</p>`;
+    container.textContent = 'No missing-task or duplicate warnings in the loaded Azure work items. Work completion has not been verified.';
   } else {
     container.innerHTML = `<ul style="margin:0; padding-left:18px; line-height:1.7;">${insights.slice(0, 5).join('')}</ul>`;
   }
@@ -2132,7 +2133,7 @@ async function fillSettings() {
     if (cfg.githubToken) {
       $('#setGhToken').placeholder = `Configured (${cfg.githubToken})`;
     } else {
-      $('#setGhToken').placeholder = 'ghp_••••••••••••••••';
+      $('#setGhToken').placeholder = 'Enter an optional GitHub access token';
     }
   }
   if ($('#setGhOrg')) $('#setGhOrg').value = cfg.githubOrg || '';
@@ -2175,7 +2176,7 @@ async function saveGhSettings() {
 
 async function testGhResolution() {
   const cfg = await ensureConfig();
-  const defaultEmail = cfg.people?.[0]?.assignedTo || 'yash.somani@bajajfinserv.in';
+  const defaultEmail = cfg.people?.[0]?.assignedTo || '';
   const email = prompt('Enter a corporate email to test GitHub login resolution and PR deliverables:', defaultEmail);
   if (!email) return;
 
@@ -2191,7 +2192,7 @@ async function testGhResolution() {
       const d = data.deliverables;
       resWrap.innerHTML = `
         <div style="margin-bottom:8px;">
-          <strong>Email:</strong> <code>${escapeHtml(data.email)}</code> &rarr; <strong>Resolved GitHub Login:</strong> <code style="color:var(--brand-glow); font-size:14px;">${escapeHtml(data.username)}</code>
+          <strong>Email:</strong> <code>${escapeHtml(data.email)}</code> &rarr; <strong>Candidate GitHub Login (not independently verified):</strong> <code style="color:var(--brand-glow); font-size:14px;">${escapeHtml(data.username)}</code>
         </div>
         <div style="margin-bottom:8px;">
           <strong>Deliverables:</strong> ${d.isToday ? '<span class="pill ok">' + (d.pullRequests?.length || 0) + ' PR(s) Today (' + d.sourceDate + ')</span>' : '<span class="pill muted">0 PRs Today (' + d.sourceDate + ')</span>'}
@@ -2205,7 +2206,7 @@ async function testGhResolution() {
         </div>
       `;
     }
-    toast(`Resolved GitHub login: ${data.username}`, 'ok');
+    toast(`GitHub PR lookup completed for candidate username ${data.username}; verify identity in GitHub.`, 'warn');
   } catch (err) {
     if (resWrap) {
       resWrap.innerHTML = `<span style="color:var(--danger);">Resolution error: ${escapeHtml(err.message)}</span>`;
@@ -2270,8 +2271,7 @@ async function openAdHocModal(defaultPersonKey, defaultDate) {
   if ($('#adHocEstimateInput')) $('#adHocEstimateInput').value = '';
   if ($('#adHocActivityInput')) $('#adHocActivityInput').value = '';
   if ($('#adHocDescriptionInput')) $('#adHocDescriptionInput').value = '';
-  if ($('#adHocBypassDuplicate')) $('#adHocBypassDuplicate').checked = false;
-
+ 
   showModal('#adHocModal', '#adHocPersonSelect');
 }
 
@@ -2303,15 +2303,17 @@ async function submitAdHocTask() {
       originalEstimate: $('#adHocEstimateInput')?.value ? parseFloat($('#adHocEstimateInput').value) : undefined,
       activity: $('#adHocActivityInput')?.value?.trim() || undefined,
       description: $('#adHocDescriptionInput')?.value?.trim() || undefined,
-      bypassDuplicateCheck: Boolean($('#adHocBypassDuplicate')?.checked),
-    };
+     };
 
-    if (payload.bypassDuplicateCheck && !window.confirm('Bypass duplicate detection for this one-off task? This may create an additional work item on the same date.')) return;
-    toast('Creating task in Azure DevOps...');
+     toast('Creating task in Azure DevOps...');
     const res = await api.post('/tasks/adhoc', payload);
     const created = res.task;
 
-    toast(`Successfully created #${created.id} - ${created.title}`, 'ok');
+    if (res.auditWarning) {
+      toast(`Created Azure task #${created.id}, but audit needs attention: ${res.auditWarning}`, 'warn');
+    } else {
+      toast(`Created Azure task #${created.id} - ${created.title}`, 'ok');
+    }
     closeAdHocModal();
 
     // Trigger UI updates
@@ -2444,7 +2446,7 @@ function wire() {
     const simDate = dt.toISOString().slice(0, 10);
     const asOfInput = $('#asOf');
     if (asOfInput) asOfInput.value = simDate;
-    toast(`Simulating creation window as of ${simDate}`, 'ok');
+    toast(`Previewing planning window as of ${simDate}. No tasks have been created.`, 'ok');
     runPlanPreview();
   });
 

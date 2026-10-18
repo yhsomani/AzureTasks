@@ -14,6 +14,7 @@ import { CloseDailyTasksUseCase } from '../../application/use-cases/close-daily-
 import { GitHubClient } from '../../infrastructure/github/github-client.js';
 import { JournalRepository, SchedulerRepository } from '../../domain/ports/repositories.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import { getTodayIso } from '../../domain/value-objects/date-window.js';
 
 export interface ApiDependencies {
   createTasks: CreateTasksUseCase;
@@ -57,9 +58,30 @@ function resolvePersonScope(
 export function createApiRouter(deps: ApiDependencies): Router {
   const router = Router();
 
-  // Health check
+  // Liveness says only that the web process can answer HTTP requests.
+  // It must not pretend that Azure DevOps or GitHub integrations are working.
   router.get('/health', (_req, res) => {
-    res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+    res.json({ status: 'alive', dependenciesChecked: false, timestamp: new Date().toISOString() });
+  });
+
+  // Readiness performs live read-only Azure project and work-item type checks.
+  // Keep this under normal API authentication (unlike the liveness probe).
+  router.get('/ready', async (_req, res) => {
+    try {
+      const status = await deps.getStatus.execute();
+      if (!status.connected || !status.projectValid || !status.workItemTypeValid) {
+        return res.status(503).json({
+          success: false,
+          data: { status: 'unavailable', azureDevOpsConnected: false },
+        });
+      }
+      return res.json({ success: true, data: { status: 'ready', azureDevOpsConnected: true } });
+    } catch {
+      return res.status(503).json({
+        success: false,
+        data: { status: 'unavailable', azureDevOpsConnected: false },
+      });
+    }
   });
 
   // Status
@@ -167,16 +189,27 @@ export function createApiRouter(deps: ApiDependencies): Router {
       if (!personKey || !targetIsoDate) {
         return res.status(400).json({ success: false, error: 'personKey and targetIsoDate (YYYY-MM-DD) are required' });
       }
+      if (bypassDuplicateCheck === true) {
+        return res.status(400).json({ success: false, error: 'Duplicate-check bypass is disabled.' });
+      }
+      const sourceId = sourceTaskId === undefined || sourceTaskId === '' ? undefined : Number(sourceTaskId);
+      const estimate = originalEstimate === undefined || originalEstimate === '' ? undefined : Number(originalEstimate);
+      if (sourceId !== undefined && (!Number.isSafeInteger(sourceId) || sourceId <= 0)) {
+        return res.status(400).json({ success: false, error: 'sourceTaskId must be a positive integer.' });
+      }
+      if (estimate !== undefined && (!Number.isFinite(estimate) || estimate < 0)) {
+        return res.status(400).json({ success: false, error: 'originalEstimate must be a non-negative finite number.' });
+      }
 
       const result = await deps.createTasks.executeAdHocTask({
         personKey,
         targetIsoDate,
         customTitle,
-        sourceTaskId: sourceTaskId ? parseInt(sourceTaskId, 10) : undefined,
-        originalEstimate: originalEstimate !== undefined && originalEstimate !== '' ? parseFloat(originalEstimate) : undefined,
+        sourceTaskId: sourceId,
+        originalEstimate: estimate,
         activity,
         description,
-        bypassDuplicateCheck: Boolean(bypassDuplicateCheck),
+        bypassDuplicateCheck: false,
       });
 
       res.json({ success: true, data: result });
@@ -218,7 +251,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
         personKeys: scope.personKeys,
         asOf,
         dryRun,
-        bypassRules: true,
+        // Let the Azure project workflow validate the transition.
+        bypassRules: false,
       });
       res.json({ success: true, data: result });
     } catch (err: any) {
@@ -359,7 +393,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
       }
       if (deps.scheduler.triggerRunNow) {
         const result = await deps.scheduler.triggerRunNow();
-        res.json({ success: result.success, message: result.message, data: deps.scheduler.getStatus() });
+        if (!result.success) return res.status(409).json({ success: false, error: result.message });
+        res.json({ success: true, message: result.message, data: deps.scheduler.getStatus() });
       } else {
         res.status(400).json({ success: false, error: 'Direct run trigger not supported' });
       }
@@ -400,7 +435,7 @@ export function createApiRouter(deps: ApiDependencies): Router {
         return res.status(404).json({ success: false, error: `Could not resolve GitHub username for '${email || 'unspecified'}'` });
       }
       const config = await deps.config.getConfig();
-      const targetDate = String(req.query.date || '').trim() || new Date().toISOString().split('T')[0];
+      const targetDate = String(req.query.date || '').trim() || getTodayIso(config.timezone);
       const deliverables = await deps.githubClient.getPrDeliverablesForDate(username, targetDate, config.timezone, {
         org: config.githubOrg,
       });
