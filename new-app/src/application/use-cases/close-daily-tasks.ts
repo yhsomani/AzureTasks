@@ -47,6 +47,7 @@ export interface ClosedTaskResult {
   patchOperations: any[];
   status: 'closed' | 'simulated' | 'already_closed' | 'failed';
   error?: string;
+  auditWarning?: string;
 }
 
 export interface CloseDailyTasksOutput {
@@ -278,6 +279,7 @@ export class CloseDailyTasksUseCase {
           { op: 'add', path: '/fields/System.State', value: 'Closed' },
         ];
 
+        let auditWarning: string | undefined;
         if (!isDryRun) {
           // Never bypass tenant workflow constraints, regardless of entry point.
           await this.workItemRepo.patchWorkItem(taskId, ops, { bypassRules: false });
@@ -303,7 +305,8 @@ export class CloseDailyTasksUseCase {
                 error: 'Closure API accepted; independent Azure DevOps read-back not performed.',
               });
             } catch (jErr: any) {
-              logger.warn(`Failed to record closure journal entry for task #${taskId}: ${jErr.message}`);
+              auditWarning = `Azure task #${taskId} was closed, but recording the local audit journal failed: ${jErr instanceof Error ? jErr.message : String(jErr)}`;
+              logger.warn(auditWarning);
             }
           }
         }
@@ -328,6 +331,7 @@ export class CloseDailyTasksUseCase {
           summaryText: prDeliverables.summaryText,
           patchOperations: ops,
           status: isDryRun ? 'simulated' : 'closed',
+          auditWarning,
         });
       } catch (err: any) {
         totalFailed++;

@@ -2176,10 +2176,15 @@ async function triggerEodClosure(dryRun = false) {
       } else {
         toast(`Preview complete: ${res.totalClosed} task(s) eligible for closure.`, 'ok');
       }
-    } else if (res.totalFailed > 0) {
-      toast(`EOD partially failed: ${res.totalClosed} closure(s) accepted, ${res.totalFailed} failed. Review the details.`, 'warn');
     } else {
-      toast(`Azure accepted ${res.totalClosed} closure(s). Confirm final state in Azure DevOps.`, 'ok');
+      const auditWarnings = (res.results || []).filter(item => item.auditWarning);
+      if (res.totalFailed > 0) {
+        toast(`EOD partially failed: ${res.totalClosed} closure(s) accepted, ${res.totalFailed} failed. Review the details.`, 'warn');
+      } else if (auditWarnings.length > 0) {
+        toast(`Azure accepted ${res.totalClosed} closure(s), but ${auditWarnings.length} audit record(s) failed to save. Review Logs and reconcile before another run.`, 'warn');
+      } else {
+        toast(`Azure accepted ${res.totalClosed} closure(s). Confirm final state in Azure DevOps.`, 'ok');
+      }
     }
     refreshDashboard();
   } catch (err) {
