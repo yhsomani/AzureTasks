@@ -68,20 +68,19 @@ export function matchesPerson(assignedToVal: unknown, person: PersonConfig | Per
 
   const targetEmail = person.assignedTo.toLowerCase().trim();
   const targetName = person.name.toLowerCase().trim();
-  const targetUserPart = targetEmail.split('@')[0];
-
+ 
   if (identity.uniqueName) {
-    const identityEmail = identity.uniqueName.toLowerCase().trim();
-    if (identityEmail === targetEmail) return true;
-    if (targetUserPart && identityEmail.split('@')[0] === targetUserPart) return true;
+    const unique = identity.uniqueName.toLowerCase().trim();
+    // An explicit Azure identity is authoritative. Matching a local-part
+    // across different domains can mutate another employee's tasks.
+    return unique === targetEmail;
   }
 
   if (identity.displayName) {
-    const identityDisplay = identity.displayName.toLowerCase().trim();
-    if (identityDisplay === targetName || identityDisplay === targetEmail) return true;
-    if (identityDisplay.includes(targetName) && targetName.length >= 3) return true;
-    if (targetName.includes(identityDisplay) && identityDisplay.length >= 3) return true;
-    if (targetUserPart && identityDisplay.includes(targetUserPart) && targetUserPart.length >= 4) return true;
+    const display = identity.displayName.toLowerCase().trim();
+    // If the API provides only a display name, accept exact equality only.
+    // Partial names and email substrings are never identity proof.
+    return display === targetName || display === targetEmail;
   }
 
   return false;

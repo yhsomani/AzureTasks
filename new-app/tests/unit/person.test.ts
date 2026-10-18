@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   createPersonKey,
   normalizeIdentity,
+  matchesPerson,
   identitiesMatch,
   validatePerson,
   Person,
@@ -21,6 +22,16 @@ describe('person: identity handling', () => {
     expect(identitiesMatch(' A@B.com ', 'a@b.COM')).toBe(true);
     expect(identitiesMatch('a@b.com', 'c@d.com')).toBe(false);
     expect(identitiesMatch('a@b.com', 'a@b.co')).toBe(false);
+  });
+
+  it('rejects cross-domain, substring and same-local-part identity collisions', () => {
+    const person = { key: 'member', name: 'Alex Employee', assignedTo: 'alex@company.example' };
+    expect(matchesPerson({ uniqueName: 'alex@evil.example', displayName: 'Alex Employee' }, person)).toBe(false);
+    expect(matchesPerson('Alex Employee (contractor)', person)).toBe(false);
+    expect(matchesPerson('alex@company.example.evil.example', person)).toBe(false);
+    expect(matchesPerson('alex@company.example', person)).toBe(true);
+    expect(matchesPerson({ uniqueName: 'ALEX@company.example', displayName: 'Someone' }, person)).toBe(true);
+    expect(matchesPerson({ displayName: 'Alex Employee' }, person)).toBe(true);
   });
 
   it('does not partially match domains', () => {
