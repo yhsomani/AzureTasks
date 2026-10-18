@@ -92,7 +92,13 @@ export class PlanTasksUseCase {
     }
 
     if (input.personKeys && input.personKeys.length > 0) {
-      return allPeople.filter(p => input.personKeys!.includes(p.key));
+      const selected = allPeople.filter(p => input.personKeys!.includes(p.key));
+      const found = new Set(selected.map(p => p.key));
+      const unknown = input.personKeys.filter(key => !found.has(key));
+      if (unknown.length > 0) {
+        throw new Error(`People not found or disabled: ${unknown.join(', ')}`);
+      }
+      return selected;
     }
 
     return [];
