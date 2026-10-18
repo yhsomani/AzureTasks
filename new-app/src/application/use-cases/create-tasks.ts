@@ -14,7 +14,9 @@ import {
   parseTitleDate,
   validateSourceTaskOwnership,
   matchesTaskSeries,
-  extractTitlePrefix
+  extractTitlePrefix,
+  filterCopyableRelations,
+  WorkItemRelation,
 } from '../../domain/entities/task.js';
 import { 
   TaskDiscoveryService, 
@@ -28,7 +30,8 @@ import {
 import { 
   PlannedDate,
   validateNotPastDate,
-  formatTitleDate
+  formatTitleDate,
+  zonedTimeToUtcIso,
 } from '../../domain/value-objects/date-window.js';
 
 export interface CreateTasksInput {
@@ -124,13 +127,40 @@ export class CreateTasksUseCase {
     this.execution = new TaskExecutionService(workItemRepo, this.fieldCopy, this.relationCopy);
   }
 
-  private async verifyCreatedTask(id: number, title: string, person: Person, relationFailures: number): Promise<boolean> {
+  /**
+   * A successful PATCH is not independent verification. Read back the Azure
+   * work item and check identity, type, state, planned start, and copied links.
+   * Unknown/missing fields or incomplete relations must remain unverified.
+   */
+  private async verifyCreatedTask(
+    id: number,
+    title: string,
+    person: Person,
+    relationFailures: number,
+    targetIsoDate: string,
+    sourceRelations: WorkItemRelation[] = []
+  ): Promise<boolean> {
     if (relationFailures > 0) return false;
     try {
       const actual = await this.workItemRepo.getWorkItem(id);
+      const expectedStart = zonedTimeToUtcIso(
+        targetIsoDate, this.config.startTime, this.config.timezone
+      );
+      const actualStart = Date.parse(String(actual.fields['Microsoft.VSTS.Scheduling.StartDate'] || ''));
+      const startMatches = Number.isFinite(actualStart) &&
+        Math.abs(actualStart - Date.parse(expectedStart)) <= 1000;
+      const actualRelations = new Set(
+        (actual.relations ?? []).map(relation => `${relation.rel}:::${relation.url}`)
+      );
+      const linksMatch = filterCopyableRelations(sourceRelations).every(relation =>
+        actualRelations.has(`${relation.rel}:::${relation.url}`)
+      );
       return actual.id === id &&
         String(actual.fields['System.Title'] || '') === title &&
-        matchesPerson(actual.fields['System.AssignedTo'], person);
+        matchesPerson(actual.fields['System.AssignedTo'], person) &&
+        String(actual.fields['System.WorkItemType'] || '') === this.config.workItemType &&
+        String(actual.fields['System.State'] || '').toLowerCase() === this.config.defaultState.toLowerCase() &&
+        startMatches && linksMatch;
     } catch (error) {
       logger.warn(`Azure DevOps read-back unavailable for created work item #${id}: ${error instanceof Error ? error.message : String(error)}`);
       return false;
@@ -379,7 +409,10 @@ export class CreateTasksUseCase {
 
       // A successful Azure write must never be relabeled as a creation failure
       // because local journaling or the verification read-back failed.
-      const verified = await this.verifyCreatedTask(task.id, fullTitle, person, relationResult.failedCount);
+      const verified = await this.verifyCreatedTask(
+        task.id, fullTitle, person, relationResult.failedCount, input.targetIsoDate,
+        sourceTask.workItem.relations
+      );
       let auditWarning: string | undefined;
       try {
         await this.journalRepo.record({
@@ -623,7 +656,10 @@ export class CreateTasksUseCase {
             timestamp: new Date().toISOString(),
           });
 
-          const verified = await this.verifyCreatedTask(task.id, item.fullTitle, person, relationResult.failedCount);
+          const verified = await this.verifyCreatedTask(
+            task.id, item.fullTitle, person, relationResult.failedCount, item.isoDate,
+            sourceTask.workItem.relations
+          );
           if (!verified) {
             auditWarnings.push(`Task #${task.id} was created but Azure field/relation read-back is not verified.`);
           }
