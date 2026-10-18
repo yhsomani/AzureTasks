@@ -401,11 +401,29 @@ describe('API routes', () => {
     expect((deps.scheduler.triggerRunNow as any)).toHaveBeenCalled();
   });
 
+  it('blocks EOD writes for a date other than today, while allowing preview', async () => {
+    const previous = vi.mocked(deps.closeDailyTasks!.execute);
+    previous.mockClear();
+    const payload = { dryRun: false, all: true, confirm: true, asOf: '2020-01-02' };
+    const rejected = await json('/api/tasks/close-today', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    expect(rejected.status).toBe(400);
+    expect((await rejected.json()).error).toContain('current configured workday');
+    expect(previous).not.toHaveBeenCalled();
+    const preview = await json('/api/tasks/close-today', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, dryRun: true }),
+    });
+    expect(preview.status).toBe(200);
+  });
+
   it('POST /api/tasks/close-today delegates to closeDailyTasks use case', async () => {
     const res = await json('/api/tasks/close-today', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dryRun: false, all: true, confirm: true, asOf: '2026-10-15' }),
+      body: JSON.stringify({ dryRun: false, all: true, confirm: true }),
     });
     expect(res.status).toBe(200);
     const body = await res.json();

@@ -249,6 +249,16 @@ export function createApiRouter(deps: ApiDependencies): Router {
       }
       const { asOf } = req.body || {};
       const dryRun = req.body?.dryRun === true;
+      const today = getTodayIso(config.timezone);
+      if (asOf !== undefined &&
+        (typeof asOf !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(asOf) ||
+          !Number.isFinite(new Date(`${asOf}T00:00:00Z`).getTime()) ||
+          new Date(`${asOf}T00:00:00Z`).toISOString().slice(0, 10) !== asOf)) {
+        return res.status(400).json({ success: false, error: 'Invalid EOD reference date (YYYY-MM-DD).' });
+      }
+      if (!dryRun && asOf && asOf !== today) {
+        return res.status(400).json({ success: false, error: 'EOD closure is restricted to the current configured workday. Use preview for other dates.' });
+      }
       if (!dryRun && req.body?.confirm !== true) {
         return res.status(400).json({ success: false, error: 'Explicit confirm=true is required for Azure EOD closure.' });
       }
