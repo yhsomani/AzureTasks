@@ -1795,6 +1795,9 @@ async function savePeople() {
   if (button) button.textContent = 'Saving…';
   try {
     await api.post('/config/people', { people: state.people });
+    api.invalidateCache('/config');
+    api.invalidateCache('/explorer');
+    api.invalidateCache('/tasks');
     if (!state.config) state.config = { people: [] };
     state.config.people = state.people.map(p => ({ ...p }));
 
@@ -2125,7 +2128,7 @@ async function triggerEodClosure(dryRun = false) {
 
           let statusBadge;
           if (r.status === 'closed') {
-            statusBadge = el('span', { class: 'pill ok' }, 'Closed');
+            statusBadge = el('span', { class: 'pill ok' }, 'Closure accepted');
           } else if (r.status === 'simulated') {
             statusBadge = el('span', { class: 'pill', style: 'border:1px dashed var(--accent);' }, 'Ready to Close');
           } else if (r.status === 'already_closed') {
@@ -2154,9 +2157,9 @@ async function triggerEodClosure(dryRun = false) {
       }
     }
 
-    if (dryRun && res.totalClosed > 0) state.eodPreviewReadyAt = Date.now();
+    if (dryRun && res.totalClosed > 0 && res.totalFailed === 0) state.eodPreviewReadyAt = Date.now();
     if (executeBtn) {
-      if (dryRun && res.totalClosed > 0) {
+      if (dryRun && res.totalClosed > 0 && res.totalFailed === 0) {
         executeBtn.style.display = 'inline-block';
         executeBtn.disabled = false;
         executeBtn.textContent = `⚡ Execute EOD Closure in Azure DevOps (${res.totalClosed} tasks)`;
@@ -2166,13 +2169,17 @@ async function triggerEodClosure(dryRun = false) {
     }
 
     if (dryRun) {
-      if (res.totalClosed === 0 && res.totalAlreadyClosed > 0) {
+      if (res.totalFailed > 0) {
+        toast(`EOD preview incomplete: ${res.totalFailed} task(s) failed checks. Resolve errors before closing.`, 'warn');
+      } else if (res.totalClosed === 0 && res.totalAlreadyClosed > 0) {
         toast(`All ${res.totalAlreadyClosed} task(s) are already closed.`, 'ok');
       } else {
-        toast(`Preview complete: ${res.totalClosed} task(s) ready to close.`, 'ok');
+        toast(`Preview complete: ${res.totalClosed} task(s) eligible for closure.`, 'ok');
       }
+    } else if (res.totalFailed > 0) {
+      toast(`EOD partially failed: ${res.totalClosed} closure(s) accepted, ${res.totalFailed} failed. Review the details.`, 'warn');
     } else {
-      toast(`Successfully closed ${res.totalClosed} task(s).`, 'ok');
+      toast(`Azure accepted ${res.totalClosed} closure(s). Confirm final state in Azure DevOps.`, 'ok');
     }
     refreshDashboard();
   } catch (err) {
@@ -2211,6 +2218,8 @@ async function saveSettings() {
       startTime: $('#setStart').value.trim(),
     };
     await api.post('/config/settings', body);
+    api.invalidateCache('/config');
+    api.invalidateCache('/status');
     state.config = null;
     toast('Settings saved successfully');
     refreshStatus();
@@ -2228,6 +2237,8 @@ async function saveGhSettings() {
       githubUserSuffix: $('#setGhSuffix')?.value?.trim() || '_bflghec',
     };
     await api.post('/config/settings', body);
+    api.invalidateCache('/config');
+    api.invalidateCache('/status');
     state.config = null;
     toast('GitHub settings saved successfully', 'ok');
     refreshStatus();
@@ -2285,6 +2296,8 @@ async function savePat() {
   }
   try {
     const res = await api.post('/config/pat', { pat });
+    api.invalidateCache('/config');
+    api.invalidateCache('/status');
     toast(`PAT updated (${res.patMasked})`);
     $('#setPat').value = '';
     refreshStatus();
