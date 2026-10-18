@@ -92,13 +92,13 @@
           </div>
         </div>
         <article class="card" style="margin-bottom: 16px;">
-          <header class="card-head"><h2>💡 Smart Insights</h2><span class="pill ok" id="insightsCountBadge">Real-time</span></header>
+          <header class="card-head"><h2>💡 Smart Insights</h2><span class="pill ok" id="insightsCountBadge">Live Azure data</span></header>
           <div id="insightsContainer" style="color: var(--text-muted); font-size: 13.5px;"><p>Loading insights...</p></div>
         </article>
 
         <div class="grid cols-4">
           <article class="card kpi"><span class="kpi-label">Connection</span><span class="kpi-value" id="kpiConn">—</span><span class="kpi-hint" id="kpiConnHint">Azure DevOps</span></article>
-          <article class="card kpi"><span class="kpi-label">Team members</span><span class="kpi-value" id="kpiPeople">—</span><span class="kpi-hint" id="kpiPeopleHint">Configured in people.json</span></article>
+          <article class="card kpi"><span class="kpi-label">Team members</span><span class="kpi-value" id="kpiPeople">—</span><span class="kpi-hint" id="kpiPeopleHint">Configured team roster</span></article>
           <article class="card kpi"><span class="kpi-label">Rolling Window</span><span class="kpi-value small" id="kpiWindowRange">—</span><span class="kpi-hint" id="kpiMode">Today → Next Thursday</span></article>
           <article class="card kpi"><span class="kpi-label">Daily Scheduler</span><span class="kpi-value" id="kpiSched">—</span><span class="kpi-hint" id="kpiSchedHint">weekdays 09:30</span></article>
         </div>
@@ -283,14 +283,14 @@
             </div>
             <div class="row gap" style="margin: 0;">
               <button class="btn primary small" id="openAdHocModalBtn">➕ Create Ad-Hoc Task</button>
-              <button class="btn ghost small" id="btnSimulateWindow" title="Advance to following Thursday window">🔮 Simulate Following Week</button>
+              <button class="btn ghost small" id="btnSimulateWindow" title="Preview the next creation window without writing tasks">Preview Next Week</button>
               <button class="btn ghost small" id="btnResetPlannerWindow" title="Reset to today">↺ Reset to Today</button>
             </div>
           </header>
 
           <div class="grid cols-3" style="margin-bottom: 14px;">
             <label class="field" style="margin: 0;">
-              <span>As of Date (Simulation Base)</span>
+              <span>Planning Reference Date</span>
               <input type="date" id="asOf" />
             </label>
             <label class="field" style="margin: 0;">
@@ -661,24 +661,24 @@
       <div class="modal-body">
         <form id="personModalForm" onsubmit="return false;">
           <input type="hidden" id="editPersonIndex" />
-          <label class="field"><span>Key (Unique identifier) *</span><input type="text" id="personKeyInput" placeholder="e.g. rahul_sharma" required /></label>
-          <label class="field"><span>Display Name *</span><input type="text" id="personNameInput" placeholder="e.g. Rahul Sharma" required /></label>
-          <label class="field"><span>Assigned Identity (Email / UPN) *</span><input type="email" id="personEmailInput" placeholder="e.g. rahul.sharma@org.com" required /></label>
-          <label class="field"><span>POD / Team</span><input type="text" id="personPodInput" placeholder="e.g. 101_EMI Card Insurance" /></label>
-          <label class="field"><span>Role</span><input type="text" id="personRoleInput" placeholder="e.g. Software Engineer" /></label>
+          <label class="field"><span>Key (Unique identifier) *</span><input type="text" id="personKeyInput" placeholder="Unique member key" required /></label>
+          <label class="field"><span>Display Name *</span><input type="text" id="personNameInput" placeholder="Member full name" required /></label>
+          <label class="field"><span>Assigned Identity (Email / UPN) *</span><input type="email" id="personEmailInput" placeholder="Member email / UPN" required /></label>
+          <label class="field"><span>POD / Team</span><input type="text" id="personPodInput" placeholder="POD or team name" /></label>
+          <label class="field"><span>Role</span><input type="text" id="personRoleInput" placeholder="Role title" /></label>
           <label class="field">
             <span>Title / POD Prefix (Optional)</span>
-            <input type="text" id="personTitlePrefixInput" placeholder="e.g. 3in1_PWA_FD_Services | (or leave blank to auto-detect)" />
+            <input type="text" id="personTitlePrefixInput" placeholder="Optional series prefix; blank uses configured series" />
             <span class="muted small">Leave blank to auto-detect from person's Azure DevOps tasks.</span>
           </label>
           <label class="field">
             <span>Source Task ID Override (Optional)</span>
-            <input type="number" id="personSourceIdInput" placeholder="e.g. 10647986" />
+            <input type="number" id="personSourceIdInput" placeholder="Existing task ID owned by this member" />
             <span class="muted small">Leave empty to automatically discover latest dated task.</span>
           </label>
           <label class="field">
             <span>GitHub Handle (Optional override)</span>
-            <input type="text" id="personGithubInput" placeholder="Leave blank to auto-derive (e.g. first-last_bflghec)" />
+            <input type="text" id="personGithubInput" placeholder="Exact GitHub username, or leave blank for unverified mapping" />
             <span class="muted small">Auto-derived from corporate email if left blank.</span>
           </label>
         </form>

@@ -14,6 +14,7 @@ import { CloseDailyTasksUseCase } from '../../application/use-cases/close-daily-
 import { GitHubClient } from '../../infrastructure/github/github-client.js';
 import { JournalRepository, SchedulerRepository } from '../../domain/ports/repositories.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import { getTodayIso } from '../../domain/value-objects/date-window.js';
 
 export interface ApiDependencies {
   createTasks: CreateTasksUseCase;
@@ -360,7 +361,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
       }
       if (deps.scheduler.triggerRunNow) {
         const result = await deps.scheduler.triggerRunNow();
-        res.json({ success: result.success, message: result.message, data: deps.scheduler.getStatus() });
+        if (!result.success) return res.status(409).json({ success: false, error: result.message });
+        res.json({ success: true, message: result.message, data: deps.scheduler.getStatus() });
       } else {
         res.status(400).json({ success: false, error: 'Direct run trigger not supported' });
       }
@@ -401,7 +403,7 @@ export function createApiRouter(deps: ApiDependencies): Router {
         return res.status(404).json({ success: false, error: `Could not resolve GitHub username for '${email || 'unspecified'}'` });
       }
       const config = await deps.config.getConfig();
-      const targetDate = String(req.query.date || '').trim() || new Date().toISOString().split('T')[0];
+      const targetDate = String(req.query.date || '').trim() || getTodayIso(config.timezone);
       const deliverables = await deps.githubClient.getPrDeliverablesForDate(username, targetDate, config.timezone, {
         org: config.githubOrg,
       });

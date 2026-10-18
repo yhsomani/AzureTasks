@@ -436,7 +436,8 @@ function renderPlanPreview(plan) {
     const block = el('div', {}, [
       el('div', { class: 'day' }, [
         el('strong', {}, p.person.name),
-        el('span', { class: 'muted small' }, planned.length ? `${planned.length} to create` : 'up to date'),
+        el('span', { class: 'muted small' }, planned.length ? `${planned.length} to create` :
+          p.status === 'SOURCE_NOT_FOUND' ? 'Source unavailable' : 'Nothing to create'),
       ]),
     ]);
     for (const d of planned) {
@@ -507,7 +508,7 @@ function generateInsights(data) {
   });
 
   if (insights.length === 0) {
-    container.innerHTML = `<p style="color:var(--ok);">✨ All configured team members are completely up to date with zero task gaps for this period!</p>`;
+    container.textContent = 'No missing-task or duplicate warnings in the loaded Azure work items. Work completion has not been verified.';
   } else {
     container.innerHTML = `<ul style="margin:0; padding-left:18px; line-height:1.7;">${insights.slice(0, 5).join('')}</ul>`;
   }
@@ -2132,7 +2133,7 @@ async function fillSettings() {
     if (cfg.githubToken) {
       $('#setGhToken').placeholder = `Configured (${cfg.githubToken})`;
     } else {
-      $('#setGhToken').placeholder = 'ghp_••••••••••••••••';
+      $('#setGhToken').placeholder = 'Enter an optional GitHub access token';
     }
   }
   if ($('#setGhOrg')) $('#setGhOrg').value = cfg.githubOrg || '';
@@ -2444,7 +2445,7 @@ function wire() {
     const simDate = dt.toISOString().slice(0, 10);
     const asOfInput = $('#asOf');
     if (asOfInput) asOfInput.value = simDate;
-    toast(`Simulating creation window as of ${simDate}`, 'ok');
+    toast(`Previewing planning window as of ${simDate}. No tasks have been created.`, 'ok');
     runPlanPreview();
   });
 

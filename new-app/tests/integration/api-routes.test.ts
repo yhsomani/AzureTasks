@@ -302,6 +302,17 @@ describe('API routes', () => {
     expect((deps.scheduler.start as any)).toHaveBeenCalledWith(true);
   });
 
+  it('reports a refused scheduler run as HTTP 409, not a successful queued run', async () => {
+    (deps.scheduler.triggerRunNow as any).mockResolvedValueOnce({ success: false, message: 'Already executing' });
+    const res = await json('/api/scheduler/run-now', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true, all: true }),
+    });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain('Already executing');
+  });
+
   it('POST /api/scheduler/config reconfigures schedule settings', async () => {
     const res = await json('/api/scheduler/config', {
       method: 'POST',
