@@ -504,4 +504,37 @@ describe('CloseDailyTasksUseCase', () => {
     expect(paths).toEqual(['/fields/System.History', '/fields/System.State']);
     expect(result.results[0].actualEndDate).toBe('');
   });
+
+  it('reports audit persistence failure separately from a successful Azure closure', async () => {
+    const candidateTasks = [{
+      id: 5010,
+      fields: {
+        'System.Id': 5010,
+        'System.Title': '3in1_PWA_MyAccount | Oct 15',
+        'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+        'System.State': 'Active',
+        'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
+      },
+    }];
+    (mockWorkItemRepo.findCandidateTasks as any).mockResolvedValue(candidateTasks);
+    const journal = {
+      record: vi.fn().mockRejectedValue(new Error('disk full')),
+    } as any;
+    const useCase = new CloseDailyTasksUseCase(
+      baseConfig,
+      mockWorkItemRepo,
+      datePlanning,
+      mockGitHubClient as unknown as GitHubClient,
+      undefined,
+      journal
+    );
+
+    const output = await useCase.execute({ asOf: '2026-10-15', dryRun: false });
+    expect(output.totalClosed).toBe(1);
+    expect(output.totalFailed).toBe(0);
+    expect(output.results[0].status).toBe('closed');
+    expect(output.results[0].auditWarning).toContain('disk full');
+    expect(mockWorkItemRepo.patchWorkItem).toHaveBeenCalledOnce();
+  });
+
 });
