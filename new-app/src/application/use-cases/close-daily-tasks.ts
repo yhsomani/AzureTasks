@@ -23,7 +23,7 @@ export interface CloseDailyTasksInput {
   personKeys?: string[];
   asOf?: string; // Optional target date override, format YYYY-MM-DD
   dryRun?: boolean;
-  bypassRules?: boolean;
+  bypassRules?: boolean; // Legacy option cannot override Azure workflow validation
 }
 
 export interface ClosedTaskResult {
@@ -201,7 +201,7 @@ export class CloseDailyTasksUseCase {
             item.fields['Custom.ActualClosedDate'] ||
             item.fields['Custom.ActualEnddate'] ||
             item.fields['Custom.ActualEndDate'] ||
-            nowUtc
+            ''
           ),
           remainingWork: readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.RemainingWork']),
           completedWork: readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.CompletedWork']),
@@ -278,7 +278,8 @@ export class CloseDailyTasksUseCase {
         ];
 
         if (!isDryRun) {
-          await this.workItemRepo.patchWorkItem(taskId, ops, { bypassRules: Boolean(input.bypassRules) });
+          // Never bypass tenant workflow constraints, regardless of entry point.
+          await this.workItemRepo.patchWorkItem(taskId, ops, { bypassRules: false });
           logger.info(`Closed task #${taskId} for ${person.name}; preserved Azure recorded work hours.`);
           totalClosed++;
 

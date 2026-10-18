@@ -49,7 +49,7 @@ This directory is the **only supported application** in the repository. No other
 | `plan` | Preview what would be created (dry-run) |
 | `run` | Create tasks now |
 | `daemon` | Start the automated weekday scheduler (morning creation + evening closure) |
-| `close-today` | Close current-day tasks (0h remaining, 8h completed, PR deliverables) |
+| `close-today` | Close today's eligible tasks via Azure workflow; recorded effort and descriptions are preserved |
 | `repair` | Re-copy missing relations on partially created tasks (idempotent) |
 | `help` | Usage |
 
@@ -60,7 +60,7 @@ Common options: `--all`, `--person <key,key>`, `--dry-run`, `--yes`,
 ```bash
 npm run dev -- run --all --yes
 npm run dev -- close-today --dry-run
-npm run dev -- close-today --all
+npm run dev -- close-today --all --yes
 npm run dev -- plan --person yash_somani --as-of 2026-10-15
 npm run dev -- serve --port 8080
 ```
@@ -199,3 +199,7 @@ Automatic EOD closure is opt-in. When enabled, the scheduler makes at most **one
 ## Release acceptance authority
 
 [Release acceptance ledger](docs/RELEASE_VERIFICATION.md) is the up-to-date separation between implemented code/CI and externally verified production readiness. Older implementation checklists are historical and should not be marked done from synthetic tests alone.
+
+### CLI EOD closure safety
+
+Live `close-today` requires `--all` or `--person` and `--yes`; `--as-of` is allowed only for dry-run previews. CLI, web, and scheduler closure operations always use Azure DevOps workflow rules and never bypass them. They do not fabricate completed hours, remaining work, actual work times, descriptions, or close timestamps.
