@@ -257,7 +257,7 @@ export class CreateTasksUseCase {
       throw new Error('Both personKey and targetIsoDate (YYYY-MM-DD) are required.');
     }
     const date = new Date(`${input.targetIsoDate}T00:00:00Z`);
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(input.targetIsoDate) ||
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.targetIsoDate) ||
       Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== input.targetIsoDate) {
       throw new Error('targetIsoDate must be a valid YYYY-MM-DD date.');
     }
