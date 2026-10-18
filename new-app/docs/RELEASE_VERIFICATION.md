@@ -85,3 +85,31 @@ Use `npm run verify:staging:readonly` with `RELEASE_BASE_URL`, `API_AUTH_USER` a
 - Strengthen independent create read-back checks to include title, assignee, type, state, configured planned start and copyable source relations. Read-back remains an observation at a point in time, not a transaction or full tenant acceptance.
 - Add API, domain and UI regression tests. CI on the code commit `289a78b1` passed Linux, Windows and macOS ([run #39143692822](https://github.com/yhsomani/AzureTasks/actions/runs/39143692822)).
 - The ledger update itself requires a newer exact-SHA CI run before merge/release signoff. No live Azure writes, PAT rotation, HTTPS deployment, scheduler restart, backup/restore or operator acceptance are established by CI.
+
+## Current code audit remediation — PR #29 (18 October 2026)
+
+Scope: [PR #29](https://github.com/yhsomani/AzureTasks/pull/29), based on the merged PR #28 main baseline. This is a **source and CI remediation**, not live Azure tenant certification.
+
+### Repaired in this branch
+
+- **Duplicate-prone Azure writes:** POST/PATCH mutations are never automatically replayed after a timeout, rate limit or ambiguous 5xx. Read-only GET and WIQL searches retain bounded retries. Duplicate-reconciliation conflicts must be replanned rather than silently counting an existing item as created.
+- **Full workday gap recovery:** planned creation walks every eligible person/date from today through the configured stop day and skips only dates independently shown as existing, instead of assuming latest source date implies all earlier dates are present.
+- **Date correctness:** yearless task titles resolve from recorded Azure planned/actual dates in the configured timezone when present; malformed dates and conflicting title/date evidence are rejected. Earlier records lacking trustworthy scheduling fields still require operator review.
+- **Fail-closed Azure data:** read-back batches for latest-source search, team discovery, duplicate detection and Explorer/EOD candidates now require exact expected ID coverage.
+- **Scheduler crash safety:** automatic EOD attempts must persist their checkpoint before an Azure mutation; failed checkpoint persistence prevents the remote call.
+- **EOD/relations:** final Azure EOD state and repaired links get independent read-back. Accepted-but-unverified operations are not silently relabeled as failed writes or independently verified successes.
+- **Security and feedback:** unauthenticated development binds to loopback; planner rejects disabled/unknown requested members, GitHub identity cache includes the configured derivation suffix and derived identities are labeled unverified, and browser creation feedback includes relation/audit failures.
+- **Effort and HTTP behavior:** absence of an Azure original estimate no longer fabricates zero remaining work; Explorer distinguishes an upstream Azure failure from malformed client input.
+- **Regression coverage:** gap backfill, write non-retry, incomplete batches, durable EOD checkpointing, year rollover/timezone, relation read-back, EOD state read-back, and work-hour omission.
+
+### Still open — do not claim completed
+
+1. **Production gates (operator-only):** rotate exposed PATs, configure approved secret storage, trusted HTTPS/proxy authentication, exact origin checks, and tenant-approved bounded staging create/repair/close read-backs.
+2. **Workload and scalability:** `findCandidateTasks` does not query efficiently by scheduled workday because yearless titles and tenant-specific date fields make simple WIQL filtering unsafe; very large result sets intentionally fail closed above 5,000 candidates. Benchmark and design indexed/bounded discovery with authoritative dates.
+3. **Yearless title ambiguity:** source work items without confirmed planned/actual dates use best-effort creation-date inference or legacy parsing; they cannot prove historical year for all migrated records. Require explicit resolution for ambiguous legacy history before bulk writes.
+4. **Concurrency and recovery:** the current PID/file lock and JSON journal are single-host only. Prove real process restart, scheduler missed window, stale lock recovery and backup restoration. Multi-host requires distributed coordination.
+5. **Tenant field schema:** validate mandatory `Custom.*` fields, process rules, Area/Iteration and date/estimate policies against the actual work item type. Do not assume CI fixtures prove tenant acceptance.
+6. **Product decisions:** child work-item and binary attachment copying are deliberately excluded for safety; EOD does not overwrite Azure descriptions with inferred GitHub work evidence; per-operator RBAC/SSO is not implemented.
+7. **Frontend and observability:** continue accessible real-device verification, break down the large `app.js` controller incrementally, and test browser against real but permissioned data.
+8. **Exact revision:** run and record successful CI for the final PR head and again on the release merge SHA. CI alone is not staging/deployment signoff.
+
