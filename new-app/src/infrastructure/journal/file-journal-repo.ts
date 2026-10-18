@@ -50,7 +50,7 @@ export class FileJournalRepository implements JournalRepository {
   private listArchiveFiles(): string[] {
     return fs.existsSync(this.archiveDir)
       ? fs.readdirSync(this.archiveDir)
-          .filter(name => /^task-journal-.*\\.json$/.test(name))
+          .filter(name => /^task-journal-.*\.json$/.test(name))
           .sort().reverse()
           .map(name => path.join(this.archiveDir, name))
       : [];
