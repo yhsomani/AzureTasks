@@ -59,6 +59,14 @@ describe('Production web server access controls', () => {
       });
       expect(previewPlan.status).toBe(200);
       expect(plan).toHaveBeenCalledOnce();
+      const duplicatedMembers = await fetch(`${target}/api/tasks/plan`, {
+        method: 'POST',
+        headers: { Authorization: auth('auditor', 'viewer-test-secret'), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ personKeys: ['member-a', ' member-a '] }),
+      });
+      expect(duplicatedMembers.status).toBe(400);
+      expect((await duplicatedMembers.json()).error).toContain('duplicate member keys');
+      expect(plan).toHaveBeenCalledOnce();
       const previewEod = await fetch(`${target}/api/tasks/close-today`, {
         method: 'POST',
         headers: { Authorization: auth('auditor', 'viewer-test-secret'), 'Content-Type': 'application/json' },
