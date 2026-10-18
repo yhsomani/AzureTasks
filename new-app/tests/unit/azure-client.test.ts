@@ -138,4 +138,20 @@ describe('AzureDevOpsClient', () => {
     const headers = fetchSpy.mock.calls[0][1]?.headers as Record<string, string>;
     expect(headers['Content-Type']).toBe('application/custom+json');
   });
+  it('does not replay a work-item creation after HTTP 503', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 503 }));
+    const client = new AzureDevOpsClient({ organization: 'org', pat: 'x', maxRetries: 3, initialRetryDelayMs: 0 });
+    await expect(client.post('/Proj/_apis/wit/workitems/$Task?api-version=7.0', []))
+      .rejects.toThrow(/outcome is uncertain/i);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not replay a JSON PATCH when the response times out', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('socket closed'));
+    const client = new AzureDevOpsClient({ organization: 'org', pat: 'x', maxRetries: 3, initialRetryDelayMs: 0 });
+    await expect(client.patch('/_apis/wit/workitems/42?api-version=7.0', []))
+      .rejects.toThrow(/outcome may have been committed/i);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
 });
