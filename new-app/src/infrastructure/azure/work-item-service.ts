@@ -448,8 +448,11 @@ export class AzureWorkItemService implements WorkItemRepository {
         const batch = await this.client.get<WorkItemBatchResult>(
           `/${project}/_apis/wit/workitems?ids=${ids}&api-version=7.0`
         );
-        if (!Array.isArray(batch.value)) {
-          throw new Error('Azure DevOps returned an invalid work-item batch.');
+        const requestedIds = new Set(result.workItems.slice(i, i + CHUNK_SIZE).map(w => w.id));
+        if (!Array.isArray(batch.value) || batch.value.length !== requestedIds.size ||
+            new Set(batch.value.map(w => w.id)).size !== requestedIds.size ||
+            batch.value.some(w => !requestedIds.has(w.id) || !w.fields)) {
+          throw new Error('Azure DevOps returned an incomplete or mismatched work-item batch. Coverage is unknown.');
         }
         items.push(...batch.value);
       }
