@@ -97,7 +97,7 @@ describe('GitHub Service & EMU Derivation', () => {
 
   it('formats configured commit evidence without claiming completed hours', () => {
     const commit: GitHubCommit = {
-      sha: 'abcdef1234567890', message: 'fix: safe <work> and escaping\\nCo-authored-by: Example',
+      sha: 'abcdef1234567890', message: 'fix: safe <work> and escaping\nCo-authored-by: Example',
       htmlUrl: 'https://github.com/team/repo/commit/abcdef1234567890',
       authoredAt: '2026-10-15T10:00:00Z', repositoryName: 'team/repo', branch: 'release/v2',
     };
