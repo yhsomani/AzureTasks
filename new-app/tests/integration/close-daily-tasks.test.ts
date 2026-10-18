@@ -537,6 +537,23 @@ describe('CloseDailyTasksUseCase', () => {
     expect(mockWorkItemRepo.patchWorkItem).toHaveBeenCalledOnce();
   });
 
+  it('does not close an undated historical record that only matches the title month/day', async () => {
+    (mockWorkItemRepo.findCandidateTasks as any).mockResolvedValue([{
+      id: 6013,
+      fields: {
+        'System.Title': '3in1_PWA_MyAccount | Oct 15',
+        'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+        'System.State': 'Active',
+        'System.CreatedDate': '2025-10-15T04:00:00.000Z',
+      },
+    }]);
+    const result = await new CloseDailyTasksUseCase(
+      baseConfig, mockWorkItemRepo, datePlanning, mockGitHubClient as unknown as GitHubClient
+    ).execute({ asOf: '2026-10-15', personKeys: ['yash_somani'], dryRun: false });
+    expect(result.totalFound).toBe(0);
+    expect(mockWorkItemRepo.patchWorkItem).not.toHaveBeenCalled();
+  });
+
   it('independently verifies the final Azure state after a successful closure', async () => {
     (mockWorkItemRepo.findCandidateTasks as any).mockResolvedValue([{
       id: 5011,
