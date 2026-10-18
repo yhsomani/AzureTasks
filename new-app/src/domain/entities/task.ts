@@ -219,7 +219,7 @@ export function parseTitleDate(
   let isoDate = '';
   let isValid = false;
 
-  for (const year of [currentYear, currentYear - 1, currentYear + 1]) {
+  for (const year of [currentYear, currentYear - 1, currentYear + 1, currentYear - 2, currentYear + 2]) {
     const testDate = new Date(Date.UTC(year, month, day));
     if (testDate.getUTCMonth() === month && testDate.getUTCDate() === day) {
       isoDate = testDate.toISOString().split('T')[0];
