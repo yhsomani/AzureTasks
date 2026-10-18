@@ -1,7 +1,7 @@
 /**
  * Close Daily Tasks Use Case
- * Closes current-day tasks for team members with updated estimates, dates,
- * and PR-generated task descriptions.
+ * Closes matched work items through Azure workflow rules without fabricating
+ * work hours, attendance timestamps, or unverified descriptions.
  */
 
 import {
@@ -14,8 +14,6 @@ import {
   matchesPerson,
   parseTitleDate,
   matchesTaskSeries,
-  zonedTimeToUtcIso,
-  computeTaskCloseTimestamp,
   DatePlanningService,
 } from '../../domain/index.js';
 import { GitHubClient } from '../../infrastructure/github/github-client.js';
@@ -179,10 +177,7 @@ export class CloseDailyTasksUseCase {
       const stateLower = currentState.trim().toLowerCase();
       const isClosedState = ['closed', 'done', 'resolved', 'completed'].includes(stateLower);
       const hasClosedDate = Boolean(
-        item.fields['Microsoft.VSTS.Common.ClosedDate'] ||
-        item.fields['Custom.ActualClosedDate'] ||
-        item.fields['Custom.ActualEnddate'] ||
-        item.fields['Custom.ActualEndDate']
+        item.fields['Microsoft.VSTS.Common.ClosedDate']
       );
 
       // Check if already closed: by terminal state or by existing closed/actual-end dates
@@ -243,24 +238,14 @@ export class CloseDailyTasksUseCase {
           };
         }
 
-        // Determine Planned Start Date for Actual Start Date assignment
-        let plannedStart =
+        const plannedStart =
           item.fields['Custom.PlannedStartdate'] ||
           item.fields['Custom.PlannedStartDate'] ||
-          item.fields['Microsoft.VSTS.Scheduling.StartDate'];
-
-        if (!plannedStart) {
-          plannedStart = zonedTimeToUtcIso(targetDate, activeConfig.startTime || '09:30', activeConfig.timezone);
-        }
-
-        // Determine identical randomized closure timestamp for Actual End date and Actual Closed date
-        // Randomized between 6:15pm and 6:45pm, guaranteed <= current time to prevent Azure DevOps errors
-        const closedTimestamp = computeTaskCloseTimestamp(
-          targetDate,
-          activeConfig.timezone,
-          activeConfig.autoCloseStartTime || '18:15',
-          activeConfig.autoCloseEndTime || '18:45'
-        );
+          item.fields['Microsoft.VSTS.Scheduling.StartDate'] || '';
+        const actualStart = item.fields['Custom.ActualStartdate'] ||
+          item.fields['Custom.ActualStartDate'] || '';
+        const actualEnd = item.fields['Custom.ActualEnddate'] ||
+          item.fields['Custom.ActualEndDate'] || '';
 
         // Closing is not evidence of 8 hours worked. Preserve actuals already
         // recorded in Azure DevOps rather than fabricating a full workday.
@@ -270,31 +255,16 @@ export class CloseDailyTasksUseCase {
             !Number.isFinite(remainingWork) || remainingWork < 0) {
           throw new Error('Invalid Azure work tracking values; closure requires review.');
         }
-        // Build atomic JSON Patch operations
+        // Preserve the Azure-authored description, recorded hours and actual
+        // work dates. Azure owns the ClosedDate, Reason and workflow transition.
         const ops: any[] = [
-          { op: 'add', path: '/fields/Custom.ActualStartdate', value: plannedStart },
-          { op: 'add', path: '/fields/Custom.ActualEnddate', value: closedTimestamp },
-          { op: 'add', path: '/fields/Microsoft.VSTS.Common.ClosedDate', value: closedTimestamp },
-          { op: 'add', path: '/fields/System.Description', value: prDeliverables.htmlDescription },
           {
             op: 'add',
             path: '/fields/System.History',
-            value: `EOD closure requested with existing Completed Work ${completedWork}h and Remaining Work ${remainingWork}h. No hours were inferred. ${prDeliverables.summaryText}`,
+            value: `EOD closure requested at ${nowUtc}. Existing Completed Work: ${completedWork}h; Remaining Work: ${remainingWork}h (both unchanged). ${prDeliverables.summaryText}`,
           },
           { op: 'add', path: '/fields/System.State', value: 'Closed' },
-          { op: 'add', path: '/fields/System.Reason', value: 'Completed' },
         ];
-
-        // Include PascalCase variants if present in work item schema
-        if ('Custom.ActualStartDate' in item.fields || 'Custom.PlannedStartDate' in item.fields) {
-          ops.push({ op: 'add', path: '/fields/Custom.ActualStartDate', value: plannedStart });
-        }
-        if ('Custom.ActualEndDate' in item.fields || 'Custom.PlannedEndDate' in item.fields) {
-          ops.push({ op: 'add', path: '/fields/Custom.ActualEndDate', value: closedTimestamp });
-        }
-        if ('Custom.ActualClosedDate' in item.fields) {
-          ops.push({ op: 'add', path: '/fields/Custom.ActualClosedDate', value: closedTimestamp });
-        }
 
         if (!isDryRun) {
           await this.workItemRepo.patchWorkItem(taskId, ops, { bypassRules: Boolean(input.bypassRules) });
@@ -316,7 +286,8 @@ export class CloseDailyTasksUseCase {
                 createdWorkItemId: taskId,
                 fieldCopyStatus: 'SUCCESS',
                 relationCopyStatus: 'SUCCESS',
-                verified: true,
+                verified: false,
+                error: 'Closure API accepted; independent Azure DevOps read-back not performed.',
               });
             } catch (jErr: any) {
               logger.warn(`Failed to record closure journal entry for task #${taskId}: ${jErr.message}`);
@@ -332,8 +303,8 @@ export class CloseDailyTasksUseCase {
           previousState: currentState,
           newState: 'Closed',
           plannedStartDate: String(plannedStart),
-          actualStartDate: String(plannedStart),
-          actualEndDate: closedTimestamp,
+          actualStartDate: String(actualStart),
+          actualEndDate: String(actualEnd),
           remainingWork,
           completedWork,
           githubUsername: githubUser,
