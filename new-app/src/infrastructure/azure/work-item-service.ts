@@ -180,7 +180,11 @@ export class AzureWorkItemService implements WorkItemRepository {
         overrideCache.set(overrideId, workItem);
       }
       const prefix = person.titlePrefix || titlePrefix;
-      const parsedDate = validateSourceTaskOwnership(workItem, project, workItemType, prefix, person.assignedTo);
+      validateSourceTaskOwnership(workItem, project, workItemType, prefix, person.assignedTo);
+      const parsedDate = parseWorkItemTaskDate(workItem, prefix, this.timezone());
+      if (!parsedDate.isValid) {
+        throw new Error(`Source work item #${workItem.id} has conflicting title and recorded Azure dates.`);
+      }
       results.set(person.key, { workItem, parsedDate, key: person.key });
     }
 
