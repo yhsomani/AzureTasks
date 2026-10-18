@@ -220,4 +220,62 @@ describe('GitHubClient', () => {
       expect(deliverables.summaryText).toContain('manual work summary not verified');
     });
   });
+  describe('date-scoped evidence completeness', () => {
+    it('uses GitHub created-date search plus pagination instead of the most recent 50 PRs', async () => {
+      const item = (number: number, createdAt: string) => ({
+        id: number, number, title: `PR ${number}`,
+        html_url: `https://github.com/org/repo/pull/${number}`, state: 'open',
+        created_at: createdAt, repository_url: 'https://api.github.com/repos/org/repo',
+      });
+      const first = Array.from({ length: 100 }, (_, i) => item(i + 1, '2026-10-15T13:00:00Z'));
+      const second = [item(101, '2026-10-15T13:10:00Z'), item(102, '2026-10-14T10:00:00Z')];
+      const fetchFn = vi.fn().mockResolvedValueOnce({
+        ok: true, json: async () => ({ total_count: 102, items: first }),
+      }).mockResolvedValueOnce({
+        ok: true, json: async () => ({ total_count: 102, items: second }),
+      });
+      const client = new GitHubClient({ org: 'org', token: 'test-only', fetchFn });
+      const result = await client.getPrDeliverablesForDate('developer', '2026-10-15', 'Asia/Kolkata');
+      expect(result.pullRequests).toHaveLength(101);
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+      const firstUrl = fetchFn.mock.calls[0][0] as string;
+      expect(decodeURIComponent(firstUrl)).toContain('created:2026-10-14..2026-10-16');
+      expect(firstUrl).toContain('per_page=100&page=1');
+      expect(fetchFn.mock.calls[1][0]).toContain('page=2');
+    });
+
+    it('uses timezone boundaries and excludes PRs from neighboring local days', async () => {
+      const fetchFn = vi.fn().mockResolvedValue({
+        ok: true, json: async () => ({ total_count: 2, items: [
+          { id: 1, number: 1, title: 'Inside', state: 'open', html_url: 'https://github.com/a/b/pull/1',
+            created_at: '2026-10-14T19:00:00Z', repository_url: 'https://api.github.com/repos/a/b' },
+          { id: 2, number: 2, title: 'Outside', state: 'open', html_url: 'https://github.com/a/b/pull/2',
+            created_at: '2026-10-14T17:00:00Z', repository_url: 'https://api.github.com/repos/a/b' },
+        ] }),
+      });
+      const client = new GitHubClient({ fetchFn });
+      const result = await client.getPrDeliverablesForDate('developer', '2026-10-15', 'Asia/Kolkata');
+      expect(result.pullRequests.map(p => p.number)).toEqual([1]);
+    });
+
+    it('fails visibly when GitHub says the search is incomplete or exceeds its cap', async () => {
+      const incomplete = new GitHubClient({ fetchFn: vi.fn().mockResolvedValue({
+        ok: true, json: async () => ({ incomplete_results: true, items: [] }),
+      }) });
+      await expect(incomplete.getPrDeliverablesForDate('dev', '2026-10-15', 'UTC'))
+        .rejects.toThrow(/incomplete search results/);
+      const oversized = new GitHubClient({ fetchFn: vi.fn().mockResolvedValue({
+        ok: true, json: async () => ({ total_count: 1001, items: [] }),
+      }) });
+      await expect(oversized.getPrDeliverablesForDate('dev', '2026-10-15', 'UTC'))
+        .rejects.toThrow(/1000-result/);
+    });
+
+    it('rejects invalid timezone and malformed requested dates', async () => {
+      const client = new GitHubClient({ fetchFn: vi.fn() });
+      await expect(client.getPrDeliverablesForDate('dev', '2026-02-30', 'UTC')).rejects.toThrow(/valid YYYY-MM-DD/);
+      await expect(client.getPrDeliverablesForDate('dev', '2026-10-15', 'Unknown/Timezone')).rejects.toThrow();
+    });
+  });
+
 });
