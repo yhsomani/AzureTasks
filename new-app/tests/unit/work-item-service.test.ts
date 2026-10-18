@@ -76,7 +76,7 @@ describe('AzureWorkItemService duplicate detection fail-closed', () => {
     const service = new AzureWorkItemService(client as any);
     await expect(service.getExistingTasksForPerson(
       'P', 'Task', '3in1_PWA_MyAccount |', 'a@b.com', '2026-10-15', '2026-10-15'
-    )).rejects.toThrow(/incomplete work-item details/);
+    )).rejects.toThrow(/incomplete or mismatched duplicate-detection/);
   });
 });
 
@@ -261,7 +261,7 @@ describe('AzureWorkItemService candidate batch integrity', () => {
     };
     await expect(new AzureWorkItemService(client as any)
       .findCandidateTasks('P', 'Task', 'Series |', undefined, undefined, ['a@b.com']))
-      .rejects.toThrow(/incomplete or mismatched work-item batch/i);
+      .rejects.toThrow(/incomplete or mismatched candidate work-item batch/i);
   });
 
   it('rejects a batch containing a different requested ID', async () => {
@@ -273,6 +273,6 @@ describe('AzureWorkItemService candidate batch integrity', () => {
     };
     await expect(new AzureWorkItemService(client as any)
       .findCandidateTasks('P', 'Task', 'Series |', undefined, undefined, ['a@b.com']))
-      .rejects.toThrow(/incomplete or mismatched work-item batch/i);
+      .rejects.toThrow(/incomplete or mismatched candidate work-item batch/i);
   });
 });
