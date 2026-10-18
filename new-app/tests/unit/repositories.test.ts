@@ -254,6 +254,30 @@ describe('FileConfigRepository', () => {
     expect(fs.readFileSync(cfgPath, 'utf-8')).toBe('{broken');
   });
 
+  it('does not write PAT or GitHub token files by default in production', async () => {
+    const cfgPath = path.join(dir, 'people.json');
+    const repo = new FileConfigRepository(cfgPath);
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousMode = process.env.SECRET_STORAGE_MODE;
+    try {
+      process.env.NODE_ENV = 'production';
+      delete process.env.SECRET_STORAGE_MODE;
+      await expect(repo.savePat('test-only-secret')).rejects.toThrow(/secret manager/);
+      await expect(repo.saveSettings({ githubToken: 'test-only-gh-token' })).rejects.toThrow(/secret manager/);
+      expect(fs.existsSync(path.join(dir, '.env'))).toBe(false);
+      expect(fs.existsSync(cfgPath)).toBe(false);
+      // Explicit local-file opt-in is supported for trusted single-host use.
+      process.env.SECRET_STORAGE_MODE = 'local-file';
+      await repo.savePat('test-only-secret');
+      expect(fs.readFileSync(path.join(dir, '.env'), 'utf-8')).toContain('test-only-secret');
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousMode === undefined) delete process.env.SECRET_STORAGE_MODE;
+      else process.env.SECRET_STORAGE_MODE = previousMode;
+    }
+  });
+
   it('keeps injected config tokens out of people.json and saves local secrets in a restricted file', async () => {
     const cfgPath = path.join(dir, 'people.json');
     const repo = new FileConfigRepository(cfgPath);

@@ -13,6 +13,8 @@ export interface PersonConfig {
   role?: string;         // Role in the company
   titlePrefix?: string;  // Optional custom or POD-specific title prefix override (e.g. "3in1_PWA_FD_Services |")
   githubUsername?: string; // Optional GitHub handle override (e.g. "octocat")
+  githubRepositories?: string[]; // Explicit owner/repo allowlist for commit evidence
+  githubBranches?: string[]; // Branch names within the configured repositories
 }
 
 export interface PersonIdentity {
@@ -68,20 +70,19 @@ export function matchesPerson(assignedToVal: unknown, person: PersonConfig | Per
 
   const targetEmail = person.assignedTo.toLowerCase().trim();
   const targetName = person.name.toLowerCase().trim();
-  const targetUserPart = targetEmail.split('@')[0];
-
+ 
   if (identity.uniqueName) {
-    const identityEmail = identity.uniqueName.toLowerCase().trim();
-    if (identityEmail === targetEmail) return true;
-    if (targetUserPart && identityEmail.split('@')[0] === targetUserPart) return true;
+    const unique = identity.uniqueName.toLowerCase().trim();
+    // An explicit Azure identity is authoritative. Matching a local-part
+    // across different domains can mutate another employee's tasks.
+    return unique === targetEmail;
   }
 
   if (identity.displayName) {
-    const identityDisplay = identity.displayName.toLowerCase().trim();
-    if (identityDisplay === targetName || identityDisplay === targetEmail) return true;
-    if (identityDisplay.includes(targetName) && targetName.length >= 3) return true;
-    if (targetName.includes(identityDisplay) && identityDisplay.length >= 3) return true;
-    if (targetUserPart && identityDisplay.includes(targetUserPart) && targetUserPart.length >= 4) return true;
+    const display = identity.displayName.toLowerCase().trim();
+    // If the API provides only a display name, accept exact equality only.
+    // Partial names and email substrings are never identity proof.
+    return display === targetName || display === targetEmail;
   }
 
   return false;
@@ -109,6 +110,21 @@ export function validatePerson(person: PersonConfig): { valid: boolean; errors: 
   if (!person.assignedTo?.trim()) {
     errors.push('Person assignedTo (identity) is required');
   }
+  if (person.githubRepositories !== undefined &&
+      (!Array.isArray(person.githubRepositories) || person.githubRepositories.length > 12 ||
+       person.githubRepositories.some(repo => {
+         if (typeof repo !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return true;
+         return repo.split('/').some(segment => segment === '.' || segment === '..');
+       }))) {
+    errors.push('GitHub repositories must be up to 12 owner/repo names.');
+  }
+  if (person.githubBranches !== undefined &&
+      (!Array.isArray(person.githubBranches) || person.githubBranches.length > 12 ||
+       person.githubBranches.some(branch =>
+         typeof branch !== 'string' || branch.length > 128 ||
+         !/^[A-Za-z0-9_./-]+$/.test(branch) || branch.includes('..') || branch.startsWith('/') || branch.endsWith('/')))) {
+    errors.push('GitHub branches must be valid ref names (up to 12).');
+  }
   if (person.enabled === false) {
     // Disabled persons are valid but skipped
   }
@@ -129,6 +145,8 @@ export class Person {
   readonly role?: string;
   readonly titlePrefix?: string;
   readonly githubUsername?: string;
+  readonly githubRepositories?: string[];
+  readonly githubBranches?: string[];
 
   constructor(config: PersonConfig) {
     const validation = validatePerson(config);
@@ -145,6 +163,8 @@ export class Person {
     this.role = config.role;
     this.titlePrefix = config.titlePrefix;
     this.githubUsername = config.githubUsername;
+    this.githubRepositories = config.githubRepositories;
+    this.githubBranches = config.githubBranches;
   }
 
   /**
@@ -172,6 +192,8 @@ export class Person {
       role: this.role,
       titlePrefix: this.titlePrefix,
       githubUsername: this.githubUsername,
+      githubRepositories: this.githubRepositories,
+      githubBranches: this.githubBranches,
     };
   }
 }

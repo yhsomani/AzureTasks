@@ -4,6 +4,7 @@ import {
   formatPrTaskDescription,
   escapeHtml,
   GitHubPullRequest,
+  GitHubCommit,
 } from '../../src/domain/services/github-service.js';
 
 describe('GitHub Service & EMU Derivation', () => {
@@ -92,6 +93,23 @@ describe('GitHub Service & EMU Derivation', () => {
       expect(result.summaryText).toContain('manual work summary not verified');
       expect(result.htmlDescription).not.toContain('completed as planned');
     });
+  });
+
+  it('formats configured commit evidence without claiming completed hours', () => {
+    const commit: GitHubCommit = {
+      sha: 'abcdef1234567890', message: 'fix: safe <work> and escaping\nCo-authored-by: Example',
+      htmlUrl: 'https://github.com/team/repo/commit/abcdef1234567890',
+      authoredAt: '2026-10-15T10:00:00Z', repositoryName: 'team/repo', branch: 'release/v2',
+    };
+    const result = formatPrTaskDescription({
+      username: 'dev', sourceDate: '2026-10-15', targetIsoDate: '2026-10-15',
+      isToday: true, pullRequests: [], commits: [commit],
+    });
+    expect(result.htmlDescription).toContain('release/v2');
+    expect(result.htmlDescription).toContain('&lt;work&gt;');
+    expect(result.htmlDescription).not.toContain('Co-authored-by');
+    expect(result.htmlDescription).toContain('not a verified timesheet');
+    expect(result.summaryText).toContain('1 commit(s)');
   });
 
   describe('escapeHtml', () => {

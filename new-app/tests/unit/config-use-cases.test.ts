@@ -50,6 +50,15 @@ describe('ConfigUseCases', () => {
     })).rejects.toThrow(/Duplicate identity/);
   });
 
+  it('rejects unsafe repository paths and branch names in a team member', async () => {
+    await expect(useCases.savePeople({ people: [{
+      key: 'a', name: 'A', assignedTo: 'a@b.com', githubRepositories: ['../secrets'],
+    }] })).rejects.toThrow(/GitHub repositories/);
+    await expect(useCases.savePeople({ people: [{
+      key: 'a', name: 'A', assignedTo: 'a@b.com', githubBranches: ['../../secret'],
+    }] })).rejects.toThrow(/GitHub branches/);
+  });
+
   it('accepts a valid roster', async () => {
     const result = await useCases.savePeople({
       people: [

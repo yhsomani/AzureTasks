@@ -4,6 +4,7 @@
  */
 
 import { ConfigRepository, AppConfig, PersonConfig } from '../../domain/ports/repositories.js';
+import { validatePerson } from '../../domain/entities/person.js';
 
 export interface SavePeopleInput {
   people: PersonConfig[];
@@ -59,6 +60,8 @@ export class ConfigUseCases {
       if (!p.key?.trim()) {
         p.key = (p.name || p.assignedTo).trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
       }
+      const memberValidation = validatePerson(p);
+      if (!memberValidation.valid) throw new Error(memberValidation.errors.join('; '));
       const key = p.key.trim();
       if (seenKeys.has(key)) {
         throw new Error(`Duplicate person key "${p.key}". Keys must be unique.`);

@@ -278,4 +278,43 @@ describe('GitHubClient', () => {
     });
   });
 
+  describe('per-person GitHub commit evidence', () => {
+    it('returns real author commits within the local workday from the requested repository and branch', async () => {
+      const fetchFn = vi.fn().mockResolvedValue({ ok: true, json: async () => ([
+        { sha: 'abc123', html_url: 'https://github.com/team/app/commit/abc123',
+          commit: { message: 'Fix checkout', author: { date: '2026-10-14T19:10:00Z' } } },
+        { sha: 'def123', html_url: 'https://github.com/team/app/commit/def123',
+          commit: { message: 'Other day', author: { date: '2026-10-14T10:00:00Z' } } },
+      ]) });
+      const client = new GitHubClient({ fetchFn });
+      const commits = await client.getUserCommitsForDate('dev', '2026-10-15', 'Asia/Kolkata', ['team/app'], ['release/v2']);
+      expect(commits).toHaveLength(1);
+      expect(commits[0].sha).toBe('abc123');
+      expect(commits[0].branch).toBe('release/v2');
+      const url = fetchFn.mock.calls[0][0] as string;
+      expect(url).toContain('/repos/team/app/commits?');
+      expect(url).toContain('sha=release%2Fv2');
+      expect(url).toContain('author=dev');
+    });
+
+    it('does not query unknown repositories or pretend missing commit configuration is evidence', async () => {
+      const fetchFn = vi.fn();
+      const client = new GitHubClient({ fetchFn });
+      expect(await client.getUserCommitsForDate('dev', '2026-10-15', 'UTC', [])).toEqual([]);
+      expect(fetchFn).not.toHaveBeenCalled();
+      await expect(client.getUserCommitsForDate('dev', '2026-10-15', 'UTC', ['../secret'])).rejects.toThrow(/Invalid GitHub owner\/repo/);
+      await expect(client.getUserCommitsForDate('dev', '2026-10-15', 'UTC', ['team/..'])).rejects.toThrow(/Invalid GitHub owner\/repo/);
+    });
+
+    it('does not treat a partial GitHub commit page as a complete result', async () => {
+      const entry = { sha: 'abc', html_url: 'https://github.com/team/app/commit/abc',
+        commit: { message: 'x', author: { date: '2026-10-15T12:00:00Z' } } };
+      const fetchFn = vi.fn().mockResolvedValue({ ok: true, json: async () => Array.from({ length: 100 }, () => entry) });
+      const client = new GitHubClient({ fetchFn });
+      await expect(client.getUserCommitsForDate('dev', '2026-10-15', 'UTC', ['team/app'], ['main']))
+        .rejects.toThrow(/pagination limit/);
+      expect(fetchFn).toHaveBeenCalledTimes(10);
+    });
+  });
+
 });

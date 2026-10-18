@@ -57,7 +57,7 @@ export class AppServer {
       res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=()');
       res.setHeader(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.github.com;"
+        "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.github.com; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'self';"
       );
       next();
     });

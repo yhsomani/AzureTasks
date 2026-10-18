@@ -195,3 +195,7 @@ Rotated journals remain available to the audit UI, exports and relation-repair d
 ## EOD scheduler safety
 
 Automatic EOD closure is opt-in. When enabled, the scheduler makes at most **one automatic closure attempt per configured workday** within the configured time window. Empty scans, Azure failures and partial results are surfaced rather than retried silently into repeated remote patches; the attempt timestamp is persisted to prevent automatic replay after restart. An authorized operator may manually trigger another run after inspecting the result. The task state transition is subject to Azure DevOps workflow validation, and work hours/descriptions are not invented.
+
+## Release acceptance authority
+
+[Release acceptance ledger](docs/RELEASE_VERIFICATION.md) is the up-to-date separation between implemented code/CI and externally verified production readiness. Older implementation checklists are historical and should not be marked done from synthetic tests alone.

@@ -7,7 +7,7 @@
   <title>Azure DevOps 3in1 Task Automation Studio</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230078d4'/%3E%3Cpath d='M9 16l4 4 10-10' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/styles.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -547,14 +547,14 @@
             <button type="button" class="btn ghost" id="togglePatEye" aria-label="Show Azure DevOps token" title="Show token">Show</button>
             <button class="btn primary" id="savePatBtn">Update PAT</button>
           </div>
-          <p class="muted small" style="margin-top:6px;">Use the least Azure DevOps permissions required by your workflows. Secrets may be persisted in server configuration; protect the filesystem and backups. Never expose this application over plaintext HTTP.</p>
+          <p class="muted small" style="margin-top:6px;">Use the least Azure DevOps permissions required by your workflows. Production defaults to externally managed credentials: provision PATs through your approved secret manager (the web form cannot save them in external mode). Local-file secret persistence requires an explicit, security-approved opt-in. Never expose this application over plaintext HTTP.</p>
         </article>
 
         <!-- GITHUB INTEGRATION CARD -->
         <article class="card">
           <header class="card-head"><h2>GitHub Integration &amp; EMU Settings</h2></header>
           <div class="grid cols-3">
-            <label class="field" for="setGhToken"><span>GitHub access token</span><input type="password" id="setGhToken" placeholder="Enter GitHub token" autocomplete="off" aria-describedby="githubTokenHelp" /><small class="field-help" id="githubTokenHelp">Optional. Restrict repository access and rotate exposed tokens.</small></label>
+            <label class="field" for="setGhToken"><span>GitHub access token</span><input type="password" id="setGhToken" placeholder="Enter GitHub token" autocomplete="off" aria-describedby="githubTokenHelp" /><small class="field-help" id="githubTokenHelp">Optional. Production defaults to externally managed credentials; the save field is unavailable in external mode. Rotate previously exposed tokens and grant read-only repository access.</small></label>
             <label class="field"><span>GitHub Organization</span><input type="text" id="setGhOrg" placeholder="e.g. BFLDevOpsOrg" /></label>
             <label class="field"><span>Enterprise Suffix</span><input type="text" id="setGhSuffix" placeholder="_bflghec" value="_bflghec" /></label>
           </div>
@@ -659,7 +659,7 @@
         <button class="icon-btn" id="btnClosePersonModal" style="width:28px; height:28px;" aria-label="Close dialog">✕</button>
       </div>
       <div class="modal-body">
-        <form id="personModalForm" onsubmit="return false;">
+        <form id="personModalForm">
           <input type="hidden" id="editPersonIndex" />
           <label class="field"><span>Key (Unique identifier) *</span><input type="text" id="personKeyInput" placeholder="Unique member key" required /></label>
           <label class="field"><span>Display Name *</span><input type="text" id="personNameInput" placeholder="Member full name" required /></label>
@@ -679,7 +679,17 @@
           <label class="field">
             <span>GitHub Handle (Optional override)</span>
             <input type="text" id="personGithubInput" placeholder="Exact GitHub username, or leave blank for unverified mapping" />
-            <span class="muted small">Auto-derived from corporate email if left blank.</span>
+            <span class="muted small">Auto-derived from corporate email if left blank. Confirm the correct GitHub identity before relying on evidence.</span>
+          </label>
+          <label class="field">
+            <span>GitHub Repositories (Optional, comma-separated)</span>
+            <input type="text" id="personReposInput" placeholder="owner/repository" />
+            <span class="muted small">Required to search authored commits. Leave empty to use PR-only evidence.</span>
+          </label>
+          <label class="field">
+            <span>GitHub Branches (Optional, comma-separated)</span>
+            <input type="text" id="personBranchesInput" placeholder="main, release/version" />
+            <span class="muted small">Restrict commits to selected branches; defaults to each configured repository's default branch.</span>
           </label>
         </form>
       </div>
@@ -698,7 +708,7 @@
         <button class="icon-btn" id="btnCloseAdHocModal" style="width:28px; height:28px;" aria-label="Close dialog">✕</button>
       </div>
       <div class="modal-body">
-        <form id="adHocForm" onsubmit="return false;">
+        <form id="adHocForm">
           <div class="grid cols-2">
             <label class="field">
               <span>Assignee *</span>

@@ -3,7 +3,7 @@
  * Connects to GitHub API v3 to resolve user emails to logins and fetch Pull Requests
  */
 
-import { GitHubPullRequest, GitHubPrDeliverables, formatPrTaskDescription, deriveGitHubUsernameFromEmail } from '../../domain/services/github-service.js';
+import { GitHubPullRequest, GitHubPrDeliverables, GitHubCommit, formatPrTaskDescription, deriveGitHubUsernameFromEmail } from '../../domain/services/github-service.js';
 import { logger } from '../logging/logger.js';
 
 export interface GitHubClientOptions {
@@ -186,6 +186,74 @@ export class GitHubClient {
   }
 
   /**
+   * Fetch author-filtered commits from explicit repository/branch scopes.
+   * This API never infers a repo or fabricates commits if none is configured.
+   * Exhaustive pagination is bounded; untrustworthy partial responses fail.
+   */
+  async getUserCommitsForDate(
+    username: string,
+    targetIsoDate: string,
+    timezone: string,
+    repositories: string[],
+    branches: string[] = []
+  ): Promise<GitHubCommit[]> {
+    if (!repositories.length) return [];
+    const normalizedRepos = [...new Set(repositories)];
+    const normalizedBranches = [...new Set(branches)];
+    const combos = normalizedRepos.length * Math.max(1, normalizedBranches.length);
+    if (combos > 20) throw new Error('Too many GitHub repository/branch combinations (maximum 20).');
+    const day = new Date(`${targetIsoDate}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetIsoDate) ||
+        Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== targetIsoDate) {
+      throw new Error('Invalid GitHub evidence date; expected YYYY-MM-DD.');
+    }
+    new Intl.DateTimeFormat('en-CA', { timeZone: timezone });
+    // UTC range covers any local calendar date (including UTC±14 offsets).
+    const since = new Date(day.getTime() - 86400000).toISOString();
+    const until = new Date(day.getTime() + 2 * 86400000 - 1).toISOString();
+    const items = new Map<string, GitHubCommit>();
+    for (const repo of normalizedRepos) {
+      if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo) ||
+          repo.split('/').some(segment => segment === '.' || segment === '..')) {
+        throw new Error('Invalid GitHub owner/repo configuration.');
+      }
+      for (const branch of normalizedBranches.length ? normalizedBranches : ['']) {
+        if (branch && (!/^[A-Za-z0-9_./-]+$/.test(branch) || branch.includes('..') ||
+            branch.startsWith('/') || branch.endsWith('/'))) {
+          throw new Error('Invalid GitHub branch configuration.');
+        }
+        let finished = false;
+        for (let page = 1; page <= 10; page++) {
+          const params = new URLSearchParams({
+            author: username, since, until, per_page: '100', page: String(page),
+          });
+          if (branch) params.set('sha', branch);
+          const raw = await this.request<Array<{
+            sha: string;
+            html_url: string;
+            commit: { message: string; author?: { date?: string } };
+          }>>(`/repos/${repo}/commits?${params.toString()}`);
+          if (!Array.isArray(raw)) throw new Error('Invalid GitHub commit response; completeness unknown.');
+          for (const entry of raw) {
+            if (!entry.sha || !entry.html_url || !entry.commit?.author?.date) {
+              throw new Error('GitHub commit record missing required evidence fields.');
+            }
+            if (this.toLocalDateIso(entry.commit.author.date, timezone) !== targetIsoDate) continue;
+            items.set(`${repo}:${entry.sha}`, {
+              sha: entry.sha, message: entry.commit.message, htmlUrl: entry.html_url,
+              authoredAt: entry.commit.author.date, repositoryName: repo,
+              branch: branch || '(default)',
+            });
+          }
+          if (raw.length < 100) { finished = true; break; }
+        }
+        if (!finished) throw new Error(`GitHub commit pagination limit reached for ${repo}; evidence incomplete.`);
+      }
+    }
+    return [...items.values()].sort((a, b) => b.authoredAt.localeCompare(a.authoredAt));
+  }
+
+  /**
    * Retrieves PR deliverables for a specific target date (YYYY-MM-DD in timezone).
    * Strictly filters to PRs created on the target date for this individual user.
    * If no matching PRs were returned, disclose the absence of verified PR evidence.
@@ -194,7 +262,7 @@ export class GitHubClient {
     username: string,
     targetIsoDate: string,
     timezone: string,
-    options: { org?: string; role?: string } = {}
+    options: { org?: string; role?: string; repositories?: string[]; branches?: string[] } = {}
   ): Promise<GitHubPrDeliverables> {
     // A 50-most-recent PR search can hide work from a busy contributor.
     // Query a bounded UTC date range that safely covers the local date at
@@ -219,13 +287,17 @@ export class GitHubClient {
       return localDate === targetIsoDate;
     });
 
-    const isToday = todayPrs.length > 0;
+    const commits = options.repositories?.length
+      ? await this.getUserCommitsForDate(username, targetIsoDate, timezone, options.repositories, options.branches)
+      : [];
+    const isToday = todayPrs.length > 0 || commits.length > 0;
     const formatted = formatPrTaskDescription({
       username,
       targetIsoDate,
       sourceDate: targetIsoDate,
       isToday,
       pullRequests: todayPrs,
+      commits,
       role: options.role,
     });
 
@@ -234,6 +306,7 @@ export class GitHubClient {
       sourceDate: targetIsoDate,
       isToday,
       pullRequests: todayPrs,
+      commits,
       htmlDescription: formatted.htmlDescription,
       summaryText: formatted.summaryText,
     };
