@@ -8,7 +8,7 @@ export interface WorkItemFields {
   'System.Title'?: string;
   'System.State'?: string;
   'System.WorkItemType'?: string;
-  'System.AssignedTo'?: { displayName: string; uniqueName: string };
+  'System.AssignedTo'?: string | { displayName: string; uniqueName: string };
   'System.CreatedDate'?: string;
   'System.ChangedDate'?: string;
   'System.AreaPath'?: string;
