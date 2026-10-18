@@ -14,7 +14,10 @@
     "test:coverage": "vitest run --coverage",
     "lint": "eslint \"src/**/*.ts\"",
     "format": "prettier --write \"src/**/*.ts\"",
-    "verify:staging:readonly": "node scripts/staging-readonly-verify.mjs"
+    "verify:staging:readonly": "node scripts/staging-readonly-verify.mjs",
+    "state:backup": "node scripts/state-backup.mjs backup",
+    "state:verify": "node scripts/state-backup.mjs verify",
+    "state:restore": "node scripts/state-backup.mjs restore"
   },
   "keywords": [
     "azure-devops",
