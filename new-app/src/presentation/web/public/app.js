@@ -1065,7 +1065,7 @@ function renderExplorerList(items) {
     let actionEl = document.createTextNode('—');
     if (t.url) {
       actionEl = el('a', { href: t.url, target: '_blank', class: 'btn small ghost' }, 'Open ↗');
-    } else if (t.status === 'MISSING' && t.person?.key && t.dateIso) {
+    } else if (t.status === 'MISSING' && t.isEligibleForCreation === true && t.person?.key && t.dateIso) {
       actionEl = el('button', {
         class: 'btn small primary',
         onclick: () => createSingleCellTask(t.person.key, t.dateIso, t.person.name, t.formattedDate),
@@ -1078,7 +1078,7 @@ function renderExplorerList(items) {
       el('td', {}, t.taskId ? el('a', { href: t.url || '#', target: '_blank', style: 'color:var(--accent); font-weight:600;' }, `#${t.taskId}`) : '—'),
       el('td', { class: 'title-cell' }, t.title || 'Missing Task'),
       el('td', {}, t.state ? el('span', { class: `state-tag state-${t.state.toLowerCase()}` }, t.state) : '—'),
-      el('td', {}, t.completedWork !== undefined ? `${t.completedWork}h` : '—'),
+      el('td', {}, t.completedWork != null ? `${t.completedWork}h` : 'Not recorded'),
       el('td', {}, badge(t.status)),
       el('td', {}, actionEl),
     ]);
@@ -1086,16 +1086,41 @@ function renderExplorerList(items) {
   });
 }
 
+// One write per member/date at a time; Azure idempotency is also enforced in
+// the backend, but rapid UI clicks must not initiate overlapping requests.
+const pendingExplorerCreation = new Set();
+
 async function createSingleCellTask(personKey, dateIso, personName, formattedDate) {
+  const key = `${personKey}:${dateIso}`;
+  if (pendingExplorerCreation.has(key)) return false;
+  if (!window.confirm(`Create a real Azure DevOps task for ${personName || personKey} on ${formattedDate || dateIso}? This action writes to the configured project.`)) {
+    return false;
+  }
+  pendingExplorerCreation.add(key);
   try {
-    toast(`Creating task for ${personName || personKey} on ${formattedDate || dateIso}...`, 'ok');
-    const res = await api.post('/tasks/adhoc', { personKey, targetIsoDate: dateIso });
-    toast(`✅ Created Task #${res.task.id} for ${personName || personKey}!`, 'ok');
-    refreshExplorer({ forceFresh: true });
-    runPlanPreview();
-    if (state.currentView === 'mywork') refreshMyWork({ forceFresh: true });
+    toast(`Creating task for ${personName || personKey} on ${formattedDate || dateIso}...`, 'warn');
+    const res = await api.post('/tasks/adhoc', {
+      confirm: true,
+      personKey,
+      targetIsoDate: dateIso,
+    });
+    if (!res?.task?.id) throw new Error('Azure DevOps did not return a created work-item ID.');
+    if (res.auditWarning) {
+      toast(`Created task #${res.task.id}, but the audit needs attention: ${res.auditWarning}`, 'warn');
+    } else {
+      toast(`Created Azure task #${res.task.id} for ${personName || personKey}`, 'ok');
+    }
+    await Promise.allSettled([
+      refreshExplorer({ forceFresh: true }),
+      runPlanPreview(),
+      state.currentView === 'mywork' ? refreshMyWork({ forceFresh: true }) : Promise.resolve(),
+    ]);
+    return true;
   } catch (err) {
     toast(`Failed to create task: ${err.message}`, 'err');
+    return false;
+  } finally {
+    pendingExplorerCreation.delete(key);
   }
 }
 
@@ -1143,13 +1168,14 @@ function openDateInspectModal(cell, person) {
         </div>
       `;
       if (createSingleBtn) {
-        createSingleBtn.style.display = 'inline-flex';
+        createSingleBtn.style.display = cell.isEligibleForCreation ? 'inline-flex' : 'none';
         createSingleBtn.onclick = async () => {
           createSingleBtn.disabled = true;
           createSingleBtn.textContent = 'Creating in ADO...';
           try {
-            await createSingleCellTask(person.key, cell.dateIso, person.name, cell.formattedDate);
-            hideModal('#dateInspectModal');
+            if (await createSingleCellTask(person.key, cell.dateIso, person.name, cell.formattedDate)) {
+              hideModal('#dateInspectModal');
+            }
           } finally {
             createSingleBtn.disabled = false;
             createSingleBtn.textContent = '⚡ Create Task for this Date';

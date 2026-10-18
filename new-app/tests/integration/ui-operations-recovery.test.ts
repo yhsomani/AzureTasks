@@ -23,6 +23,19 @@ describe('operations and recovery UI trust', () => {
     expect(html).not.toContain('id="logStream" aria-live="polite"');
     expect(html).toContain('id="logStatus"');
   });
+  it('uses explicit confirmation for Explorer single-cell creation and closes the modal only after success', () => {
+    const start = js.indexOf('async function createSingleCellTask(');
+    const end = js.indexOf('/* ------------------------------------------------------------- inspect modals */', start);
+    const create = js.slice(start, end);
+    expect(create).toContain('window.confirm(');
+    expect(create).toContain('confirm: true');
+    expect(create).toContain("api.post('/tasks/adhoc'");
+    expect(create).toContain('pendingExplorerCreation');
+    expect(create).toContain('return false');
+    expect(js).toContain("if (await createSingleCellTask(person.key, cell.dateIso, person.name, cell.formattedDate))");
+    expect(js).toContain("t.isEligibleForCreation === true");
+  });
+
   it('preserves operational actions', () => {
     for(const id of ['schedRunNowBtn','schedToggle','schedSaveConfigBtn','eodPreviewBtn','eodRunNowBtn','eodSaveConfigBtn','journalRepairBtn','exportCsv','exportJson']) expect(html).toContain(`id="${id}"`);
   });
