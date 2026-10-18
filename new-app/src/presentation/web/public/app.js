@@ -2288,6 +2288,9 @@ async function submitAdHocTask() {
     toast('Please select an assignee and target date', 'warn');
     return;
   }
+  if (!window.confirm(`Create a real Azure DevOps work item for ${personKey} on ${targetIsoDate}? This action writes to the configured project.`)) {
+    return;
+  }
 
   const btn = $('#btnSubmitAdHocTask');
   const origText = btn ? btn.textContent : '';
@@ -2298,6 +2301,7 @@ async function submitAdHocTask() {
 
   try {
     const payload = {
+      confirm: true,
       personKey,
       targetIsoDate,
       customTitle: $('#adHocTitleInput')?.value?.trim() || undefined,

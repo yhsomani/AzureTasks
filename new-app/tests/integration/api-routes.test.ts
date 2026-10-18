@@ -238,6 +238,17 @@ describe('API routes', () => {
     expect(deps.createTasks.execute).not.toHaveBeenCalled();
   });
 
+  it('blocks an ad-hoc Azure write without a confirmed request', async () => {
+    vi.mocked(deps.createTasks.executeAdHocTask).mockClear();
+    const res = await json('/api/tasks/adhoc', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personKey: 'p1', targetIsoDate: '2026-11-02' }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain('confirm=true');
+    expect(deps.createTasks.executeAdHocTask).not.toHaveBeenCalled();
+  });
+
   it('POST /api/tasks/adhoc creates a custom single task', async () => {
     const res = await json('/api/tasks/adhoc', {
       method: 'POST',
@@ -246,6 +257,7 @@ describe('API routes', () => {
         personKey: 'p1',
         targetIsoDate: '2026-10-15',
         customTitle: 'Custom Task Title',
+        confirm: true,
       }),
     });
     expect(res.status).toBe(200);
@@ -313,12 +325,12 @@ describe('API routes', () => {
   it('rejects ad-hoc duplicate bypass and invalid numeric fields at the HTTP boundary', async () => {
     const bypass = await json('/api/tasks/adhoc', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ personKey: 'p1', targetIsoDate: '2026-11-02', bypassDuplicateCheck: true }),
+      body: JSON.stringify({ personKey: 'p1', targetIsoDate: '2026-11-02', confirm: true, bypassDuplicateCheck: true }),
     });
     expect(bypass.status).toBe(400);
     const badSource = await json('/api/tasks/adhoc', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ personKey: 'p1', targetIsoDate: '2026-11-02', sourceTaskId: '123oops' }),
+      body: JSON.stringify({ personKey: 'p1', targetIsoDate: '2026-11-02', confirm: true, sourceTaskId: '123oops' }),
     });
     expect(badSource.status).toBe(400);
   });

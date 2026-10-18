@@ -192,6 +192,9 @@ export function createApiRouter(deps: ApiDependencies): Router {
       if (!personKey || !targetIsoDate) {
         return res.status(400).json({ success: false, error: 'personKey and targetIsoDate (YYYY-MM-DD) are required' });
       }
+      if (req.body?.confirm !== true) {
+        return res.status(400).json({ success: false, error: 'Explicit confirm=true is required for ad-hoc Azure task creation.' });
+      }
       if (bypassDuplicateCheck === true) {
         return res.status(400).json({ success: false, error: 'Duplicate-check bypass is disabled.' });
       }
