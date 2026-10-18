@@ -203,7 +203,7 @@ export class GitHubClient {
     const combos = normalizedRepos.length * Math.max(1, normalizedBranches.length);
     if (combos > 20) throw new Error('Too many GitHub repository/branch combinations (maximum 20).');
     const day = new Date(`${targetIsoDate}T00:00:00Z`);
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(targetIsoDate) ||
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetIsoDate) ||
         Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== targetIsoDate) {
       throw new Error('Invalid GitHub evidence date; expected YYYY-MM-DD.');
     }
@@ -213,7 +213,7 @@ export class GitHubClient {
     const until = new Date(day.getTime() + 2 * 86400000 - 1).toISOString();
     const items = new Map<string, GitHubCommit>();
     for (const repo of normalizedRepos) {
-      if (!/^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$/.test(repo)) throw new Error('Invalid GitHub owner/repo configuration.');
+      if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) throw new Error('Invalid GitHub owner/repo configuration.');
       for (const branch of normalizedBranches.length ? normalizedBranches : ['']) {
         if (branch && (!/^[A-Za-z0-9_./-]+$/.test(branch) || branch.includes('..') ||
             branch.startsWith('/') || branch.endsWith('/'))) {
