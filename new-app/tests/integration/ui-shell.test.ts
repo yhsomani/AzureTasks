@@ -117,12 +117,12 @@ describe('user journey shell contracts', () => {
 
 describe('viewer role client behavior', () => {
   it('surfaces read-only identity and blocks writes before an HTTP request', () => {
-    expect(source).toContain("api.get('/session'");
-    expect(source).toContain('viewerMode: false');
-    expect(source).toContain('Read-only viewer credentials cannot change');
-    expect(source).toContain("'#executeBtn'");
-    expect(source).toContain("'#savePatBtn'");
-    expect(source).toContain("'#schedRunNowBtn'");
-    expect(source).toContain('viewerModeNotice');
+    expect(js).toContain("api.get('/session'");
+    expect(js).toContain('viewerMode: false');
+    expect(js).toContain('Read-only viewer credentials cannot change');
+    expect(js).toContain("'#executeBtn'");
+    expect(js).toContain("'#savePatBtn'");
+    expect(js).toContain("'#schedRunNowBtn'");
+    expect(js).toContain('viewerModeNotice');
   });
 });
