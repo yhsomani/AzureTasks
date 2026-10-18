@@ -50,3 +50,12 @@ describe('My Work member and async state', () => {
     expect(source.slice(start,end)).not.toContain("href: t.url || '#'");
   });
 });
+
+describe('work-hour accuracy in explorer presentation', () => {
+  it('never fabricates missing work-hour values as zero in tables and charts', () => {
+    expect(source).not.toContain('t.completedWork || 0');
+    expect(source).not.toContain('t.remainingWork || 0');
+    expect(source).toContain('Not recorded');
+    expect(source).toContain('hasRecordedHours ? dailyWork : null');
+  });
+});

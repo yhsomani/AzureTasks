@@ -178,14 +178,16 @@ async function main(): Promise<void> {
     }
 
     case 'daemon': {
-      logger.info('Starting scheduler daemon (weekdays: morning creation + evening auto-close)...');
-      app.scheduler.start();
+      logger.info('Starting scheduler daemon (configured opt-in automation only)...');
+      await app.scheduler.start();
       const status = app.scheduler.getStatus();
       logger.info(`Scheduler running. Next run: ${status.nextRun ?? 'pending'}, Next auto-close: ${status.nextAutoClose ?? 'pending'} (${status.timezone})`);
       const shutdown = () => {
         logger.info('Stopping scheduler...');
-        app.scheduler.stop();
-        process.exit(0);
+        void app.scheduler.stop().then(() => process.exit(0)).catch(error => {
+          logger.error(`Scheduler shutdown failed: ${error instanceof Error ? error.message : String(error)}`);
+          process.exit(2);
+        });
       };
       process.on('SIGINT', shutdown);
       process.on('SIGTERM', shutdown);
@@ -200,12 +202,15 @@ async function main(): Promise<void> {
       if (opts.all && opts.personKeys?.length) {
         throw new Error('Use either --all or --person for EOD closure, not both.');
       }
+      if (!isDryRun && opts.asOf) {
+        throw new Error('--as-of is available for EOD previews only. Real closure uses the current workday.');
+      }
       logger.info(`Running EOD task closure (dryRun=${isDryRun})...`);
       const output = await app.closeDailyTasks.execute({
         personKeys: opts.personKeys,
         asOf: opts.asOf,
         dryRun: isDryRun,
-        bypassRules: true,
+        bypassRules: false,
       });
 
       console.log('\n===================================================');

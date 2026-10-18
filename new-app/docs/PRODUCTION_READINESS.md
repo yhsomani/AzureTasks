@@ -1,4 +1,6 @@
-# Production readiness assessment
+# Historical production readiness assessment
+
+> **Release status notice:** This historical scorecard is not a current production certification. Use [Release verification ledger](RELEASE_VERIFICATION.md) and the exact CI run for release gates. Do not mark the application production-ready until live tenant and deployment evidence is recorded.
 
 **Target:** deployable single-host service (CLI + web + scheduler) for the Azure
 DevOps 3in1 task automation.
@@ -80,7 +82,7 @@ Post-deploy verification (read-only first; do NOT use the Create missing action 
 | Symptom | Action |
 |---|---|
 | `connected: false` | Check `AZURE_DEVOPS_PAT` scope (Work Items: R/W) and org/project |
-| Run aborted "another execution in progress" | Wait for the other run; a stale lock (>5 min, dead PID) self-reclaims |
+| Run aborted "another execution in progress" | An active owning PID retains the lock; investigate only dead-PID or malformed locks, using documented recovery. Do not assume a five-minute timeout frees a live lock. |
 | Task created but relations failed | Check journal `relationCopyStatus`; run `repair` to re-copy the missing relations (idempotent) |
 | Journal grows | Auto-rotates at 10 MB; archives in `.journal-archives/` |
 | Unexpected timezone | Set `timezone`/`startTime`; scheduler uses the IANA zone |

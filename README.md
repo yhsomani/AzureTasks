@@ -33,14 +33,16 @@ CI runs these checks for the supported application.
 
 - [Product direction and feature decisions](new-app/docs/PRODUCT_DIRECTION.md)
 - [Setup, commands, deployment, and security](new-app/README.md)
-- [Current product requirements](new-app/PRD.md)
+- [Historical product requirements (not current release contract)](new-app/PRD.md)
 - [UI redesign audit and user journeys](new-app/docs/UX_REDESIGN.md)
 - [Feature inventory and navigation](new-app/docs/FEATURE_INVENTORY.md)
 - [Architecture](new-app/docs/ARCHITECTURE.md)
 - [Workflows](new-app/docs/WORKFLOWS.md)
 - [Design system](new-app/docs/DESIGN_SYSTEM.md)
 - [Test evidence](new-app/docs/TEST_RESULTS.md)
-- [Production readiness](new-app/docs/PRODUCTION_READINESS.md)
+- [Release acceptance ledger — authoritative](new-app/docs/RELEASE_VERIFICATION.md)
+- [Documentation index and evidence levels](new-app/docs/README.md)
+- [Historical production readiness assessment](new-app/docs/PRODUCTION_READINESS.md)
 
 Source code, configuration templates, tests, and active documentation are maintained under `new-app/`. Previous implementations and their standalone audits are not part of the supported repository layout.
 

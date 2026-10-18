@@ -55,6 +55,30 @@ describe('ExploreTasksUseCase', () => {
     expect(repo.findCandidateTasks).not.toHaveBeenCalled();
   });
 
+  it('keeps unrecorded work values unknown and excludes them from totals', async () => {
+    const repo = {
+      findCandidateTasks: vi.fn(async () => [{
+        id: 501,
+        fields: {
+          'System.Title': '3in1_PWA_MyAccount | 12 Oct',
+          'System.AssignedTo': { displayName: 'Alice Smith', uniqueName: 'alice@example.com' },
+          'System.State': 'Active',
+        },
+      }]),
+    } as unknown as WorkItemRepository;
+    const explorer = new ExploreTasksUseCase(repo, mockConfig);
+    const data = await explorer.execute({
+      startDate: '2026-10-12', endDate: '2026-10-12',
+      asOf: '2026-10-12', personKeys: ['user1'],
+    });
+    expect(data.summary.totalCompletedWork).toBeNull();
+    expect(data.summary.totalRemainingWork).toBeNull();
+    expect(data.summary.unrecordedCompletedWorkTasks).toBe(1);
+    const task = data.detailedTasks.find(t => t.taskId === 501)!;
+    expect(task.completedWork).toBeUndefined();
+    expect(task.remainingWork).toBeUndefined();
+  });
+
   it('executes task exploration, builds matrix and computes stats', async () => {
     const mockRepo: WorkItemRepository = {
       validateProject: vi.fn(),
@@ -104,12 +128,16 @@ describe('ExploreTasksUseCase', () => {
     expect(aliceRow).toBeDefined();
     expect(aliceRow?.stats.createdCount).toBe(1);
     expect(aliceRow?.stats.totalCompletedWork).toBe(4);
+    expect(aliceRow?.stats.recordedCompletedWorkTasks).toBe(1);
+    expect(aliceRow?.stats.unrecordedCompletedWorkTasks).toBe(0);
+
     expect(aliceRow?.cells['2026-10-12'].status).toBe('CREATED');
     expect(aliceRow?.cells['2026-10-13'].status).toBe('MISSING');
     expect(aliceRow?.cells['2026-10-13'].isEligibleForCreation).toBe(true);
 
     const bobRow = result.matrix.find(r => r.person.key === 'user2');
     expect(bobRow?.stats.createdCount).toBe(0);
+    expect(bobRow?.stats.totalCompletedWork).toBeNull();
     expect(bobRow?.cells['2026-10-12'].status).toBe('MISSING');
 
     expect(result.summary.stateCounts.Active).toBe(1);

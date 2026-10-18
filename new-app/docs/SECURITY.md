@@ -61,3 +61,15 @@ Regression tests live in `tests/unit/repositories.test.ts`; inspect the CI run f
 - Azure DevOps Explorer read failures now produce errors rather than fake zero-task coverage. Work-item details use available fields instead of assuming all tenants define the same `Custom.*` names. Source discovery no longer truncates to the first 100/200 candidates without warning; results over the bounded limit explicitly fail.
 - GitHub PR search errors are distinguished from zero PRs. The system must not report that development/review work was performed merely because GitHub returned no PRs.
 - The changes above have fixture/CI coverage only. They do not validate actual corporate identities, policies, remote work-item creation or closure, configured ingress/CSRF behavior, keychain storage or production restoration. Use the release gates in issue #11 before deployment.
+
+## Operator versus read-only viewer access
+
+The HTTP server can optionally accept a distinct `API_VIEWER_USER` / `API_VIEWER_TOKEN` Basic credential. Viewer credentials can inspect read-only views and API endpoints but are categorically forbidden from POST, PUT, PATCH and DELETE, including configuration and remote Azure mutations. The mandatory `API_AUTH_USER` / `API_AUTH_TOKEN` account remains the operator; viewer token must be distinct. Production refuses to silently increment a busy port.
+
+**Limitation:** This is only a role separation for trusted single-host deployments. Shared viewer/operator credentials are **not** enterprise SSO, person-level RBAC or tamper-resistant audit attribution. Real multi-operator installations still need a trusted identity provider, per-user authorization and attributable mutation journaling. Test behind the actual production HTTPS proxy.
+
+## Viewer and operator UI behavior
+
+On a deployment with optional `API_VIEWER_USER` and `API_VIEWER_TOKEN`, authenticated `GET /api/session` returns a server-assigned role. The web UI displays an explicit read-only notice and disables common write controls for viewers. The server still independently denies every viewer POST/PUT/PATCH/DELETE, including scheduler and settings mutations. The browser must never be trusted as an authorization enforcement point. Per-user enterprise SSO/RBAC and attributable audit remain deployment decisions and are **not** implemented by shared Basic credentials.
+
+**Read-only preview exception:** Viewer credentials can call the POST-based `/api/tasks/plan` preview and `/api/tasks/close-today` only with `dryRun:true`. The EOD route enforces the viewer role after parsing the body and returns 403 for `dryRun:false`. All other POST/PUT/PATCH/DELETE endpoints remain operator-only. Viewers are not authorized to mutate work items.

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
+import { runInNewContext } from 'node:vm';
 
 const html = readFileSync(new URL('../../src/presentation/web/public/index.html', import.meta.url), 'utf8');
 const js = readFileSync(new URL('../../src/presentation/web/public/app.js', import.meta.url), 'utf8');
@@ -23,6 +24,55 @@ describe('operations and recovery UI trust', () => {
     expect(html).not.toContain('id="logStream" aria-live="polite"');
     expect(html).toContain('id="logStatus"');
   });
+  it('uses explicit confirmation for Explorer single-cell creation and closes the modal only after success', () => {
+    const start = js.indexOf('async function createSingleCellTask(');
+    const end = js.indexOf('/* ------------------------------------------------------------- inspect modals */', start);
+    const create = js.slice(start, end);
+    expect(create).toContain('window.confirm(');
+    expect(create).toContain('confirm: true');
+    expect(create).toContain("api.post('/tasks/adhoc'");
+    expect(create).toContain('pendingExplorerCreation');
+    expect(create).toContain('return false');
+    expect(js).toContain("if (await createSingleCellTask(person.key, cell.dateIso, person.name, cell.formattedDate))");
+    expect(js).toContain("t.isEligibleForCreation === true");
+  });
+
+  it('requires confirmation and a real work-item ID before announcing Explorer creation', async () => {
+    const ctx = {
+      document: { querySelector: () => null, querySelectorAll: () => [], addEventListener: () => {} },
+      location: { hash: '#explorer' }, window: { confirm: () => false }, console, setTimeout,
+    };
+    runInNewContext(js, ctx);
+    const result = await runInNewContext(`(async () => {
+      const calls = [];
+      toast = (message, status) => calls.push({ message, status });
+      let writes = 0;
+      api.post = async (path, body) => {
+        writes++;
+        calls.push({ path, body });
+        return { task: { id: 901 } };
+      };
+      refreshExplorer = async () => {};
+      runPlanPreview = async () => {};
+      const cancelled = await createSingleCellTask('p1', '2026-11-02', 'Person', '2 Nov');
+      const before = writes;
+      window.confirm = () => true;
+      const created = await createSingleCellTask('p1', '2026-11-02', 'Person', '2 Nov');
+      const confirmedBody = calls.find(c => c.body)?.body;
+      api.post = async () => { throw new Error('Azure offline'); };
+      const failed = await createSingleCellTask('p1', '2026-11-03', 'Person', '3 Nov');
+      return { cancelled, before, created, confirmedBody, failed,
+        announcedFailure: calls.some(c => c.status === 'err' && c.message.includes('Azure offline')) };
+    })()`, ctx);
+    expect(result.cancelled).toBe(false);
+    expect(result.before).toBe(0);
+    expect(result.created).toBe(true);
+    expect(result.confirmedBody.confirm).toBe(true);
+    expect(result.confirmedBody.personKey).toBe('p1');
+    expect(result.failed).toBe(false);
+    expect(result.announcedFailure).toBe(true);
+  });
+
   it('preserves operational actions', () => {
     for(const id of ['schedRunNowBtn','schedToggle','schedSaveConfigBtn','eodPreviewBtn','eodRunNowBtn','eodSaveConfigBtn','journalRepairBtn','exportCsv','exportJson']) expect(html).toContain(`id="${id}"`);
   });

@@ -164,11 +164,11 @@ describe('CloseDailyTasksUseCase', () => {
     expect(result.githubUsername).toBe('yash-somani_bflghec');
     expect(result.isTodayPr).toBe(true);
 
-    // Verify patchWorkItem called with correct operations and bypassRules: true
+    // Workflow bypass stays disabled, even when a legacy caller requests it.
     expect(mockWorkItemRepo.patchWorkItem).toHaveBeenCalledTimes(1);
     const [callId, ops, options] = (mockWorkItemRepo.patchWorkItem as any).mock.calls[0];
     expect(callId).toBe(5001);
-    expect(options).toEqual({ bypassRules: true });
+    expect(options).toEqual({ bypassRules: false });
 
     // Verify atomic patch operations
     const opMap = new Map(ops.map((o: any) => [o.path, o.value]));

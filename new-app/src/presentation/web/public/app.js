@@ -6,6 +6,7 @@
 /* ------------------------------------------------------------------ state */
 const state = {
   currentView: 'dashboard',
+  viewerMode: false,
   status: null,
   config: null,
   people: [],
@@ -89,6 +90,10 @@ const api = {
   },
 
   async post(url, body) {
+    if (state.viewerMode && !(url === '/tasks/plan' ||
+      (url === '/tasks/close-today' && body?.dryRun === true))) {
+      throw new Error('Read-only viewer credentials cannot change Azure tasks, scheduling or settings.');
+    }
     const res = await fetch(`/api${url}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -555,13 +560,18 @@ function renderOverviewCharts(data) {
       if (!d.isWeekend) {
         labels.push(d.formattedDate);
         let dailyWork = 0;
+        let hasRecordedHours = false;
         data.matrix.forEach(row => {
           const cell = row.cells[d.dateIso];
-          if (cell?.tasks) {
-            dailyWork += cell.tasks.reduce((sum, t) => sum + (t.completedWork || 0), 0);
+          for (const task of cell?.tasks || []) {
+            if (task.completedWork != null) {
+              dailyWork += task.completedWork;
+              hasRecordedHours = true;
+            }
           }
         });
-        values.push(dailyWork);
+        // Chart.js skips null rather than drawing a fictional zero-hours bar.
+        values.push(hasRecordedHours ? dailyWork : null);
       }
     });
 
@@ -673,7 +683,10 @@ function renderBurndownTable(data) {
       el('div', { style: 'font-weight:600;' }, row.person.name),
       el('div', { class: 'muted small' }, `${row.person.pod || 'Team'} · ${row.person.role || 'Member'}`),
     ]));
-    tr.append(el('td', { style: 'font-weight:bold; color:var(--accent);' }, `${row.stats.totalCompletedWork}h`));
+    const completedLabel = row.stats.totalCompletedWork == null
+      ? 'Not recorded'
+      : `${row.stats.totalCompletedWork}h${row.stats.unrecordedCompletedWorkTasks ? ' (partial)' : ''}`;
+    tr.append(el('td', { style: 'font-weight:bold; color:var(--accent);' }, completedLabel));
     tr.append(el('td', {}, String(row.stats.createdCount)));
 
     dates.forEach(d => {
@@ -681,14 +694,15 @@ function renderBurndownTable(data) {
       if (cell.isWeekend) {
         tr.append(el('td', { class: 'cell-status cell-weekend' }, 'WO'));
       } else if (cell.status === 'CREATED' || cell.status === 'DUPLICATE') {
-        const completed = cell.tasks.reduce((sum, t) => sum + (t.completedWork || 0), 0);
+        const recorded = cell.tasks.filter(t => t.completedWork != null);
+        const completed = recorded.reduce((sum, t) => sum + t.completedWork, 0);
         tr.append(el('td', { class: 'cell-status cell-created' },
           el('button', {
             type: 'button',
             class: 'matrix-cell-action',
             title: `Inspect ${cell.tasks.length} task(s) for ${row.person.name} · ${d.formattedDate}`,
             onclick: () => openDateInspectModal(cell, row.person),
-          }, completed > 0 ? `${completed}h` : String(cell.tasks.length))));
+          }, recorded.length ? `${completed}h${recorded.length < cell.tasks.length ? '*' : ''}` : '—')));
       } else {
         tr.append(el('td', { class: 'cell-status cell-missing' },
           el('button', {
@@ -696,7 +710,7 @@ function renderBurndownTable(data) {
             class: 'matrix-cell-action',
             title: `Inspect missing task for ${row.person.name} · ${d.formattedDate}`,
             onclick: () => openDateInspectModal(cell, row.person),
-          }, '0')));
+          }, '—')));
       }
     });
 
@@ -817,7 +831,7 @@ function renderMyWorkContent(data, personKey) {
       el('td', {}, el('a', { href: t.url || getAdoWorkItemUrl(t.taskId), target: '_blank', style: 'color:var(--accent); font-weight:600;' }, `#${t.taskId}`)),
       el('td', { class: 'title-cell' }, t.title || '—'),
       el('td', {}, el('span', { class: `state-tag state-${stateCls}` }, t.state || 'New')),
-      el('td', {}, `${t.completedWork || 0}h`),
+      el('td', {}, t.completedWork == null ? 'Not recorded' : `${t.completedWork}h`),
       el('td', {}, el('a', { href: t.url || getAdoWorkItemUrl(t.taskId), target: '_blank', class: 'btn small ghost' }, 'Open in ADO ↗')),
     ]));
   });
@@ -1065,7 +1079,7 @@ function renderExplorerList(items) {
     let actionEl = document.createTextNode('—');
     if (t.url) {
       actionEl = el('a', { href: t.url, target: '_blank', class: 'btn small ghost' }, 'Open ↗');
-    } else if (t.status === 'MISSING' && t.person?.key && t.dateIso) {
+    } else if (t.status === 'MISSING' && t.isEligibleForCreation === true && t.person?.key && t.dateIso) {
       actionEl = el('button', {
         class: 'btn small primary',
         onclick: () => createSingleCellTask(t.person.key, t.dateIso, t.person.name, t.formattedDate),
@@ -1078,7 +1092,7 @@ function renderExplorerList(items) {
       el('td', {}, t.taskId ? el('a', { href: t.url || '#', target: '_blank', style: 'color:var(--accent); font-weight:600;' }, `#${t.taskId}`) : '—'),
       el('td', { class: 'title-cell' }, t.title || 'Missing Task'),
       el('td', {}, t.state ? el('span', { class: `state-tag state-${t.state.toLowerCase()}` }, t.state) : '—'),
-      el('td', {}, t.completedWork !== undefined ? `${t.completedWork}h` : '—'),
+      el('td', {}, t.completedWork != null ? `${t.completedWork}h` : 'Not recorded'),
       el('td', {}, badge(t.status)),
       el('td', {}, actionEl),
     ]);
@@ -1086,16 +1100,41 @@ function renderExplorerList(items) {
   });
 }
 
+// One write per member/date at a time; Azure idempotency is also enforced in
+// the backend, but rapid UI clicks must not initiate overlapping requests.
+const pendingExplorerCreation = new Set();
+
 async function createSingleCellTask(personKey, dateIso, personName, formattedDate) {
+  const key = `${personKey}:${dateIso}`;
+  if (pendingExplorerCreation.has(key)) return false;
+  if (!window.confirm(`Create a real Azure DevOps task for ${personName || personKey} on ${formattedDate || dateIso}? This action writes to the configured project.`)) {
+    return false;
+  }
+  pendingExplorerCreation.add(key);
   try {
-    toast(`Creating task for ${personName || personKey} on ${formattedDate || dateIso}...`, 'ok');
-    const res = await api.post('/tasks/adhoc', { personKey, targetIsoDate: dateIso });
-    toast(`✅ Created Task #${res.task.id} for ${personName || personKey}!`, 'ok');
-    refreshExplorer({ forceFresh: true });
-    runPlanPreview();
-    if (state.currentView === 'mywork') refreshMyWork({ forceFresh: true });
+    toast(`Creating task for ${personName || personKey} on ${formattedDate || dateIso}...`, 'warn');
+    const res = await api.post('/tasks/adhoc', {
+      confirm: true,
+      personKey,
+      targetIsoDate: dateIso,
+    });
+    if (!res?.task?.id) throw new Error('Azure DevOps did not return a created work-item ID.');
+    if (res.auditWarning) {
+      toast(`Created task #${res.task.id}, but the audit needs attention: ${res.auditWarning}`, 'warn');
+    } else {
+      toast(`Created Azure task #${res.task.id} for ${personName || personKey}`, 'ok');
+    }
+    await Promise.allSettled([
+      refreshExplorer({ forceFresh: true }),
+      runPlanPreview(),
+      state.currentView === 'mywork' ? refreshMyWork({ forceFresh: true }) : Promise.resolve(),
+    ]);
+    return true;
   } catch (err) {
     toast(`Failed to create task: ${err.message}`, 'err');
+    return false;
+  } finally {
+    pendingExplorerCreation.delete(key);
   }
 }
 
@@ -1123,7 +1162,7 @@ function openDateInspectModal(cell, person) {
             el('a', { href: t.url, target: '_blank', style: 'color:var(--accent); text-decoration:none;' }, `#${t.id} — ${t.title}`),
           ]),
           el('div', { class: 'muted small', style: 'margin-top:4px;' },
-            `State: ${t.state} | Completed: ${t.completedWork || 0}h | Remaining: ${t.remainingWork || 0}h`),
+            `State: ${t.state} | Completed: ${t.completedWork == null ? 'Not recorded' : `${t.completedWork}h`} | Remaining: ${t.remainingWork == null ? 'Not recorded' : `${t.remainingWork}h`}`),
         ]));
       });
     } else {
@@ -1143,13 +1182,14 @@ function openDateInspectModal(cell, person) {
         </div>
       `;
       if (createSingleBtn) {
-        createSingleBtn.style.display = 'inline-flex';
+        createSingleBtn.style.display = cell.isEligibleForCreation ? 'inline-flex' : 'none';
         createSingleBtn.onclick = async () => {
           createSingleBtn.disabled = true;
           createSingleBtn.textContent = 'Creating in ADO...';
           try {
-            await createSingleCellTask(person.key, cell.dateIso, person.name, cell.formattedDate);
-            hideModal('#dateInspectModal');
+            if (await createSingleCellTask(person.key, cell.dateIso, person.name, cell.formattedDate)) {
+              hideModal('#dateInspectModal');
+            }
           } finally {
             createSingleBtn.disabled = false;
             createSingleBtn.textContent = '⚡ Create Task for this Date';
@@ -1175,7 +1215,7 @@ function openUserInspectModal(row) {
     sumBox.innerHTML = `
       <div class="stat-chip"><b>${row.stats.createdCount}/${row.stats.totalWorkingDays}</b><span>Created / Days</span></div>
       <div class="stat-chip"><b>${row.stats.coveragePercent}%</b><span>Coverage</span></div>
-      <div class="stat-chip"><b>${row.stats.totalCompletedWork}h</b><span>Completed Work</span></div>
+      <div class="stat-chip"><b>${row.stats.totalCompletedWork == null ? 'Not recorded' : `${row.stats.totalCompletedWork}h${row.stats.unrecordedCompletedWorkTasks ? ' (partial)' : ''}`}</b><span>Completed Work</span></div>
       <div class="stat-chip"><b>${row.stats.missingCount}</b><span>Missing Tasks</span></div>
     `;
   }
@@ -2704,6 +2744,33 @@ function wire() {
   window.addEventListener('hashchange', handleHashNavigation);
 }
 
+// One read-only session check determines whether write controls should appear
+// actionable. The server still enforces the role on every HTTP request.
+function applyViewerMode() {
+  if (!state.viewerMode) return;
+  const main = document.querySelector('main');
+  if (main && !$('#viewerModeNotice')) {
+    main.prepend(el('div', {
+      id: 'viewerModeNotice', class: 'workflow-note', role: 'status'
+    }, 'Read-only viewer: inspect data and previews here. Task creation, closure, scheduler changes and configuration edits require operator credentials.'));
+  }
+  [
+    '#executeBtn', '#openAdHocModalBtn', '#savePeopleBtn', '#addPersonBtn',
+    '#schedSaveConfigBtn', '#schedRunNowBtn', '#eodSaveConfigBtn',
+    '#btnExecuteEodConfirmed', '#saveSettingsBtn', '#savePatBtn',
+    '#saveGhSettingsBtn', '#journalRepairBtn', '#btnRepairAll',
+  ].forEach(selector => {
+    const button = $(selector);
+    if (button) {
+      button.disabled = true;
+      button.setAttribute('aria-disabled', 'true');
+      button.title = 'Operator authorization required';
+    }
+  });
+  const schedulerToggle = $('#schedToggle');
+  if (schedulerToggle) schedulerToggle.disabled = true;
+}
+
 /* ---------------------------------------------------------------- bootstrap */
 async function bootstrap() {
   try {
@@ -2713,6 +2780,17 @@ async function bootstrap() {
 
   wire();
   connectLogStream();
+  try {
+    const session = await api.get('/session', { forceFresh: true });
+    state.viewerMode = session?.role === 'viewer';
+    applyViewerMode();
+  } catch (error) {
+    // Permission failure is visible. Never assume a failed role lookup grants
+    // operator rights on a production session.
+    state.viewerMode = true;
+    applyViewerMode();
+    toast('Could not verify operator permissions; write controls are disabled.', 'warn');
+  }
 
   const initial = location.hash.slice(1) || 'dashboard';
   switchView(initial);

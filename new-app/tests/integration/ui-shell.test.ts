@@ -114,3 +114,15 @@ describe('user journey shell contracts', () => {
     expect(html).toContain('aria-live="polite"');
   });
 });
+
+describe('viewer role client behavior', () => {
+  it('surfaces read-only identity and blocks writes before an HTTP request', () => {
+    expect(js).toContain("api.get('/session'");
+    expect(js).toContain('viewerMode: false');
+    expect(js).toContain('Read-only viewer credentials cannot change');
+    expect(js).toContain("'#executeBtn'");
+    expect(js).toContain("'#savePatBtn'");
+    expect(js).toContain("'#schedRunNowBtn'");
+    expect(js).toContain('viewerModeNotice');
+  });
+});

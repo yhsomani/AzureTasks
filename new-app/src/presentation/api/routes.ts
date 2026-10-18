@@ -47,7 +47,11 @@ function resolvePersonScope(
     if (body?.all === true) {
       throw new Error('Choose personKeys or all=true, not both.');
     }
-    return { personKeys: keys.map(key => key.trim()), all: false };
+    const personKeys = keys.map(key => key.trim());
+    if (new Set(personKeys).size !== personKeys.length) {
+      throw new Error('personKeys must not contain duplicate member keys.');
+    }
+    return { personKeys, all: false };
   }
   if (body?.all === true || (allowImplicitAll && body?.all === undefined)) {
     return { all: true };
@@ -55,8 +59,28 @@ function resolvePersonScope(
   throw new Error('Select member keys or explicitly set all=true.');
 }
 
+/** Keep user-controlled response sizes finite and predictable. */
+function parsePageLimit(value: unknown, fallback: number, max: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string' || !/^[1-9]\\d*$/.test(value)) {
+    throw new Error(`limit must be a positive integer up to ${max}.`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed > max) {
+    throw new Error(`limit must be a positive integer up to ${max}.`);
+  }
+  return parsed;
+}
+
 export function createApiRouter(deps: ApiDependencies): Router {
   const router = Router();
+
+  // Auth role is set by the server after Basic credential verification, never
+  // accepted from a browser-provided header. Client uses it to hide mutations.
+  router.get('/session', (req, res) => {
+    const role = (req as typeof req & { authRole?: string }).authRole === 'viewer' ? 'viewer' : 'operator';
+    res.json({ success: true, data: { role } });
+  });
 
   // Liveness says only that the web process can answer HTTP requests.
   // It must not pretend that Azure DevOps or GitHub integrations are working.
@@ -249,6 +273,12 @@ export function createApiRouter(deps: ApiDependencies): Router {
       }
       const { asOf } = req.body || {};
       const dryRun = req.body?.dryRun === true;
+      if ((req as typeof req & { authRole?: string }).authRole === 'viewer' && !dryRun) {
+        return res.status(403).json({
+          success: false,
+          error: 'Read-only viewer credentials may preview EOD but may not close work items.',
+        });
+      }
       const runtimeConfig = await deps.config.getConfig();
       const today = getTodayIso(runtimeConfig.timezone || 'UTC');
       if (asOf !== undefined &&
@@ -340,7 +370,7 @@ export function createApiRouter(deps: ApiDependencies): Router {
   // Journal
   router.get('/journal', async (req, res) => {
     try {
-      const limit = parseInt(String(req.query.limit || '100'), 10);
+      const limit = parsePageLimit(req.query.limit, 100, 1000);
       const entries = await deps.journal.getEntries(limit);
       const unfinished = await deps.journal.getUnfinishedRelations();
       res.json({
@@ -479,8 +509,12 @@ export function createApiRouter(deps: ApiDependencies): Router {
 
   // Logs
   router.get('/logs/recent', (req, res) => {
-    const limit = parseInt(String(req.query.limit || '300'), 10);
-    res.json({ success: true, data: logger.getRecentLogs(limit) });
+    try {
+      const limit = parsePageLimit(req.query.limit, 300, 1000);
+      res.json({ success: true, data: logger.getRecentLogs(limit) });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
   });
 
   router.get('/logs/stream', (req, res) => {
