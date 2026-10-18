@@ -146,3 +146,15 @@ Backups contain only `people.json`, the active audit journal and rotated journal
 - Decide on historical tasks without authoritative dates, child/attachment copying, GitHub evidence policy and single-host versus distributed scheduling.
 - Benchmark high-volume source discovery and document behavior at Azure's WIQL result limits.
 - Confirm cross-platform CI on the exact PR head and merge SHA and repeat the offline restore drill under operational supervision.
+
+### Read-only Azure DevOps work-item-type preflight
+
+After installing the app and securely provisioning a **new** Azure DevOps PAT with read-only work-item access, supply the project and organization through an approved environment/secret manager:
+
+```bash
+AZURE_DEVOPS_ORG=<organization> AZURE_DEVOPS_PROJECT=<project> npm run verify:schema:readonly
+```
+
+The verifier calls only Azure DevOps work-item-type metadata endpoints using the token supplied by the environment. It never creates or modifies a work item and never prints the token. It checks fields that the current task creation logic writes unconditionally, as well as the `New` and `Closed` states. It reports an error rather than claiming compatibility when a required field or state is absent. This is a preflight only: workflow rule enforcement, write permissions, identity uniqueness, linked work items, and successful creation/closure still require specifically authorized staging tests.
+
+Run `npm run test:schema` to test complete, incomplete and malformed process metadata without external connections.
