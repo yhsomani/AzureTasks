@@ -59,11 +59,19 @@
 
 Use `npm run verify:staging:readonly` with `RELEASE_BASE_URL`, `API_AUTH_USER` and an operator `API_AUTH_TOKEN` provided by your secrets manager. The script validates the HTTPS origin, unauthenticated liveness semantics, authenticated live Azure readiness, readable configuration/journal, and hostile/same-origin behavior **on a nonexistent POST endpoint**. It never creates or closes work items. Record the operator, timestamp, sanitized command output, deployment URL, and release SHA as evidence. Manual production gates remain open until explicitly verified.
 
-## Subsequent code-level hardening (pending exact CI release check)
+## Verified CI snapshot (18 October 2026)
+
+- Branch: `fix/remaining-release-gates-20261018` (draft PR #26).
+- Tested commit: `e0e91b1f5b6d2258554ed65d5dd901f7513e8719`.
+- GitHub Actions CI run: [#39123868203](https://github.com/yhsomani/AzureTasks/actions/runs/39123868203), completed with conclusion **success**.
+- Evidence scope: repository CI only; no live Azure mutations, restored production backup or deployment acceptance were established.
+- Any subsequent commit requires a fresh exact-SHA CI run before release approval.
+
+## Subsequent code-level hardening (pending release signoff)
 
 - CLI EOD no longer bypasses Azure workflow rules or accepts an explicit historical/future date for live closure; unknown close timestamps remain unknown.
 - Configurable read-only viewer Basic credentials and `GET /api/session` allow the UI to distinguish viewer and operator workflows. This is **not** individual operator SSO/RBAC.
 - Explorer single-cell creation performs real confirmation, sends `confirm:true`, prevents overlapping writes and retains the modal when a request fails.
 - Missing Azure completed/remaining hours are represented as *not recorded* rather than silently treated as zero; charts omit unrecorded daily data and indicate partial aggregation.
 - Safe staging topology probe `npm run verify:staging:readonly` performs read-only checks and tests Origin using a **nonexistent** route, never an Azure mutation endpoint.
-- These improvements still require the exact branch's Linux/Windows/macOS/browser CI and any documented production-gate evidence before release signoff.
+- CI succeeded on the tested commit above. Later commits require new CI; environment-specific release gates remain open until evidenced.
