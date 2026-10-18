@@ -378,7 +378,10 @@ export function createApiRouter(deps: ApiDependencies): Router {
         data: { totalEntries: entries.length, incompleteEntriesCount: unfinished.length, entries },
       });
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+      // Invalid client query limits are bad requests; journal corruption or I/O
+      // failures remain server errors and must never be hidden.
+      const invalidLimit = err instanceof Error && err.message.startsWith('limit must be a positive integer');
+      res.status(invalidLimit ? 400 : 500).json({ success: false, error: err.message });
     }
   });
 
