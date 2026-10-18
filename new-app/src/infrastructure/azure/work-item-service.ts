@@ -494,12 +494,9 @@ export class AzureWorkItemService implements WorkItemRepository {
       if (error.message.includes('duplicate') || error.message.includes('already exists')) {
         const existing = await this.findExistingByTitleAndAssignee(project, workItemType, reconciliationData);
         if (existing) {
-          return {
-            id: existing.id,
-            title: existing.fields['System.Title'] || '',
-            isoDate: existing.fields['Microsoft.VSTS.Scheduling.StartDate']?.split('T')[0] || '',
-            url: `${this.client.baseUrl}/${this.client.organization}/${project}/_workitems/edit/${existing.id}`,
-          };
+          // Never apply copied relations to a pre-existing item or count it as
+          // newly created. A fresh duplicate check must decide the next action.
+          throw new Error(`Azure DevOps already has matching work item #${existing.id}. No new task was created; refresh the plan before retrying.`);
         }
       }
       throw error;
