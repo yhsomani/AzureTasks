@@ -34,7 +34,7 @@ const plan = {
 const views = ['dashboard', 'mywork', 'explorer', 'burndown', 'planner', 'scheduler', 'people', 'settings', 'journal', 'logs'];
 const server = spawn(process.execPath, ['dist/index.js', 'serve'], {
   cwd: process.cwd(),
-  env: { ...process.env, PORT: String(port), NODE_ENV: 'production', API_AUTH_TOKEN: auth.password, API_AUTH_USER: auth.username, AZURE_DEVOPS_PAT: '', GITHUB_TOKEN: '' },
+  env: { ...process.env, PORT: String(port), NODE_ENV: 'production', API_AUTH_TOKEN: auth.password, API_AUTH_USER: auth.username, API_VIEWER_USER: 'auditor', API_VIEWER_TOKEN: 'ci-viewer-test', AZURE_DEVOPS_PAT: '', GITHUB_TOKEN: '' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let serverLog = '';
@@ -62,7 +62,7 @@ async function attachFixtures(pageInstance) {
   await pageInstance.route('**/api/**', async route => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
-    if (pathname === '/api/logs/stream' || pathname === '/api/health') return route.continue();
+    if (pathname === '/api/logs/stream' || pathname === '/api/health' || pathname === '/api/session') return route.continue();
     if (pathname === '/api/config/people' && request.method() === 'POST') {
       // Settings-only synthetic fixture: no external Azure DevOps writes.
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { saved: true } }) });
@@ -191,6 +191,25 @@ try {
     await screen.screenshot({ path: `artifacts/ui-dashboard-${width}px.png`, fullPage: true });
     await responsive.close();
   }
+  // Log in with the actual viewer credential against the real /api/session
+  // response while Azure data remains entirely synthetic/read-only.
+  const viewerContext = await browser.newContext({
+    viewport: { width: 1366, height: 850 },
+    httpCredentials: { username: 'auditor', password: 'ci-viewer-test' },
+  });
+  const viewerPage = await viewerContext.newPage();
+  viewerPage.on('pageerror', err => pageErrors.push(err.message));
+  await attachFixtures(viewerPage);
+  await viewerPage.goto(origin + '/#people', { waitUntil: 'domcontentloaded' });
+  await viewerPage.locator('#viewerModeNotice').waitFor();
+  assert.match(await viewerPage.locator('#viewerModeNotice').textContent(), /Read-only viewer/);
+  assert.equal(await viewerPage.locator('#addPersonBtn').isDisabled(), true);
+  assert.equal(await viewerPage.locator('#savePeopleBtn').isDisabled(), true);
+  await viewerPage.locator('.nav-item[data-view="scheduler"]').click();
+  assert.equal(await viewerPage.locator('#schedRunNowBtn').isDisabled(), true);
+  assert.equal(await viewerPage.locator('#schedToggle').isDisabled(), true);
+  await viewerContext.close();
+
   assert.deepEqual(mutationRequests, [], 'test must not submit any remote writes');
   assert.deepEqual(pageErrors, [], 'browser errors: ' + pageErrors.join('; '));
   console.log('Browser UI journeys passed: 10 routes, keyboard planner controls, preview protection, EOD and mobile drawer.');
