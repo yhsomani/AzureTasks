@@ -43,7 +43,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       scheduleTime: '09:30',
       schedulerEnabled: false,
       schedulerAutoStart: false,
-      autoClose: true,
+      autoClose: false,
       autoCloseStartTime: '18:15',
       autoCloseEndTime: '18:45',
     },
@@ -54,7 +54,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       timezone: config.timezone,
       startTime: config.scheduleTime || config.startTime || '09:30',
       autoStart: Boolean(config.schedulerAutoStart ?? config.schedulerEnabled),
-      autoCloseEnabled: config.autoClose !== false,
+      autoCloseEnabled: config.autoClose === true,
       lastAutoClose: config.lastAutoClose,
     };
   }
@@ -76,7 +76,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
 
   /** Auto-close enabled setting */
   private get autoCloseEnabled(): boolean {
-    return this.autoCloseEnabledOverride ?? (this.config.autoClose !== false);
+    return this.autoCloseEnabledOverride ?? (this.config.autoClose === true);
   }
 
   private get autoCloseStartTime(): string {
@@ -100,57 +100,32 @@ export class NodeSchedulerRepository implements SchedulerRepository {
   }
 
   async start(persist: boolean = false): Promise<void> {
-    if (this.timer || this.autoCloseTimer) return; // Already running
+    if (this.timer || this.autoCloseTimer) return;
 
+    // Durable settings must succeed before any unattended timers run.
+    if (persist && this.configRepo) {
+      await this.configRepo.saveSettings({ schedulerEnabled: true, scheduleTime: this.startTime });
+    }
     this.status.running = true;
     this.scheduleDaily();
-    if (this.autoCloseEnabled) {
-      this.scheduleAutoCloseDaily();
-    }
+    if (this.autoCloseEnabled) this.scheduleAutoCloseDaily();
     this.startHeartbeat();
     logger.info(`Scheduler started. Next run: ${this.status.nextRun} (${this.timezone} @ ${this.startTime}).`);
-
-    if (persist && this.configRepo) {
-      try {
-        await this.configRepo.saveSettings({
-          schedulerEnabled: true,
-          scheduleTime: this.startTime,
-        });
-      } catch (err: any) {
-        logger.warn(`Failed to persist scheduler start setting: ${err.message}`);
-        throw err;
-      }
-    }
   }
 
   async stop(persist: boolean = false): Promise<void> {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
+    // Do not claim to have disabled a persisted scheduler while it may start
+    // again after restart because the settings update failed.
+    if (persist && this.configRepo) {
+      await this.configRepo.saveSettings({ schedulerEnabled: false });
     }
-    if (this.autoCloseTimer) {
-      clearTimeout(this.autoCloseTimer);
-      this.autoCloseTimer = null;
-    }
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    if (this.autoCloseTimer) { clearTimeout(this.autoCloseTimer); this.autoCloseTimer = null; }
+    if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
     this.status.running = false;
     this.status.nextRun = undefined;
     this.status.nextAutoClose = undefined;
     logger.info('Scheduler stopped.');
-
-    if (persist && this.configRepo) {
-      try {
-        await this.configRepo.saveSettings({
-          schedulerEnabled: false,
-        });
-      } catch (err: any) {
-        logger.warn(`Failed to persist scheduler stop setting: ${err.message}`);
-        throw err;
-      }
-    }
   }
 
   setSchedule(_cron: string, timezone: string): void {
@@ -166,33 +141,38 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     autoCloseStartTime?: string;
     autoCloseEndTime?: string;
   }): Promise<void> {
-    if (options.timezone) this.timezoneOverride = options.timezone;
-    if (options.startTime) this.startTimeOverride = options.startTime;
+    const validTime = (value: string) => /^([01]\\d|2[0-3]):[0-5]\\d$/.test(value);
+    for (const key of ['startTime', 'autoCloseStartTime', 'autoCloseEndTime'] as const) {
+      if (options[key] !== undefined && !validTime(options[key]!)) {
+        throw new Error(`Invalid scheduler ${key}; use HH:mm (24-hour).`);
+      }
+    }
+    if (options.timezone !== undefined) {
+      try { new Intl.DateTimeFormat('en-US', { timeZone: options.timezone }); }
+      catch { throw new Error('Invalid scheduler IANA timezone.'); }
+    }
+
+    const next = {
+      scheduleTime: options.startTime ?? this.startTime,
+      timezone: options.timezone ?? this.timezone,
+      schedulerAutoStart: options.autoStart ?? this.autoStart,
+      autoClose: options.autoClose ?? this.autoCloseEnabled,
+      autoCloseStartTime: options.autoCloseStartTime ?? this.autoCloseStartTime,
+      autoCloseEndTime: options.autoCloseEndTime ?? this.autoCloseEndTime,
+    };
+    if (this.configRepo) await this.configRepo.saveSettings(next);
+
+    if (options.timezone !== undefined) this.timezoneOverride = options.timezone;
+    if (options.startTime !== undefined) this.startTimeOverride = options.startTime;
     if (options.autoStart !== undefined) this.autoStartOverride = options.autoStart;
     if (options.autoClose !== undefined) this.autoCloseEnabledOverride = options.autoClose;
-    if (options.autoCloseStartTime) this.autoCloseStartTimeOverride = options.autoCloseStartTime;
-    if (options.autoCloseEndTime) this.autoCloseEndTimeOverride = options.autoCloseEndTime;
+    if (options.autoCloseStartTime !== undefined) this.autoCloseStartTimeOverride = options.autoCloseStartTime;
+    if (options.autoCloseEndTime !== undefined) this.autoCloseEndTimeOverride = options.autoCloseEndTime;
 
     this.status.startTime = this.startTime;
     this.status.timezone = this.timezone;
     this.status.autoStart = this.autoStart;
     this.status.autoCloseEnabled = this.autoCloseEnabled;
-
-    if (this.configRepo) {
-      try {
-        await this.configRepo.saveSettings({
-          scheduleTime: this.startTime,
-          timezone: this.timezone,
-          schedulerAutoStart: this.autoStart,
-          autoClose: this.autoCloseEnabled,
-          autoCloseStartTime: this.autoCloseStartTime,
-          autoCloseEndTime: this.autoCloseEndTime,
-        });
-      } catch (err: any) {
-        logger.warn(`Failed to persist scheduler configuration: ${err.message}`);
-        throw err;
-      }
-    }
 
     this.restartIfRunning();
     logger.info(
