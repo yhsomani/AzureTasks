@@ -112,3 +112,7 @@ Post-deploy verification (read-only first; do NOT use the Create missing action 
 ### Secret-storage mode
 
 Production defaults to `SECRET_STORAGE_MODE=external`: API writes of Azure DevOps and GitHub secrets are rejected, and credentials must be injected from a trusted secret manager at process startup. An operator may explicitly opt into `SECRET_STORAGE_MODE=local-file` for an approved single-host deployment, but this creates sensitive plaintext `.env` files and requires secured filesystem/backup access. Switching the mode does **not** revoke previously exposed secrets or clean old credentials; rotate those separately and confirm no secrets appear in logs or release artifacts. Verify the actual production topology before promoting a release.
+
+## Current release evidence
+
+See [Release acceptance ledger](RELEASE_VERIFICATION.md) for the consolidated, dated go/no-go matrix, production blockers, test plan and evidence requirements. Passing cross-platform CI does **not** close live tenant, secret rotation, deployment or multi-user authentication gates.

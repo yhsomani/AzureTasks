@@ -47,3 +47,7 @@ Source code, configuration templates, tests, and active documentation are mainta
 ## Security
 
 **Rotate any PAT or GitHub token shared in a chat, log, screenshot, or public repository.** Configure TLS using trusted certificate authorities, not `NODE_TLS_REJECT_UNAUTHORIZED=0`. Restrict web/API access with `API_AUTH_TOKEN` and HTTPS or an authenticating proxy. Do not run unattended work-item mutations until credentials, identities, and selected tasks have been verified.
+
+## Release verification
+
+Current release evidence and outstanding production acceptance checks are tracked in [Release acceptance ledger](new-app/docs/RELEASE_VERIFICATION.md). GitHub Actions passing does not establish live Azure DevOps validation.
