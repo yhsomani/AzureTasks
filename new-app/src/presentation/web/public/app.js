@@ -1691,6 +1691,15 @@ function renderPeople() {
     row.append(field('Assigned to (Email / UPN)', input(p.assignedTo, v => state.people[idx].assignedTo = v)));
     row.append(field('Role / POD', input(p.role || p.pod || '', v => state.people[idx].role = v)));
     row.append(field('Title Prefix', input(p.titlePrefix || '', v => state.people[idx].titlePrefix = v ? v : undefined)));
+    row.append(field('GitHub Handle', input(p.githubUsername || '', v => state.people[idx].githubUsername = v || undefined)));
+    row.append(field('GitHub Repositories (owner/repo, comma-separated)', input(
+      (p.githubRepositories || []).join(', '), v =>
+        state.people[idx].githubRepositories = v.split(',').map(s => s.trim()).filter(Boolean)
+    )));
+    row.append(field('GitHub Branches (comma-separated)', input(
+      (p.githubBranches || []).join(', '), v =>
+        state.people[idx].githubBranches = v.split(',').map(s => s.trim()).filter(Boolean)
+    )));
     
     // Source Task ID field with link
     const srcField = el('label', { class: 'field' });
@@ -1783,6 +1792,8 @@ function openAddPersonModal() {
   if ($('#personTitlePrefixInput')) $('#personTitlePrefixInput').value = '';
   $('#personSourceIdInput').value = '';
   if ($('#personGithubInput')) $('#personGithubInput').value = '';
+  if ($('#personReposInput')) $('#personReposInput').value = '';
+  if ($('#personBranchesInput')) $('#personBranchesInput').value = '';
   showModal('#personModal', '#personKeyInput');
 }
 
@@ -1795,6 +1806,8 @@ async function savePersonFromModal() {
   const titlePrefix = $('#personTitlePrefixInput')?.value.trim();
   const sourceTaskId = $('#personSourceIdInput').value.trim();
   const githubUsername = $('#personGithubInput')?.value?.trim();
+  const githubRepositories = ($('#personReposInput')?.value || '').split(',').map(x => x.trim()).filter(Boolean);
+  const githubBranches = ($('#personBranchesInput')?.value || '').split(',').map(x => x.trim()).filter(Boolean);
 
   if (!key || !name || !assignedTo) {
     toast('Key, Name, and Assigned To are required', 'err');
@@ -1816,6 +1829,8 @@ async function savePersonFromModal() {
     titlePrefix: titlePrefix || undefined,
     sourceTaskId: sourceTaskId ? Number(sourceTaskId) : undefined,
     githubUsername: githubUsername || undefined,
+    githubRepositories,
+    githubBranches,
     enabled: true,
   };
 

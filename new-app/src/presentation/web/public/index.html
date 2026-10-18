@@ -679,7 +679,17 @@
           <label class="field">
             <span>GitHub Handle (Optional override)</span>
             <input type="text" id="personGithubInput" placeholder="Exact GitHub username, or leave blank for unverified mapping" />
-            <span class="muted small">Auto-derived from corporate email if left blank.</span>
+            <span class="muted small">Auto-derived from corporate email if left blank. Confirm the correct GitHub identity before relying on evidence.</span>
+          </label>
+          <label class="field">
+            <span>GitHub Repositories (Optional, comma-separated)</span>
+            <input type="text" id="personReposInput" placeholder="owner/repository" />
+            <span class="muted small">Required to search authored commits. Leave empty to use PR-only evidence.</span>
+          </label>
+          <label class="field">
+            <span>GitHub Branches (Optional, comma-separated)</span>
+            <input type="text" id="personBranchesInput" placeholder="main, release/version" />
+            <span class="muted small">Restrict commits to selected branches; defaults to each configured repository's default branch.</span>
           </label>
         </form>
       </div>

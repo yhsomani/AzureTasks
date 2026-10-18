@@ -57,6 +57,13 @@ describe('person: Person entity', () => {
     expect(p.toConfig().assignedTo).toBe('a@b.com');
   });
 
+  it('preserves validated GitHub repository and branch scopes', () => {
+    const p = new Person({ key: 'p', name: 'A', assignedTo: 'a@b.com',
+      githubRepositories: ['team/repo'], githubBranches: ['main', 'release/v2'] });
+    expect(p.toConfig().githubRepositories).toEqual(['team/repo']);
+    expect(p.toConfig().githubBranches).toEqual(['main', 'release/v2']);
+  });
+
   it('preserves explicit disabled flag', () => {
     const p = new Person({ key: 'p1', name: 'A', assignedTo: 'a@b.com', enabled: false });
     expect(p.enabled).toBe(false);
