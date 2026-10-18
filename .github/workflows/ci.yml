@@ -59,6 +59,10 @@ jobs:
         run: |
           node --check scripts/verify-azure-identities.mjs
           npm run test:identities
+      - name: Read-only Azure work-item prefix preflight tests
+        run: |
+          node --check scripts/verify-azure-workitems.mjs
+          npm run test:workitems
       - name: Build
         run: npm run build
       - name: Smoke test HTTP shell and access protection
