@@ -234,6 +234,69 @@ export function parseTitleDate(
 }
 
 /**
+ * Resolve a yearless task title using Azure's recorded task date instead of
+ * assuming the current calendar year. Use the organization's timezone so a
+ * UTC midnight boundary cannot move the workday into another date.
+ * Without a recorded date, retain legacy title parsing; such a result is not
+ * independently year-verified and must not authorize automatic backdating.
+ */
+export function parseWorkItemTaskDate(
+  item: WorkItem,
+  prefix: string,
+  timezone = 'UTC',
+): ParsedTaskDate {
+  const title = String(item.fields['System.Title'] || '');
+  const parsed = parseTitleDate(title, prefix, true);
+  if (!parsed.isValid || !matchesTaskSeries(title, prefix)) return { ...parsed, isValid: false };
+
+  const fieldNames = [
+    'Custom.PlannedStartdate', 'Custom.PlannedStartDate',
+    'Microsoft.VSTS.Scheduling.StartDate',
+    'Custom.ActualStartdate', 'Custom.ActualStartDate',
+  ];
+  let hadRecordedDate = false;
+  for (const field of fieldNames) {
+    const raw = item.fields[field];
+    if (!raw) continue;
+    const date = new Date(String(raw));
+    if (!Number.isFinite(date.getTime())) continue;
+    hadRecordedDate = true;
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(date);
+    const part = (type: string) => parts.find(p => p.type === type)?.value || '';
+    const isoDate = `${part('year')}-${part('month')}-${part('day')}`;
+    if (isoDate.slice(5) === parsed.isoDate.slice(5)) {
+      return { ...parsed, isoDate, year: Number(isoDate.slice(0, 4)) };
+    }
+  }
+  // A recorded date that contradicts the title is not permission to guess
+  // a year or assign an unrelated work item to a target workday.
+  if (hadRecordedDate) return { ...parsed, isoDate: '', year: 0, isValid: false };
+
+  // Older tasks can lack scheduling fields. Their creation time can locate the
+  // nearest year, but operators must verify distant/backfilled history.
+  const createdAt = item.fields['System.CreatedDate'];
+  if (createdAt) {
+    const date = new Date(String(createdAt));
+    if (Number.isFinite(date.getTime())) {
+      const createdYear = date.getUTCFullYear();
+      const mm = Number(parsed.isoDate.slice(5, 7));
+      const dd = Number(parsed.isoDate.slice(8, 10));
+      const candidates = [createdYear - 1, createdYear, createdYear + 1]
+        .map(year => ({ year, ms: Date.UTC(year, mm - 1, dd) }))
+        .filter(c => new Date(c.ms).getUTCMonth() === mm - 1)
+        .sort((a, b) => Math.abs(a.ms - date.getTime()) - Math.abs(b.ms - date.getTime()));
+      if (candidates.length > 0) {
+        const selected = candidates[0];
+        return { ...parsed, isoDate: new Date(selected.ms).toISOString().slice(0, 10), year: selected.year };
+      }
+    }
+  }
+  return parsed;
+}
+
+/**
  * Extracts the title prefix from a work item title (e.g. "Your_Relation | OCT 12" -> "Your_Relation |")
  */
 /**
