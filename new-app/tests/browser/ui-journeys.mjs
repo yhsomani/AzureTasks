@@ -172,6 +172,25 @@ try {
   await mobilePage.locator('.nav-item[data-view="planner"]').click();
   assert.equal(await mobilePage.locator('#view-planner').evaluate(node => node.classList.contains('active')), true);
   await mobilePage.screenshot({ path: 'artifacts/ui-planner-mobile.png', fullPage: true });
+
+  // Exercise the additional release-gate viewport widths without creating
+  // remote Azure work items. The 390px mobile case above checks navigation.
+  for (const width of [375, 768]) {
+    const responsive = await browser.newContext({
+      viewport: { width, height: 850 }, httpCredentials: auth,
+    });
+    const screen = await responsive.newPage();
+    screen.on('pageerror', error => pageErrors.push(error.message));
+    await attachFixtures(screen);
+    await screen.goto(origin + '/#dashboard', { waitUntil: 'domcontentloaded' });
+    await screen.locator('#view-dashboard.active').waitFor();
+    assert.equal(await screen.locator('main').count(), 1, 'main landmark at ' + width + 'px');
+    assert.equal(await screen.locator('.skip-link').count(), 1, 'skip-navigation landmark at ' + width + 'px');
+    const viewportWidth = await screen.evaluate(() => window.innerWidth);
+    assert.equal(viewportWidth, width, 'responsive viewport width');
+    await screen.screenshot({ path: `artifacts/ui-dashboard-${width}px.png`, fullPage: true });
+    await responsive.close();
+  }
   assert.deepEqual(mutationRequests, [], 'test must not submit any remote writes');
   assert.deepEqual(pageErrors, [], 'browser errors: ' + pageErrors.join('; '));
   console.log('Browser UI journeys passed: 10 routes, keyboard planner controls, preview protection, EOD and mobile drawer.');
