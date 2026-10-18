@@ -292,6 +292,19 @@ describe('API routes', () => {
     expect(res.headers.get('content-disposition')).toContain('attachment');
   });
 
+  it('rejects ad-hoc duplicate bypass and invalid numeric fields at the HTTP boundary', async () => {
+    const bypass = await json('/api/tasks/adhoc', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personKey: 'p1', targetIsoDate: '2026-11-02', bypassDuplicateCheck: true }),
+    });
+    expect(bypass.status).toBe(400);
+    const badSource = await json('/api/tasks/adhoc', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personKey: 'p1', targetIsoDate: '2026-11-02', sourceTaskId: '123oops' }),
+    });
+    expect(badSource.status).toBe(400);
+  });
+
   it('POST /api/scheduler/toggle enables the scheduler', async () => {
     const res = await json('/api/scheduler/toggle', {
       method: 'POST',

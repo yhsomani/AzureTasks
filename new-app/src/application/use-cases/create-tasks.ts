@@ -13,6 +13,7 @@ import {
   CreatedTask,
   parseTitleDate,
   validateSourceTaskOwnership,
+  matchesTaskSeries,
   extractTitlePrefix
 } from '../../domain/entities/task.js';
 import { 
@@ -255,6 +256,18 @@ export class CreateTasksUseCase {
     if (!input.personKey || !input.targetIsoDate) {
       throw new Error('Both personKey and targetIsoDate (YYYY-MM-DD) are required.');
     }
+    const date = new Date(`${input.targetIsoDate}T00:00:00Z`);
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(input.targetIsoDate) ||
+      Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== input.targetIsoDate) {
+      throw new Error('targetIsoDate must be a valid YYYY-MM-DD date.');
+    }
+    validateNotPastDate(input.targetIsoDate, this.datePlanning.getTodayIso(this.config.timezone));
+    if (this.config.skipWeekends && [0, 6].includes(date.getUTCDay())) {
+      throw new Error('Weekend task creation is disabled in project settings.');
+    }
+    if (input.bypassDuplicateCheck) {
+      throw new Error('Bypassing duplicate detection is disabled for task safety.');
+    }
 
     const personConfig = this.config.people.find(p => 
       p.key === input.personKey || p.assignedTo.toLowerCase() === input.personKey.toLowerCase()
@@ -304,6 +317,10 @@ export class CreateTasksUseCase {
       const effectivePrefix = person.titlePrefix || extractTitlePrefix(sourceTask.workItem.fields['System.Title'] || '') || this.config.titlePrefix;
       const fullTitle = input.customTitle?.trim() 
         || `${effectivePrefix} ${formatTitleDate(input.targetIsoDate)}`;
+      if (!matchesTaskSeries(fullTitle, effectivePrefix) ||
+          parseTitleDate(fullTitle, effectivePrefix, true).isoDate !== input.targetIsoDate) {
+        throw new Error('Task title must use the configured series and match the selected date.');
+      }
 
       // 3. Duplicate check unless bypassed
       if (!input.bypassDuplicateCheck) {

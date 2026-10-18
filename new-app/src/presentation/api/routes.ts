@@ -168,16 +168,27 @@ export function createApiRouter(deps: ApiDependencies): Router {
       if (!personKey || !targetIsoDate) {
         return res.status(400).json({ success: false, error: 'personKey and targetIsoDate (YYYY-MM-DD) are required' });
       }
+      if (bypassDuplicateCheck === true) {
+        return res.status(400).json({ success: false, error: 'Duplicate-check bypass is disabled.' });
+      }
+      const sourceId = sourceTaskId === undefined || sourceTaskId === '' ? undefined : Number(sourceTaskId);
+      const estimate = originalEstimate === undefined || originalEstimate === '' ? undefined : Number(originalEstimate);
+      if (sourceId !== undefined && (!Number.isSafeInteger(sourceId) || sourceId <= 0)) {
+        return res.status(400).json({ success: false, error: 'sourceTaskId must be a positive integer.' });
+      }
+      if (estimate !== undefined && (!Number.isFinite(estimate) || estimate < 0)) {
+        return res.status(400).json({ success: false, error: 'originalEstimate must be a non-negative finite number.' });
+      }
 
       const result = await deps.createTasks.executeAdHocTask({
         personKey,
         targetIsoDate,
         customTitle,
-        sourceTaskId: sourceTaskId ? parseInt(sourceTaskId, 10) : undefined,
-        originalEstimate: originalEstimate !== undefined && originalEstimate !== '' ? parseFloat(originalEstimate) : undefined,
+        sourceTaskId: sourceId,
+        originalEstimate: estimate,
         activity,
         description,
-        bypassDuplicateCheck: Boolean(bypassDuplicateCheck),
+        bypassDuplicateCheck: false,
       });
 
       res.json({ success: true, data: result });
