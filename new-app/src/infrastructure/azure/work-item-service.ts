@@ -28,6 +28,17 @@ interface WorkItemBatchResult {
 export class AzureWorkItemService implements WorkItemRepository {
   constructor(private readonly client: AzureDevOpsClient) {}
 
+  private requireCompleteBatch(batch: WorkItemBatchResult, ids: number[], purpose: string): WorkItem[] {
+    const expected = new Set(ids);
+    if (!Array.isArray(batch?.value) || expected.size !== ids.length ||
+        batch.value.length !== expected.size ||
+        new Set(batch.value.map(w => w?.id)).size !== expected.size ||
+        batch.value.some(w => !w || !expected.has(w.id) || !w.fields)) {
+      throw new Error(`Azure DevOps returned incomplete or mismatched ${purpose} data. Refusing to infer missing tasks.`);
+    }
+    return batch.value;
+  }
+
   async validateProject(project: string): Promise<void> {
     await this.client.get<any>(`/_apis/projects/${project}?api-version=7.0`);
   }
@@ -112,10 +123,7 @@ export class AzureWorkItemService implements WorkItemRepository {
       const batch = await this.client.get<WorkItemBatchResult>(
         `/${project}/_apis/wit/workitems?ids=${ids}&$expand=relations&api-version=7.0`
       );
-      if (!Array.isArray(batch.value)) {
-        throw new Error('Azure DevOps returned an invalid source work-item batch.');
-      }
-      allFetched.push(...batch.value);
+      allFetched.push(...this.requireCompleteBatch(batch, result.workItems.slice(i, i + 100).map(w => w.id), 'source work-item batch'));
     }
 
     const candidateTasks: DiscoveredTask[] = [];
@@ -230,9 +238,7 @@ export class AzureWorkItemService implements WorkItemRepository {
         const batchResult = await this.client.get<WorkItemBatchResult>(
           `/${project}/_apis/wit/workitems?ids=${chunk}&$expand=relations&api-version=7.0`
         );
-        if (batchResult.value) {
-          allFetched.push(...batchResult.value);
-        }
+        allFetched.push(...this.requireCompleteBatch(batchResult, ids.slice(i, i + CHUNK_SIZE), 'team source work-item batch'));
       }
 
       for (const workItem of allFetched) {
@@ -352,11 +358,7 @@ export class AzureWorkItemService implements WorkItemRepository {
         const batchResult = await this.client.get<WorkItemBatchResult>(
           `/${project}/_apis/wit/workitems?ids=${chunk}&fields=System.Id,System.Title,System.AssignedTo&api-version=7.0`
         );
-        if (!Array.isArray(batchResult?.value) ||
-          batchResult.value.length !== ids.slice(i, i + CHUNK_SIZE).length) {
-          throw new Error('Azure DevOps duplicate detection returned incomplete work-item details.');
-        }
-        allFetched.push(...batchResult.value);
+        allFetched.push(...this.requireCompleteBatch(batchResult, ids.slice(i, i + CHUNK_SIZE), 'duplicate-detection work-item batch'));
       }
 
       for (const workItem of allFetched) {
@@ -448,13 +450,7 @@ export class AzureWorkItemService implements WorkItemRepository {
         const batch = await this.client.get<WorkItemBatchResult>(
           `/${project}/_apis/wit/workitems?ids=${ids}&api-version=7.0`
         );
-        const requestedIds = new Set(result.workItems.slice(i, i + CHUNK_SIZE).map(w => w.id));
-        if (!Array.isArray(batch.value) || batch.value.length !== requestedIds.size ||
-            new Set(batch.value.map(w => w.id)).size !== requestedIds.size ||
-            batch.value.some(w => !requestedIds.has(w.id) || !w.fields)) {
-          throw new Error('Azure DevOps returned an incomplete or mismatched work-item batch. Coverage is unknown.');
-        }
-        items.push(...batch.value);
+        items.push(...this.requireCompleteBatch(batch, result.workItems.slice(i, i + CHUNK_SIZE).map(w => w.id), 'candidate work-item batch'));
       }
       return items;
     } catch (err) {
