@@ -151,19 +151,23 @@ export class AppServer {
         resolve(actualPort);
       };
 
+      // A live development PAT must not expose unauthenticated mutations on
+      // LAN interfaces. Production always requires the API auth token.
+      const listenHost = process.env.API_AUTH_TOKEN?.trim() ? undefined : '127.0.0.1';
+      const listen = () => this.server.listen(this.port, listenHost);
       this.server.once('listening', onListening);
 
       this.server.on('error', (err: any) => {
         if (err.code === 'EADDRINUSE' && process.env.NODE_ENV !== 'production' && retries++ < 3) {
           logger.warn(`Port ${this.port} in use, trying ${this.port + 1}...`);
           this.port++;
-          this.server.listen(this.port);
+          listen();
         } else {
           reject(err);
         }
       });
 
-      this.server.listen(this.port);
+      listen();
     });
   }
 
