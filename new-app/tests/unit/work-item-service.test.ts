@@ -200,6 +200,25 @@ describe('AzureWorkItemService.findCandidateTasks', () => {
   });
 });
 
+describe('Azure duplicate detection on ambiguous existing work items', () => {
+  it('fails closed rather than marking the day missing when matching-series title conflicts with scheduling', async () => {
+    const client = {
+      async post<T>(): Promise<T> { return { workItems: [{ id: 144 }] } as T; },
+      async get<T>(): Promise<T> {
+        return { value: [{ id: 144, rev: 1, fields: {
+          'System.Title': '3in1_PWA_MyAccount | Oct 16',
+          'System.AssignedTo': 'a@b.com',
+          'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
+        } }] } as T;
+      },
+    };
+    await expect(new AzureWorkItemService(client as any, () => 'Asia/Kolkata')
+      .getExistingTasksForPerson('P', 'Task', '3in1_PWA_MyAccount |',
+        'a@b.com', '2026-10-15', '2026-10-15'))
+      .rejects.toThrow(/Cannot prove workday.*144/);
+  });
+});
+
 describe('AzureWorkItemService duplicate detection with missing assignee', () => {
   it('does not count unassigned tasks as belonging to a requested person', async () => {
     const date = new Date().getFullYear() + '-06-10';
