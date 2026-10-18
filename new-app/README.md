@@ -1,7 +1,7 @@
 # 3in1 Task Studio
 
-Production-grade rebuild of the Azure DevOps **3in1 Task Creator**. Creates the
-daily "3in1" task series for every team member from a single source task, copies
+Maintained Azure DevOps **3in1 Task Studio**. Plans and creates
+daily work items from each member's independently validated source task, copies
 fields and relations safely, prevents duplicates, and keeps a verifiable audit
 log. Ships as a CLI + web dashboard + weekday scheduler.
 
@@ -28,11 +28,11 @@ cp .env.example .env
 # 3. Run (preview before any intentional mutation)
 npm run dev -- plan         # preview task creation, writes nothing
 npm run dev -- run          # creates remote tasks; use explicit selection and confirmation
-npm run dev -- close-today  # remote closure; manual/intentional only; preview first
+npm run dev -- close-today --dry-run  # inspect real read-only EOD candidates
 npm run dev                 # web dashboard on http://localhost:3000
 ```
 
-The server reads `AZURE_DEVOPS_PAT` and `GITHUB_TOKEN` from the environment. Required PAT scope:
+The server reads `AZURE_DEVOPS_PAT` and optional `GITHUB_TOKEN` from the environment. Required PAT scope for mutations:
 **Work Items: Read & Write**.
 
 ## Documentation and navigation
@@ -203,3 +203,16 @@ Automatic EOD closure is opt-in. When enabled, the scheduler makes at most **one
 ### CLI EOD closure safety
 
 Live `close-today` requires `--all` or `--person` and `--yes`; `--as-of` is allowed only for dry-run previews. CLI, web, and scheduler closure operations always use Azure DevOps workflow rules and never bypass them. They do not fabricate completed hours, remaining work, actual work times, descriptions, or close timestamps.
+
+## Safe deployment topology verification
+
+After authorized staging deployment, run the **read-only** staging diagnostics against your real, HTTPS application:
+
+```bash
+export RELEASE_BASE_URL=https://your-trusted-task-studio.example
+export API_AUTH_USER=admin
+# Inject API_AUTH_TOKEN from your approved secret manager (never commit it).
+npm run verify:staging:readonly
+```
+
+The script reads `/api/health`, `/api/ready`, configuration and the journal, then sends POSTs **only to a nonexistent API route** to test same-origin and hostile-origin rejection. It does not create, close or repair Azure work items. It fails if read-only Azure readiness is unavailable. For a local host-only test, `ALLOW_LOCAL_HTTP=1` permits HTTP on localhost; never enable that for a remote deployment. This is not a substitute for operator-approved tenant write tests, SSO review, or restoration rehearsal.

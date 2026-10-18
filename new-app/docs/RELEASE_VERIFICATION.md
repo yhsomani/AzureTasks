@@ -54,3 +54,7 @@
 - Configure a person's `githubRepositories` as explicit `owner/repo` values and optional `githubBranches`. No repos means PR-only evidence; no dummy commits. If scope exceeds GitHub's trustworthy pagination limits, fail with an error rather than displaying a false zero.
 - Deployment is **single-host** until a shared distributed lock, scheduler leader election and atomic multi-writer storage have been built and tested.
 - Archive/audit data is sensitive, must be backed up and access controlled, and must never be silently discarded.
+
+## Automated deployment topology diagnostics
+
+Use `npm run verify:staging:readonly` with `RELEASE_BASE_URL`, `API_AUTH_USER` and an operator `API_AUTH_TOKEN` provided by your secrets manager. The script validates the HTTPS origin, unauthenticated liveness semantics, authenticated live Azure readiness, readable configuration/journal, and hostile/same-origin behavior **on a nonexistent POST endpoint**. It never creates or closes work items. Record the operator, timestamp, sanitized command output, deployment URL, and release SHA as evidence. Manual production gates remain open until explicitly verified.
