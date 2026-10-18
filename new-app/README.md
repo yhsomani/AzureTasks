@@ -212,6 +212,12 @@ Automatic EOD closure is opt-in. When enabled, the scheduler makes at most **one
 
 Live `close-today` requires `--all` or `--person` and `--yes`; `--as-of` is allowed only for dry-run previews. CLI, web, and scheduler closure operations always use Azure DevOps workflow rules and never bypass them. They do not fabricate completed hours, remaining work, actual work times, descriptions, or close timestamps.
 
+## Backend listen host and HTTPS ingress
+
+For safety the HTTP server binds to **`127.0.0.1` by default**, even when `API_AUTH_TOKEN` is set. This prevents an authenticated service from accidentally exposing the plaintext backend port directly to the network and bypassing a local HTTPS reverse proxy. To support a container/proxy on another network interface, set `LISTEN_HOST` explicitly to a numeric bind address such as `0.0.0.0`; then **firewall the backend port to the trusted ingress network** and verify that external users cannot reach it directly. This override does not add TLS.
+
+`PUBLIC_ORIGIN` should identify the exact external HTTPS origin behind the proxy. Unsafe browser API calls with `Sec-Fetch-Site: same-site` but no `Origin` are rejected rather than being treated as CLI calls. Truly headerless authenticated CLI calls and same-origin requests remain supported. CI proves only local policy logic; test real proxy header forwarding, TLS, CORS/Origin and external network isolation before deployment.
+
 ## Safe deployment topology verification
 
 After authorized staging deployment, run the **read-only** staging diagnostics against your real, HTTPS application:

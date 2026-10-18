@@ -119,8 +119,9 @@ describe('Production web server access controls', () => {
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('API_AUTH_TOKEN', 'operator-test-secret');
     const occupied = http.createServer((_req, res) => res.end('fixture'));
-    // Match AppServer's default listen host to guarantee the same socket family.
-    await new Promise<void>(resolve => occupied.listen(0, resolve));
+    // Bind the same IPv4 loopback interface that AppServer now uses by default.
+    // A platform's unspecified IPv6 listener may not own 127.0.0.1 on macOS.
+    await new Promise<void>(resolve => occupied.listen(0, '127.0.0.1', resolve));
     const address = occupied.address();
     const port = typeof address === 'object' && address ? address.port : -1;
     const server = new AppServer({} as ApiDependencies, port);
@@ -186,6 +187,87 @@ describe('Production web server access controls', () => {
     vi.stubEnv('PUBLIC_ORIGIN', 'https://*.example.invalid');
     expect(() => new AppServer({} as ApiDependencies, 0))
       .toThrow(/PUBLIC_ORIGIN must be an exact HTTP\(S\) origin/);
+  });
+
+  it('binds authenticated production HTTP to loopback by default, not all interfaces', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('API_AUTH_TOKEN', 'fixture-only-operator');
+    vi.stubEnv('LISTEN_HOST', '');
+    const server = new AppServer({} as ApiDependencies, 0);
+    try {
+      await server.start();
+      const bound = (server as unknown as { server: http.Server }).server.address();
+      expect(bound).toBeTruthy();
+      expect(typeof bound).toBe('object');
+      if (bound && typeof bound === 'object') expect(bound.address).toBe('127.0.0.1');
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it('rejects hostnames and malformed LISTEN_HOST instead of silently binding', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('API_AUTH_TOKEN', 'fixture-only-operator');
+    for (const invalidHost of ['invalid host', 'https://localhost', 'tasks.example.invalid', '*']) {
+      vi.stubEnv('LISTEN_HOST', invalidHost);
+      const server = new AppServer({} as ApiDependencies, 0);
+      await expect(server.start()).rejects.toThrow(/LISTEN_HOST must be localhost or a numeric/);
+    }
+  });
+
+  it('binds an explicitly selected wildcard host only when LISTEN_HOST is set', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('API_AUTH_TOKEN', 'fixture-only-operator');
+    vi.stubEnv('LISTEN_HOST', '0.0.0.0');
+    const server = new AppServer({} as ApiDependencies, 0);
+    try {
+      await server.start();
+      const bound = (server as unknown as { server: http.Server }).server.address();
+      if (bound && typeof bound === 'object') expect(bound.address).toBe('0.0.0.0');
+      else throw new Error('Expected a TCP address');
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it('denies same-site requests with stripped Origin before any mutation, while preserving CLI and same-origin requests', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('API_AUTH_TOKEN', 'fixture-only-operator');
+    vi.stubEnv('PUBLIC_ORIGIN', 'https://tasks.example.invalid');
+    const triggerRunNow = vi.fn(async () => ({ success: true, message: 'fixture accepted' }));
+    const server = new AppServer({
+      scheduler: { triggerRunNow, getStatus: () => ({ running: false }) },
+    } as unknown as ApiDependencies, 0);
+    const port = await server.start();
+    const destination = `http://127.0.0.1:${port}/api/scheduler/run-now`;
+    const authorization = `Basic ${Buffer.from('admin:fixture-only-operator').toString('base64')}`;
+    const invoke = (headers: Record<string, string>) => fetch(destination, {
+      method: 'POST',
+      headers: { Authorization: authorization, 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify({ confirm: true, all: true }),
+    });
+    try {
+      const strippedSibling = await invoke({ 'Sec-Fetch-Site': 'same-site' });
+      expect(strippedSibling.status).toBe(403);
+      const strippedCrossSite = await invoke({ 'Sec-Fetch-Site': 'cross-site' });
+      expect(strippedCrossSite.status).toBe(403);
+      const foreignSibling = await invoke({
+        'Sec-Fetch-Site': 'same-site', Origin: 'https://evil.example.invalid',
+      });
+      expect(foreignSibling.status).toBe(403);
+      expect(triggerRunNow).not.toHaveBeenCalled();
+      const permittedSameOrigin = await invoke({ 'Sec-Fetch-Site': 'same-origin' });
+      expect(permittedSameOrigin.status).toBe(200);
+      const permittedCli = await invoke({});
+      expect(permittedCli.status).toBe(200);
+      const permittedExplicitOrigin = await invoke({
+        'Sec-Fetch-Site': 'same-origin', Origin: 'https://tasks.example.invalid',
+      });
+      expect(permittedExplicitOrigin.status).toBe(200);
+      expect(triggerRunNow).toHaveBeenCalledTimes(3);
+    } finally {
+      await server.stop();
+    }
   });
 
 });

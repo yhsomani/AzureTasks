@@ -47,7 +47,12 @@ export function unsafeRequestOriginGuard(options: {
 
     if (site === 'cross-site' && !trustedExternalOrigin) return deny();
     if (site && !['same-origin', 'same-site', 'none', 'cross-site'].includes(site)) return deny();
-    if (!origin) return next(); // CLI and same-origin callers without Origin headers
+    // Sibling subdomains are "same-site" but not necessarily same-origin.
+    // If an ingress strips Origin, browser Fetch Metadata must not turn that
+    // request into a trusted CLI call. Truly headerless CLI callers and
+    // same-origin requests without Origin remain supported.
+    if (!origin && site === 'same-site') return deny();
+    if (!origin) return next();
 
     // An exact match is necessary: no *.example.com, suffix or substring matches.
     // Do not trust X-Forwarded-Proto without an explicit deployment configuration.

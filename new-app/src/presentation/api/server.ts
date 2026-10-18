@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as http from 'http';
 import * as crypto from 'node:crypto';
+import { isIP } from 'node:net';
 import express from 'express';
 import cors from 'cors';
 import { createApiRouter, ApiDependencies } from './routes.js';
@@ -142,18 +143,24 @@ export class AppServer {
   }
 
   start(): Promise<number> {
+    // Basic authentication is not TLS. An authenticated service must not
+    // silently bind public interfaces and bypass its HTTPS reverse proxy.
+    // Containers requiring a wildcard interface must explicitly configure it
+    // and keep that backend port private to the trusted ingress network.
+    const listenHost = process.env.LISTEN_HOST?.trim() || '127.0.0.1';
+    if (listenHost !== 'localhost' && isIP(listenHost) === 0) {
+      return Promise.reject(new Error('LISTEN_HOST must be localhost or a numeric IPv4/IPv6 address.'));
+    }
     return new Promise((resolve, reject) => {
       let retries = 0;
       const onListening = () => {
         const addr = this.server.address();
         const actualPort = typeof addr === 'object' && addr ? addr.port : this.port;
-        logger.info(`Web UI running at http://localhost:${actualPort}`);
+        const displayHost = isIP(listenHost) === 6 ? `[${listenHost}]` : listenHost;
+        logger.info(`Web UI listening at http://${displayHost}:${actualPort} (internal HTTP only; configure external HTTPS termination).`);
         resolve(actualPort);
       };
 
-      // A live development PAT must not expose unauthenticated mutations on
-      // LAN interfaces. Production always requires the API auth token.
-      const listenHost = process.env.API_AUTH_TOKEN?.trim() ? undefined : '127.0.0.1';
       const listen = () => this.server.listen(this.port, listenHost);
       this.server.once('listening', onListening);
 
