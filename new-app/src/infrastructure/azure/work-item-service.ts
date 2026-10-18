@@ -308,7 +308,10 @@ export class AzureWorkItemService implements WorkItemRepository {
       { query: wiql }
     );
 
-    if (!result.workItems || result.workItems.length === 0) {
+    if (!Array.isArray(result?.workItems)) {
+      throw new Error('Azure DevOps returned an invalid duplicate-detection WIQL response.');
+    }
+    if (result.workItems.length === 0) {
       wiql = `
         SELECT [System.Id], [System.Title], [System.AssignedTo], [System.CreatedDate]
         FROM WorkItems
@@ -324,6 +327,13 @@ export class AzureWorkItemService implements WorkItemRepository {
       );
     }
 
+    if (!Array.isArray(result?.workItems)) {
+      throw new Error('Azure DevOps returned an invalid duplicate-detection WIQL response.');
+    }
+    // Incomplete duplicate coverage can create real duplicate work items.
+    if (result.workItems.length > 5000) {
+      throw new Error('Too many duplicate-detection candidates (>5000); narrow the task series or member.');
+    }
     const existingMap = new Map<string, { id: number; title: string; isoDate: string; count?: number }>();
     
     if (result.workItems && result.workItems.length > 0) {
@@ -342,9 +352,11 @@ export class AzureWorkItemService implements WorkItemRepository {
         const batchResult = await this.client.get<WorkItemBatchResult>(
           `/${project}/_apis/wit/workitems?ids=${chunk}&fields=System.Id,System.Title,System.AssignedTo&api-version=7.0`
         );
-        if (batchResult.value) {
-          allFetched.push(...batchResult.value);
+        if (!Array.isArray(batchResult?.value) ||
+          batchResult.value.length !== ids.slice(i, i + CHUNK_SIZE).length) {
+          throw new Error('Azure DevOps duplicate detection returned incomplete work-item details.');
         }
+        allFetched.push(...batchResult.value);
       }
 
       for (const workItem of allFetched) {
