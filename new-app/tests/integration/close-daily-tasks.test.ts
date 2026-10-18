@@ -477,6 +477,8 @@ describe('CloseDailyTasksUseCase', () => {
     expect(output.totalClosed).toBe(0);
     expect(output.results[0].status).toBe('failed');
     expect(output.results[0].error).toContain('Rule validation failed');
+    // Rejected Azure transitions cannot invent an end-of-work timestamp.
+    expect(output.results[0].actualEndDate).toBe('');
   });
 
   it('never invents a closure time or work end time', async () => {
