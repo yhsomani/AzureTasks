@@ -114,9 +114,10 @@ describe('date-window: planCreationDates', () => {
     expect(planned).toEqual(['2026-10-09', '2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15']);
   });
 
-  it('resumes after the latest task and skips any other existing dates', () => {
+  it('fills gaps while skipping all existing dates including the latest source', () => {
     // Latest task exists today (Oct 5); another task already exists on Oct 7.
     const existing = new Map([
+      ['2026-10-05', { id: 2, title: 'latest source', isoDate: '2026-10-05' }],
       ['2026-10-07', { id: 1, title: 'x', isoDate: '2026-10-07' }],
     ]);
     const plan = planCreationDates({
@@ -128,7 +129,7 @@ describe('date-window: planCreationDates', () => {
     });
 
     const dupes = plan.plannedDates.filter(d => d.status === 'DUPLICATE_ALREADY_EXISTS').map(d => d.isoDate);
-    expect(dupes).toEqual(['2026-10-07']);
+    expect(dupes).toEqual(['2026-10-05', '2026-10-07']);
     const planned = plan.plannedDates.filter(d => d.status === 'PLANNED').map(d => d.isoDate);
     expect(planned).toEqual(['2026-10-06', '2026-10-08']);
   });
@@ -150,7 +151,7 @@ describe('date-window: planCreationDates', () => {
     expect(entry?.skipReason).toMatch(/2 tasks/);
   });
 
-  it('warns when latest task is beyond the window', () => {
+  it('does not lose missing dates when source task is beyond the window', () => {
     const plan = planCreationDates({
       ...base,
       todayIso: '2026-10-05',
@@ -158,14 +159,16 @@ describe('date-window: planCreationDates', () => {
       latestExistingTaskId: 99,
       existingTasksMap: new Map(),
     });
-    expect(plan.plannedDates).toHaveLength(0);
-    expect(plan.warningMessage).toMatch(/ahead of creation window/);
+    expect(plan.plannedDates.filter(d => d.status === 'PLANNED').map(d => d.isoDate))
+      .toEqual(['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08']);
   });
 
   it('reports no work when all dates exist', () => {
     const existing = new Map([
-      ['2026-10-07', { id: 1, title: 'a', isoDate: '2026-10-07' }],
-      ['2026-10-08', { id: 2, title: 'b', isoDate: '2026-10-08' }],
+      ['2026-10-05', { id: 3, title: 'a', isoDate: '2026-10-05' }],
+      ['2026-10-06', { id: 4, title: 'b', isoDate: '2026-10-06' }],
+      ['2026-10-07', { id: 1, title: 'c', isoDate: '2026-10-07' }],
+      ['2026-10-08', { id: 2, title: 'd', isoDate: '2026-10-08' }],
     ]);
     const plan = planCreationDates({
       ...base,
