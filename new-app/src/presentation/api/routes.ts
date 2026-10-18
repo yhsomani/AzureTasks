@@ -155,6 +155,9 @@ export function createApiRouter(deps: ApiDependencies): Router {
   router.post('/tasks/execute', async (req, res) => {
     try {
       const { asOf, thursdayMode, dryRun } = req.body || {};
+      if (dryRun !== true && req.body?.confirm !== true) {
+        return res.status(400).json({ success: false, error: 'Explicit confirm=true is required for Azure task creation.' });
+      }
       const scope = resolvePersonScope(req.body);
       const data = await deps.createTasks.execute(
         {
@@ -243,6 +246,9 @@ export function createApiRouter(deps: ApiDependencies): Router {
       }
       const { asOf } = req.body || {};
       const dryRun = req.body?.dryRun === true;
+      if (!dryRun && req.body?.confirm !== true) {
+        return res.status(400).json({ success: false, error: 'Explicit confirm=true is required for Azure EOD closure.' });
+      }
       // Closing tasks is a remote write. A missing or empty member scope must
       // never silently close all employees' work items.
       const scope = resolvePersonScope(req.body, dryRun);
@@ -288,6 +294,9 @@ export function createApiRouter(deps: ApiDependencies): Router {
   router.post('/explorer/create-missing', async (req, res) => {
     try {
       const { asOf, thursdayMode } = req.body || {};
+      if (req.body?.confirm !== true) {
+        return res.status(400).json({ success: false, error: 'Explicit confirm=true is required for missing-task creation.' });
+      }
       const scope = resolvePersonScope(req.body);
       const data = await deps.createTasks.execute(
         {

@@ -1494,6 +1494,7 @@ async function runForMember(personKey, personName) {
   openConsoleDrawer();
   try {
     const res = await api.post('/tasks/execute', {
+      confirm: true,
       personKeys: [personKey],
       asOf: $('#asOf')?.value || undefined,
       thursdayMode: $('#thursdayMode')?.value || undefined,
@@ -1641,6 +1642,7 @@ async function executeCreation() {
   try {
     const keys = [...state.selectedKeys];
     const res = await api.post('/tasks/execute', {
+      confirm: true,
       personKeys: keys.length ? keys : undefined,
       asOf: $('#asOf')?.value || undefined,
       thursdayMode: $('#thursdayMode')?.value || undefined,
@@ -2038,7 +2040,7 @@ async function triggerEodClosure(dryRun = false) {
   if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="muted" style="text-align:center; padding:24px;">Analyzing tasks for today...</td></tr>';
 
   try {
-    const res = await api.post('/tasks/close-today', { dryRun, all: true });
+    const res = await api.post('/tasks/close-today', { dryRun, all: true, confirm: !dryRun });
     state.lastEodResult = res;
 
     if (summaryEl) {
@@ -2083,8 +2085,8 @@ async function triggerEodClosure(dryRun = false) {
               el('div', {}, prBadge),
               el('div', { class: 'muted small', style: 'max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' }, r.summaryText),
             ]),
-            el('td', {}, String(r.remainingWork ?? 0) + 'h'),
-            el('td', {}, String(r.completedWork ?? 8) + 'h'),
+            el('td', {}, r.remainingWork == null ? 'Not recorded' : String(r.remainingWork) + 'h'),
+            el('td', {}, r.completedWork == null ? 'Not recorded' : String(r.completedWork) + 'h'),
             el('td', {}, statusBadge),
           ]);
           tbody.append(tr);

@@ -159,11 +159,29 @@ describe('API routes', () => {
     expect((await res.json()).error).toContain('no PAT');
   });
 
+  it('rejects mutations without explicit operator confirmation while permitting read-only previews', async () => {
+    const mutations = [
+      ['/api/tasks/execute', { all: true }],
+      ['/api/explorer/create-missing', { personKeys: ['p1'] }],
+      ['/api/tasks/close-today', { all: true, dryRun: false }],
+    ] as const;
+    vi.mocked(deps.createTasks.execute).mockClear();
+    vi.mocked(deps.closeDailyTasks!.execute).mockClear();
+    for (const [path, body] of mutations) {
+      const response = await json(path, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body) });
+      expect(response.status).toBe(400);
+      expect((await response.json()).error).toContain('confirm=true');
+    }
+    expect(deps.createTasks.execute).not.toHaveBeenCalled();
+    expect(deps.closeDailyTasks!.execute).not.toHaveBeenCalled();
+  });
+
   it('POST /api/tasks/execute forwards onProgress and forces yes=true', async () => {
     await json('/api/tasks/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ all: true }),
+      body: JSON.stringify({ all: true, confirm: true }),
     });
     const [input, onProgress] = (deps.createTasks.execute as any).mock.calls[0];
     expect(input.yes).toBe(true);
@@ -188,7 +206,7 @@ describe('API routes', () => {
     const response = await json('/api/tasks/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ all: true }),
+      body: JSON.stringify({ all: true, confirm: true }),
     });
     expect(response.status).toBe(200);
     expect(deps.createTasks.execute).toHaveBeenCalledWith(expect.objectContaining({
@@ -270,7 +288,7 @@ describe('API routes', () => {
     const res = await json('/api/explorer/create-missing', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ personKeys: ['p1'] }),
+      body: JSON.stringify({ personKeys: ['p1'], confirm: true }),
     });
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -356,7 +374,7 @@ describe('API routes', () => {
     const res = await json('/api/tasks/close-today', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dryRun: false, all: true, asOf: '2026-10-15' }),
+      body: JSON.stringify({ dryRun: false, all: true, confirm: true, asOf: '2026-10-15' }),
     });
     expect(res.status).toBe(200);
     const body = await res.json();
