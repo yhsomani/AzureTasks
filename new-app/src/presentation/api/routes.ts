@@ -59,6 +59,19 @@ function resolvePersonScope(
   throw new Error('Select member keys or explicitly set all=true.');
 }
 
+/** Keep user-controlled response sizes finite and predictable. */
+function parsePageLimit(value: unknown, fallback: number, max: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string' || !/^[1-9]\\d*$/.test(value)) {
+    throw new Error(`limit must be a positive integer up to ${max}.`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed > max) {
+    throw new Error(`limit must be a positive integer up to ${max}.`);
+  }
+  return parsed;
+}
+
 export function createApiRouter(deps: ApiDependencies): Router {
   const router = Router();
 
@@ -357,7 +370,7 @@ export function createApiRouter(deps: ApiDependencies): Router {
   // Journal
   router.get('/journal', async (req, res) => {
     try {
-      const limit = parseInt(String(req.query.limit || '100'), 10);
+      const limit = parsePageLimit(req.query.limit, 100, 1000);
       const entries = await deps.journal.getEntries(limit);
       const unfinished = await deps.journal.getUnfinishedRelations();
       res.json({
@@ -496,8 +509,12 @@ export function createApiRouter(deps: ApiDependencies): Router {
 
   // Logs
   router.get('/logs/recent', (req, res) => {
-    const limit = parseInt(String(req.query.limit || '300'), 10);
-    res.json({ success: true, data: logger.getRecentLogs(limit) });
+    try {
+      const limit = parsePageLimit(req.query.limit, 300, 1000);
+      res.json({ success: true, data: logger.getRecentLogs(limit) });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
   });
 
   router.get('/logs/stream', (req, res) => {
