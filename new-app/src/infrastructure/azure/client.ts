@@ -71,6 +71,11 @@ export class AzureDevOpsClient {
     }
 
     const url = `${this.baseUrl}/${this.organization}${path}`;
+    const method = options.method || 'GET';
+    // GETs and WIQL searches are read-only; creation and JSON PATCH writes are
+    // not replay-safe after a timeout or HTTP 5xx. Azure may have committed them.
+    const replaySafe = method === 'GET' ||
+      (method === 'POST' && /\/_apis\/wit\/wiql(?:\?|$)/i.test(path));
     const customHeaders = options.headers || {};
     const headers: Record<string, string> = {
       'Authorization': this.authHeader,
@@ -106,6 +111,9 @@ export class AzureDevOpsClient {
 
         // Handle rate limiting
         if (response.status === 429) {
+          if (!replaySafe) {
+            throw new AzureClientError('Azure DevOps rate-limited a write request. Its result is unverified; inspect Azure before retrying.', false);
+          }
           if (attempt >= this.maxRetries) {
             throw new AzureClientError('Azure DevOps rate limit exceeded (HTTP 429); retry later.', false);
           }
@@ -119,6 +127,9 @@ export class AzureDevOpsClient {
         }
 
         if (response.status >= 500) {
+          if (!replaySafe) {
+            throw new AzureClientError(`Azure DevOps returned HTTP ${response.status} for a write. The outcome is uncertain; inspect Azure before retrying.`, false);
+          }
           if (attempt >= this.maxRetries) {
             throw new AzureClientError(`Azure DevOps returned HTTP ${response.status} after retries.`, false);
           }
@@ -168,6 +179,9 @@ export class AzureDevOpsClient {
           err = new AzureClientError(`Network error contacting Azure DevOps: ${err.message}`, true);
         }
 
+        if (!replaySafe) {
+          throw new AzureClientError(`Azure DevOps write response unavailable. The outcome may have been committed; inspect Azure before retrying. ${err.message}`, false);
+        }
         lastError = err;
         if (attempt < this.maxRetries) {
           await this.sleep(this.calculateBackoff(attempt));
