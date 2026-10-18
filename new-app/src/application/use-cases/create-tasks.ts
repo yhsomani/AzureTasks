@@ -272,8 +272,8 @@ export class CreateTasksUseCase {
     const personConfig = this.config.people.find(p => 
       p.key === input.personKey || p.assignedTo.toLowerCase() === input.personKey.toLowerCase()
     );
-    if (!personConfig) {
-      throw new Error(`Person "${input.personKey}" not found in configured team.`);
+    if (!personConfig || personConfig.enabled === false) {
+      throw new Error(`Person "${input.personKey}" is not an enabled configured team member.`);
     }
     const person = new Person(personConfig);
 
