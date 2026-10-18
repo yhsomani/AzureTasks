@@ -584,4 +584,21 @@ describe('CloseDailyTasksUseCase', () => {
     expect(result.results[0].auditWarning).toContain('read-only outage');
   });
 
+  it('refuses to close a task when a different titled workday has the requested Azure start date', async () => {
+    (mockWorkItemRepo.findCandidateTasks as any).mockResolvedValue([{
+      id: 6012,
+      fields: {
+        'System.Title': '3in1_PWA_MyAccount | Oct 16',
+        'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+        'System.State': 'Active',
+        'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
+      },
+    }]);
+    const result = await new CloseDailyTasksUseCase(
+      baseConfig, mockWorkItemRepo, datePlanning, mockGitHubClient as unknown as GitHubClient
+    ).execute({ asOf: '2026-10-15', personKeys: ['yash_somani'], dryRun: false });
+    expect(result.totalFound).toBe(0);
+    expect(mockWorkItemRepo.patchWorkItem).not.toHaveBeenCalled();
+  });
+
 });
