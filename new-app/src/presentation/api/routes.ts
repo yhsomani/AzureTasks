@@ -249,7 +249,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
       }
       const { asOf } = req.body || {};
       const dryRun = req.body?.dryRun === true;
-      const today = getTodayIso(config.timezone);
+      const runtimeConfig = await deps.config.getConfig();
+      const today = getTodayIso(runtimeConfig.timezone || 'UTC');
       if (asOf !== undefined &&
         (typeof asOf !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(asOf) ||
           !Number.isFinite(new Date(`${asOf}T00:00:00Z`).getTime()) ||
