@@ -507,3 +507,31 @@ describe('NodeSchedulerRepository', () => {
     expect((scheduler as any).heartbeatTimer).toBeNull();
   });
 });
+
+describe('Durable EOD attempt safety', () => {
+  it('refuses the Azure operation when a checkpoint cannot be persisted', async () => {
+    let called = 0;
+    const scheduler = new NodeSchedulerRepository(
+      { timezone: 'UTC', startTime: '09:30', autoClose: true },
+      { saveSettings: async () => { throw new Error('disk full'); } } as any
+    );
+    scheduler.setAutoCloseFunction(async () => { called++; return { totalFound: 1, totalClosed: 1 }; });
+    await (scheduler as any).runAutoCloseScheduled();
+    expect(called).toBe(0);
+    expect(scheduler.getStatus().lastAutoCloseResult).toBe('failure');
+  });
+
+  it('persists the checkpoint before invoking the Azure operation', async () => {
+    let checkpointed = false;
+    const scheduler = new NodeSchedulerRepository(
+      { timezone: 'UTC', startTime: '09:30', autoClose: true },
+      { saveSettings: async (data: any) => { checkpointed = Boolean(data.lastAutoClose); } } as any
+    );
+    scheduler.setAutoCloseFunction(async () => {
+      expect(checkpointed).toBe(true);
+      return { totalFound: 1, totalClosed: 1, totalAlreadyClosed: 0, totalFailed: 0 };
+    });
+    await (scheduler as any).runAutoCloseScheduled();
+    expect(scheduler.getStatus().lastAutoCloseResult).toBe('success');
+  });
+});
