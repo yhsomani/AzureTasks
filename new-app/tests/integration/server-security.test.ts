@@ -119,8 +119,9 @@ describe('Production web server access controls', () => {
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('API_AUTH_TOKEN', 'operator-test-secret');
     const occupied = http.createServer((_req, res) => res.end('fixture'));
-    // Match AppServer's default listen host to guarantee the same socket family.
-    await new Promise<void>(resolve => occupied.listen(0, resolve));
+    // Bind the same IPv4 loopback interface that AppServer now uses by default.
+    // A platform's unspecified IPv6 listener may not own 127.0.0.1 on macOS.
+    await new Promise<void>(resolve => occupied.listen(0, '127.0.0.1', resolve));
     const address = occupied.address();
     const port = typeof address === 'object' && address ? address.port : -1;
     const server = new AppServer({} as ApiDependencies, port);
