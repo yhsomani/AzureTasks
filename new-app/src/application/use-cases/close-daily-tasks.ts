@@ -257,7 +257,8 @@ export class CloseDailyTasksUseCase {
         // recorded in Azure DevOps rather than fabricating a full workday.
         const completedWork = readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.CompletedWork']);
         const remainingWork = readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.RemainingWork']);
-        if (Number.isNaN(completedWork) || Number.isNaN(remainingWork)) {
+        if ((completedWork !== null && Number.isNaN(completedWork)) ||
+            (remainingWork !== null && Number.isNaN(remainingWork))) {
           throw new Error('Invalid Azure work tracking values; closure requires review.');
         }
         // Preserve the Azure-authored description, recorded hours and actual
