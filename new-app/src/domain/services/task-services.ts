@@ -175,7 +175,10 @@ export class FieldCopyService {
     // Reset actual work if enabled
     if (resetActualWork) {
       ops.push({ op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.CompletedWork', value: 0 });
-      ops.push({ op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.RemainingWork', value: sourceWorkItem.fields['Microsoft.VSTS.Scheduling.OriginalEstimate'] ?? 0 });
+      const sourceEstimate = sourceWorkItem.fields['Microsoft.VSTS.Scheduling.OriginalEstimate'];
+      if (typeof sourceEstimate === 'number' && Number.isFinite(sourceEstimate) && sourceEstimate >= 0) {
+        ops.push({ op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.RemainingWork', value: sourceEstimate });
+      }
     }
 
     // Copy Area Path
