@@ -60,4 +60,32 @@ describe('offline state backup and restore', () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+  it('refuses a legacy people.json with an embedded secret instead of copying it into backups', () => {
+    const { root, state, backup } = setup();
+    try {
+      fs.writeFileSync(path.join(state, 'people.json'),
+        JSON.stringify({ people: [{ key: 'p', githubToken: 'test-only-redaction' }] }));
+      const created = run('backup', ['--state-dir', state, '--backup-dir', backup, '--offline-confirm']);
+      expect(created.status).not.toBe(0);
+      expect(created.stderr).toMatch(/legacy credential fields/i);
+      expect(fs.existsSync(path.join(backup, 'manifest.json'))).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not traverse symlinked journal archive directories', () => {
+    const { root, state, backup } = setup();
+    const external = path.join(root, 'external');
+    try {
+      fs.renameSync(path.join(state, '.journal-archives'), external);
+      fs.symlinkSync(external, path.join(state, '.journal-archives'), 'dir');
+      const created = run('backup', ['--state-dir', state, '--backup-dir', backup, '--offline-confirm']);
+      expect(created.status).not.toBe(0);
+      expect(created.stderr).toMatch(/symbolic link/i);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
 });
