@@ -15,9 +15,9 @@ jobs:
         working-directory: new-app
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -26,10 +26,14 @@ jobs:
         run: npm ci
       - name: Production dependency vulnerability audit
         run: npm audit --omit=dev --audit-level=high
+      - name: Report complete dependency audit (including development tooling)
+        run: |
+          npm audit --json > /tmp/azuretasks-audit.json || true
+          node -e "const a=require('/tmp/azuretasks-audit.json'); console.log('Dependency advisories: '+JSON.stringify(a.metadata?.vulnerabilities ?? {})); for (const [name,v] of Object.entries(a.vulnerabilities ?? {})) console.log(name+': '+v.severity+'; fix='+JSON.stringify(v.fixAvailable));"
       - name: Typecheck
         run: npm run typecheck
       - name: Lint
-        run: npm run lint
+        run: npm run lint -- --max-warnings=0
       - name: Test
         run: npm run test:coverage
       - name: Validate browser and staging verification scripts
@@ -75,7 +79,7 @@ jobs:
         run: node tests/browser/ui-journeys.mjs
       - name: Upload browser evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ui-browser-screenshots
           path: new-app/artifacts/*.png
@@ -94,9 +98,9 @@ jobs:
         working-directory: new-app
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
