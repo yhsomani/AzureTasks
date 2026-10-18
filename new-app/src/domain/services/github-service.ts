@@ -16,11 +16,21 @@ export interface GitHubPullRequest {
   repositoryName?: string;
 }
 
+export interface GitHubCommit {
+  sha: string;
+  message: string;
+  htmlUrl: string;
+  authoredAt: string;
+  repositoryName: string;
+  branch: string;
+}
+
 export interface GitHubPrDeliverables {
   username: string;
   sourceDate: string; // YYYY-MM-DD
   isToday: boolean;
   pullRequests: GitHubPullRequest[];
+  commits?: GitHubCommit[];
   htmlDescription: string;
   summaryText: string;
 }
@@ -65,11 +75,12 @@ export function formatPrTaskDescription(options: {
   sourceDate: string;
   isToday: boolean;
   pullRequests: GitHubPullRequest[];
+  commits?: GitHubCommit[];
   role?: string;
 }): { htmlDescription: string; summaryText: string } {
-  const { targetIsoDate, pullRequests, role } = options;
+  const { targetIsoDate, pullRequests, role, commits = [] } = options;
 
-  if (pullRequests.length === 0) {
+  if (pullRequests.length === 0 && commits.length === 0) {
     // Do not invent work completion when GitHub returned no evidence.
     // The operator may provide a manually verified summary separately.
     const roleContext = role ? ` (Role: ${escapeHtml(role)})` : '';
@@ -88,9 +99,17 @@ export function formatPrTaskDescription(options: {
     })
     .join('\n');
 
-  const htmlDescription = `<div>\n<p><strong>${headerTitle}:</strong></p>\n<ul>\n${prItemsHtml}\n</ul>\n</div>`.trim();
+  const commitItemsHtml = commits.map(commit =>
+    `<li><code>[${escapeHtml(commit.repositoryName)}:${escapeHtml(commit.branch)}]</code> <a href="${escapeHtml(commit.htmlUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(commit.sha.slice(0, 10))}</a> — ${escapeHtml(commit.message.split('\\n')[0])}</li>`
+  ).join('\\n');
+  const prSection = pullRequests.length ? `<p>PRs created on this date (not proof of completion):</p><ul>${prItemsHtml}</ul>` : '<p>No PRs created on this date.</p>';
+  const commitSection = commits.length
+    ? `<p>Commits authored on this date on configured repositories/branches:</p><ul>${commitItemsHtml}</ul>`
+    : '';
+  const htmlDescription = `<div><p><strong>${headerTitle}:</strong></p>${prSection}${commitSection}<p>Source-control activity is supporting evidence, not a verified timesheet.</p></div>`;
 
-  const summaryText = `${pullRequests.length} PR(s) created today: ${pullRequests.map(p => `#${p.number}`).join(', ')}`;
+  const prSummary = `${pullRequests.length} PR(s) created today${pullRequests.length ? `: ${pullRequests.map(p => `#${p.number}`).join(', ')}` : ''}`;
+  const summaryText = commits.length ? `${prSummary}; ${commits.length} commit(s) authored in configured scope` : prSummary;
 
   return { htmlDescription, summaryText };
 }

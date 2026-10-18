@@ -230,7 +230,12 @@ export class CloseDailyTasksUseCase {
             githubUser,
             targetDate,
             activeConfig.timezone,
-            { org: activeConfig.githubOrg, role: person.role }
+            {
+              org: activeConfig.githubOrg,
+              role: person.role,
+              repositories: person.githubRepositories,
+              branches: person.githubBranches,
+            }
           );
         } else {
           // Standard fallback when GitHub username cannot be resolved
