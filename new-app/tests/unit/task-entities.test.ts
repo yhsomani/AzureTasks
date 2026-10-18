@@ -154,6 +154,16 @@ describe('year-aware Azure workday interpretation', () => {
   });
 });
 
+describe('strict mutation-date evidence', () => {
+  it('blocks yearless title and creation-date inference for a remote EOD mutation', () => {
+    const task = { id: 600, rev: 1, fields: {
+      'System.Title': '3in1_PWA_MyAccount | Oct 15',
+      'System.CreatedDate': '2025-10-15T04:00:00Z',
+    } } as any;
+    expect(parseWorkItemTaskDate(task, '3in1_PWA_MyAccount |', 'Asia/Kolkata', true).isValid).toBe(false);
+  });
+});
+
 describe('explicit-year title validation', () => {
   const prefix = '3in1_PWA_MyAccount |';
   it('accepts legacy DD-MM-YYYY when workday metadata agrees', () => {
