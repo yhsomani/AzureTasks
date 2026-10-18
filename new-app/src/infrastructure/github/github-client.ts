@@ -200,7 +200,7 @@ export class GitHubClient {
     // Query a bounded UTC date range that safely covers the local date at
     // every timezone offset, then exhaust GitHub's pages before filtering.
     const day = new Date(`${targetIsoDate}T00:00:00Z`);
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(targetIsoDate) ||
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetIsoDate) ||
       !Number.isFinite(day.getTime()) || day.toISOString().slice(0, 10) !== targetIsoDate) {
       throw new Error('GitHub evidence date must be a valid YYYY-MM-DD date.');
     }
