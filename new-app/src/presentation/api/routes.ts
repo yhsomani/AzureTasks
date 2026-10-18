@@ -218,7 +218,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
         personKeys: scope.personKeys,
         asOf,
         dryRun,
-        bypassRules: true,
+        // Let the Azure project workflow validate the transition.
+        bypassRules: false,
       });
       res.json({ success: true, data: result });
     } catch (err: any) {

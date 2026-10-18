@@ -109,7 +109,7 @@ export async function buildApp(
   // Wire scheduler to run EOD task auto-closure
   schedulerRepo.setAutoCloseFunction(async () => {
     logger.info('Scheduler: executing automated EOD task closure...');
-    const result = await closeDailyTasks.execute({ bypassRules: true });
+    const result = await closeDailyTasks.execute({ bypassRules: false });
     logger.info(`Scheduler EOD closure finished: ${result.totalClosed} closed, ${result.totalAlreadyClosed} already closed, ${result.totalFailed} failed.`);
     if (result.totalFailed > 0) {
       throw new Error(`${result.totalFailed} task(s) failed during auto-closure`);

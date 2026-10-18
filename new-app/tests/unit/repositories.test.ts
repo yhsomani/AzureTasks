@@ -192,7 +192,7 @@ describe('FileConfigRepository', () => {
     const repo = new FileConfigRepository(path.join(dir, 'nope.json'));
     const config = await repo.load();
     expect(config.organization).toBeTruthy();
-    expect(Array.isArray(config.people)).toBe(true);
+    expect(config.people).toEqual([]);
   });
 
   it('keeps unattended creation and closure disabled on a fresh configuration', async () => {
