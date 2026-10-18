@@ -58,3 +58,12 @@
 ## Automated deployment topology diagnostics
 
 Use `npm run verify:staging:readonly` with `RELEASE_BASE_URL`, `API_AUTH_USER` and an operator `API_AUTH_TOKEN` provided by your secrets manager. The script validates the HTTPS origin, unauthenticated liveness semantics, authenticated live Azure readiness, readable configuration/journal, and hostile/same-origin behavior **on a nonexistent POST endpoint**. It never creates or closes work items. Record the operator, timestamp, sanitized command output, deployment URL, and release SHA as evidence. Manual production gates remain open until explicitly verified.
+
+## Subsequent code-level hardening (pending exact CI release check)
+
+- CLI EOD no longer bypasses Azure workflow rules or accepts an explicit historical/future date for live closure; unknown close timestamps remain unknown.
+- Configurable read-only viewer Basic credentials and `GET /api/session` allow the UI to distinguish viewer and operator workflows. This is **not** individual operator SSO/RBAC.
+- Explorer single-cell creation performs real confirmation, sends `confirm:true`, prevents overlapping writes and retains the modal when a request fails.
+- Missing Azure completed/remaining hours are represented as *not recorded* rather than silently treated as zero; charts omit unrecorded daily data and indicate partial aggregation.
+- Safe staging topology probe `npm run verify:staging:readonly` performs read-only checks and tests Origin using a **nonexistent** route, never an Azure mutation endpoint.
+- These improvements still require the exact branch's Linux/Windows/macOS/browser CI and any documented production-gate evidence before release signoff.

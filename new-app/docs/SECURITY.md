@@ -67,3 +67,7 @@ Regression tests live in `tests/unit/repositories.test.ts`; inspect the CI run f
 The HTTP server can optionally accept a distinct `API_VIEWER_USER` / `API_VIEWER_TOKEN` Basic credential. Viewer credentials can inspect read-only views and API endpoints but are categorically forbidden from POST, PUT, PATCH and DELETE, including configuration and remote Azure mutations. The mandatory `API_AUTH_USER` / `API_AUTH_TOKEN` account remains the operator; viewer token must be distinct. Production refuses to silently increment a busy port.
 
 **Limitation:** This is only a role separation for trusted single-host deployments. Shared viewer/operator credentials are **not** enterprise SSO, person-level RBAC or tamper-resistant audit attribution. Real multi-operator installations still need a trusted identity provider, per-user authorization and attributable mutation journaling. Test behind the actual production HTTPS proxy.
+
+## Viewer and operator UI behavior
+
+On a deployment with optional `API_VIEWER_USER` and `API_VIEWER_TOKEN`, authenticated `GET /api/session` returns a server-assigned role. The web UI displays an explicit read-only notice and disables common write controls for viewers. The server still independently denies every viewer POST/PUT/PATCH/DELETE, including scheduler and settings mutations. The browser must never be trusted as an authorization enforcement point. Per-user enterprise SSO/RBAC and attributable audit remain deployment decisions and are **not** implemented by shared Basic credentials.

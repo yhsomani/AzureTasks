@@ -17,11 +17,12 @@ log. Ships as a CLI + web dashboard + weekday scheduler.
 
 ```bash
 cd new-app
-npm install
+npm ci
 
 # 1. Configure the connection (never commit this file)
 cp .env.example .env
-# edit .env and set AZURE_DEVOPS_PAT, GITHUB_TOKEN
+# for local development, supply a newly issued Azure PAT through .env;
+# production secrets come from the approved external secret store.
 
 # 2. Optional: edit people.json (team members + org/project)
 
@@ -37,6 +38,7 @@ The server reads `AZURE_DEVOPS_PAT` and optional `GITHUB_TOKEN` from the environ
 
 ## Documentation and navigation
 
+See [Documentation index](docs/README.md) and [release acceptance ledger](docs/RELEASE_VERIFICATION.md) first. Historical documents may describe superseded behavior.
 See [Product vision and scope](docs/PRODUCT_DIRECTION.md), [Security and mutation safety](docs/SECURITY.md), [UI redesign audit and user journeys](docs/UX_REDESIGN.md), [Feature inventory](docs/FEATURE_INVENTORY.md), [Architecture](docs/ARCHITECTURE.md), [Workflows](docs/WORKFLOWS.md), [Design system](docs/DESIGN_SYSTEM.md), and [Production readiness](docs/PRODUCTION_READINESS.md).
 
 This directory is the **only supported application** in the repository. No other application subtree is needed to build, test, or run it.
@@ -48,7 +50,7 @@ This directory is the **only supported application** in the repository. No other
 | `serve` (default) | Start the web dashboard + API |
 | `plan` | Preview what would be created (dry-run) |
 | `run` | Create tasks now |
-| `daemon` | Start the automated weekday scheduler (morning creation + evening closure) |
+| `daemon` | Start the opt-in weekday scheduler; EOD automation remains independently disabled unless configured |
 | `close-today` | Close today's eligible tasks via Azure workflow; recorded effort and descriptions are preserved |
 | `repair` | Re-copy missing relations on partially created tasks (idempotent) |
 | `help` | Usage |
@@ -61,7 +63,7 @@ Common options: `--all`, `--person <key,key>`, `--dry-run`, `--yes`,
 npm run dev -- run --all --yes
 npm run dev -- close-today --dry-run
 npm run dev -- close-today --all --yes
-npm run dev -- plan --person yash_somani --as-of 2026-10-15
+npm run dev -- plan --person member_key
 npm run dev -- serve --port 8080
 ```
 
@@ -95,9 +97,9 @@ Precedence (lowest → highest):
   "timezone": "Asia/Kolkata",
   "thursdayMode": "CURRENT",
   "people": [
-    { "key": "yash_somani", "name": "Yash Somani",
-      "assignedTo": "yash.somani@bajajfinserv.in",
-      "pod": "108_My Account Part 2", "role": "Dev On-Role", "enabled": true }
+    { "key": "member_key", "name": "Example Member",
+      "assignedTo": "member@example.invalid",
+      "role": "Developer", "enabled": true }
   ]
 }
 ```
@@ -107,12 +109,16 @@ rejected at load and at save time.
 
 ## Operations
 
-- **Lock:** `.execution-lock.json` (PID + timestamp, stale after 5 min). Prevents
-  concurrent runs; stale locks are reclaimed automatically.
-- **Journal:** `.task-journal.json` — append-only audit trail; rotates at 10 MB
-  into `.journal-archives/` (keeps the last 10). Export as CSV/JSON from the UI or
+- **Lock:** `.execution-lock.json` uses a PID and per-run ownership token.
+  A live owning process retains the lock; a dead PID can be recovered. Malformed
+  lock files require operator review. Multi-host deployments are unsupported.
+- **Journal:** `.task-journal.json` — preserved audit history; rotates at 10 MB
+  or the entry limit into `.journal-archives/` without silently deleting older
+  archives. Backups and explicit retention are the operator's responsibility.
+  Export as CSV/JSON from the UI or
   `GET /api/journal/export?format=csv`.
-- **Health:** `GET /api/health`.
+- **Health:** `GET /api/health` is process liveness only; authenticated `GET /api/ready`
+  checks live Azure DevOps project and type readability.
 - **Logs:** `GET /api/logs/recent` and live SSE at `GET /api/logs/stream`. Secrets
   are scrubbed (literal and base64) before they reach any sink.
 
@@ -121,6 +127,8 @@ rejected at load and at save time.
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/health` | Liveness |
+| GET | `/api/ready` | Read-only Azure DevOps readiness (503 when unavailable) |
+| GET | `/api/session` | Authenticated role: operator or viewer |
 | GET | `/api/status` | Connection + config health |
 | GET/POST | `/api/config`, `/api/config/people`, `/api/config/settings`, `/api/config/pat` | Configuration |
 | POST | `/api/tasks/plan` | Dry-run plan |
