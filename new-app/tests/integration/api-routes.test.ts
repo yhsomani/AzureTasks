@@ -344,6 +344,25 @@ describe('API routes', () => {
     expect((await res.json()).error).toContain('Already executing');
   });
 
+  it('rejects truthy string booleans for scheduler mutating controls', async () => {
+    const toggle = deps.scheduler.start as any;
+    toggle.mockClear();
+    const response = await json('/api/scheduler/toggle', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enable: 'false', persist: 'true' }),
+    });
+    expect(response.status).toBe(400);
+    expect(toggle).not.toHaveBeenCalled();
+    const conf = deps.scheduler.configure as any;
+    conf.mockClear();
+    const configResponse = await json('/api/scheduler/config', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ autoClose: 'false' }),
+    });
+    expect(configResponse.status).toBe(400);
+    expect(conf).not.toHaveBeenCalled();
+  });
+
   it('POST /api/scheduler/config reconfigures schedule settings', async () => {
     const res = await json('/api/scheduler/config', {
       method: 'POST',

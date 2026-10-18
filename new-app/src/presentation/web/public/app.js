@@ -1905,7 +1905,7 @@ async function refreshScheduler() {
     
     if ($('#schedLast')) {
       if (s.lastRun) {
-        const res = s.lastRunResult ? s.lastRunResult.toUpperCase() : 'DONE';
+        const res = s.lastRunResult ? s.lastRunResult.toUpperCase() : 'OUTCOME UNKNOWN';
         $('#schedLast').textContent = `${res} (${new Date(s.lastRun).toLocaleTimeString()})`;
       } else {
         $('#schedLast').textContent = 'No runs yet';
@@ -1924,7 +1924,7 @@ async function refreshScheduler() {
     }
 
     // EOD auto-close fields
-    const eodEnabled = s.autoCloseEnabled !== false;
+    const eodEnabled = s.autoCloseEnabled === true;
     if ($('#eodStatusPill')) {
       $('#eodStatusPill').textContent = eodEnabled ? '🟢 Enabled' : '⚪ Disabled';
       $('#eodStatusPill').style.color = eodEnabled ? 'var(--ok)' : 'var(--muted)';
@@ -1937,7 +1937,7 @@ async function refreshScheduler() {
     }
     if ($('#eodLastDisplay')) {
       if (s.lastAutoClose) {
-        const res = s.lastAutoCloseResult ? s.lastAutoCloseResult.toUpperCase() : 'DONE';
+        const res = s.lastAutoCloseResult ? s.lastAutoCloseResult.toUpperCase() : 'ATTEMPTED (OUTCOME UNKNOWN)';
         $('#eodLastDisplay').textContent = `${res} (${new Date(s.lastAutoClose).toLocaleTimeString()})`;
       } else {
         $('#eodLastDisplay').textContent = 'No runs yet';

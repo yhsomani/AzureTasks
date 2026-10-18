@@ -364,10 +364,13 @@ export function createApiRouter(deps: ApiDependencies): Router {
 
   router.post('/scheduler/toggle', async (req, res) => {
     try {
-      const shouldEnable = req.body?.enabled !== undefined
-        ? Boolean(req.body.enabled)
-        : Boolean(req.body?.enable);
-      const persist = req.body?.persist !== undefined ? Boolean(req.body.persist) : true;
+      const requestedEnable = req.body?.enabled !== undefined ? req.body.enabled : req.body?.enable;
+      if (typeof requestedEnable !== 'boolean' || (req.body?.persist !== undefined &&
+        typeof req.body.persist !== 'boolean')) {
+        return res.status(400).json({ success: false, error: 'Scheduler enabled and persist must be actual boolean values.' });
+      }
+      const shouldEnable = requestedEnable;
+      const persist = req.body?.persist ?? true;
       if (shouldEnable) await deps.scheduler.start(persist);
       else await deps.scheduler.stop(persist);
       res.json({ success: true, data: deps.scheduler.getStatus() });
@@ -379,6 +382,12 @@ export function createApiRouter(deps: ApiDependencies): Router {
   router.post('/scheduler/config', async (req, res) => {
     try {
       const { startTime, timezone, autoStart, autoClose, autoCloseStartTime, autoCloseEndTime } = req.body || {};
+      if ((autoStart !== undefined && typeof autoStart !== 'boolean') ||
+        (autoClose !== undefined && typeof autoClose !== 'boolean') ||
+        [startTime, timezone, autoCloseStartTime, autoCloseEndTime].some(value =>
+          value !== undefined && typeof value !== 'string')) {
+        return res.status(400).json({ success: false, error: 'Invalid scheduler settings types.' });
+      }
       if (deps.scheduler.configure) {
         await deps.scheduler.configure({
           startTime,
