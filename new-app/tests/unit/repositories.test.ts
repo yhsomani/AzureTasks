@@ -136,6 +136,29 @@ describe('FileJournalRepository', () => {
     expect(csv).toContain('has ""quotes""');
   });
 
+  it('preserves corrupt journal bytes and refuses writes or success-shaped reads', async () => {
+    const filename = path.join(dir, '.journal.json');
+    fs.writeFileSync(filename, '{not-json');
+    const journal = new FileJournalRepository(filename);
+    await expect(journal.getEntries()).rejects.toThrow(/unreadable or corrupt/);
+    await expect(journal.record(entry())).rejects.toThrow(/unreadable or corrupt/);
+    expect(fs.readFileSync(filename, 'utf8')).toBe('{not-json');
+  });
+
+  it('recovers partial relations from archives and updates the archived entry', async () => {
+    const filename = path.join(dir, '.journal.json');
+    const archiveDir = path.join(dir, '.journal-archives');
+    fs.mkdirSync(archiveDir);
+    const row = entry({ runId: 'archived', createdWorkItemId: 101, relationCopyStatus: 'PARTIAL' });
+    const archive = path.join(archiveDir, 'task-journal-2026-10-01.json');
+    fs.writeFileSync(archive, JSON.stringify([row]));
+    const journal = new FileJournalRepository(filename);
+    expect(await journal.getUnfinishedRelations()).toHaveLength(1);
+    expect(await journal.markRepaired(row, 'SUCCESS', 'Verified repair')).toBe(true);
+    expect(await journal.getUnfinishedRelations()).toHaveLength(0);
+    expect(JSON.parse(fs.readFileSync(archive, 'utf8'))[0].relationCopyStatus).toBe('SUCCESS');
+  });
+
   it('exports JSON', async () => {
     const journal = new FileJournalRepository(path.join(dir, '.journal.json'));
     await journal.record(entry());
