@@ -21,6 +21,7 @@ class FakeWorkItemRepo implements WorkItemRepository {
   public failTitles = new Set<string>();
   public lastQueryRange: { startDate: string; endDate: string } | null = null;
   private nextId = 1000;
+  private createdFields = new Map<number, WorkItem['fields']>();
 
   constructor(
     private hasSource: boolean,
@@ -63,7 +64,7 @@ class FakeWorkItemRepo implements WorkItemRepository {
   }
 
   async getWorkItem(id: number): Promise<WorkItem> {
-    return { id, rev: 1, fields: {} };
+    return { id, rev: 1, fields: this.createdFields.get(id) ?? {}, relations: [] };
   }
 
   async createWorkItemWithReconciliation(
@@ -73,6 +74,12 @@ class FakeWorkItemRepo implements WorkItemRepository {
       throw new Error('Simulated Azure failure');
     }
     const id = this.nextId++;
+    this.createdFields.set(id, {
+      'System.WorkItemType': '3in1 Task',
+      ...Object.fromEntries(fieldOps
+        .filter((op: { path: string }) => op.path.startsWith('/fields/'))
+        .map((op: { path: string; value: unknown }) => [op.path.slice('/fields/'.length), op.value])),
+    });
     this.created.push({
       title: data.title,
       assignedTo: fieldOps.find(o => o.path === '/fields/System.AssignedTo')?.value,
@@ -147,6 +154,7 @@ describe('CreateTasksUseCase (integration, fake repo)', () => {
     expect(repo.created).toHaveLength(expected);
     expect(journal.entries).toHaveLength(expected);
     expect(journal.entries.every(e => e.fieldCopyStatus === 'SUCCESS')).toBe(true);
+    expect(journal.entries.every(e => e.verified === true)).toBe(true);
   });
 
   it('never relabels an Azure-created task as a failed creation when journaling fails', async () => {
@@ -159,6 +167,51 @@ describe('CreateTasksUseCase (integration, fake repo)', () => {
     expect(repo.created).toHaveLength(expected);
     expect(output.personResults.every(p => p.status === 'PARTIAL')).toBe(true);
     expect(output.personResults.every(p => p.auditWarnings?.some(w => w.includes('journal write failed')))).toBe(true);
+  });
+
+  it('marks Azure accepted creations unverified when read-back lacks critical fields', async () => {
+    const repo = new FakeWorkItemRepo(true);
+    repo.getWorkItem = async id => ({ id, rev: 1, fields: {
+      'System.Title': repo.created[0]?.title,
+      'System.AssignedTo': repo.created[0]?.assignedTo,
+    }, relations: [] });
+    const output = await build(repo).execute({ all: true, asOf: TODAY, yes: true });
+    expect(output.totalCreatedCount).toBeGreaterThan(0);
+    expect(output.totalTaskFailureCount).toBe(0);
+    expect(journal.entries.every(e => e.verified === false)).toBe(true);
+    expect(output.personResults.every(p => p.status === 'PARTIAL')).toBe(true);
+  });
+
+  it('does not verify copied relations without an independent relation read-back', async () => {
+    const repo = new FakeWorkItemRepo(true);
+    const originalDiscovery = repo.discoverLatestTasksForPeople.bind(repo);
+    repo.discoverLatestTasksForPeople = async (...args) => {
+      const sources = await originalDiscovery(...args);
+      for (const source of sources.values()) {
+        source.workItem.relations = [{ rel: 'System.LinkTypes.Related', url: 'https://example.invalid/link/42' }];
+      }
+      return sources;
+    };
+    // The fake confirms the Azure relation PATCH but the target has no link.
+    repo.copyRelations = async () => ({ copiedCount: 1, failedCount: 0, totalRelations: 1 });
+    const output = await build(repo).execute({ all: true, asOf: TODAY, yes: true });
+    expect(output.totalCreatedCount).toBeGreaterThan(0);
+    expect(journal.entries.every(e => e.verified === false)).toBe(true);
+    expect(output.personResults.every(p => p.status === 'PARTIAL')).toBe(true);
+  });
+
+  it('refuses ad-hoc creation for a disabled member before acquiring the remote lock', async () => {
+    const repo = new FakeWorkItemRepo(true);
+    const disabledConfig: AppConfig = {
+      ...config,
+      people: config.people.map(p => p.key === 'p2' ? { ...p, enabled: false } : p),
+    };
+    const futureThursday = getNextThursdayIso(addDays(TODAY, 7), 'CURRENT');
+    await expect(new CreateTasksUseCase(repo, journal, lock, disabledConfig)
+      .executeAdHocTask({ personKey: 'p2', targetIsoDate: futureThursday }))
+      .rejects.toThrow(/not an enabled configured team member/i);
+    expect(repo.created).toHaveLength(0);
+    expect(lock.isLocked()).toBe(false);
   });
 
   it('assigns each created task to the correct person', async () => {
