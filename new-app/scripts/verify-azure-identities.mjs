@@ -125,9 +125,9 @@ async function main() {
   const config = JSON.parse(readFileSync(file, 'utf8'));
   const organization = process.env.AZURE_DEVOPS_ORG?.trim() || config.organization;
   const project = process.env.AZURE_DEVOPS_PROJECT?.trim() || config.project;
-  const pat = process.env.AZURE_DEVOPS_PAT?.trim();
+  const pat = process.env.AZURE_DEVOPS_IDENTITY_PAT?.trim();
   if (!organization || !project || !pat) {
-    throw new Error('Provide organization, project and a NEW least-privilege AZURE_DEVOPS_PAT via approved secret storage.');
+    throw new Error('Provide organization, project and a dedicated AZURE_DEVOPS_IDENTITY_PAT with Identity (Read) scope via approved secret storage.');
   }
   const request = async url => {
     const response = await fetch(url, {
@@ -150,7 +150,7 @@ async function main() {
   console.log('Read-only Azure identity preflight for project ' + project + ':');
   for (const result of report.results) {
     // Print stable local keys, not names, email addresses, PATs or GUIDs.
-    console.log(result.key + ': ' + result.status + ' (configured title prefix present)');
+    console.log('Member #' + (report.results.indexOf(result) + 1) + ': ' + result.status + ' (configured title prefix present)');
   }
   if (!report.passed) {
     console.error('Identity verification blocked. Fix missing, inactive or ambiguous mappings before task mutations.');
@@ -164,7 +164,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   main().catch(() => {
     // Do not echo exception values from file, network or identity providers:
     // they may include corporate personal data or credential-bearing URLs.
-    console.error('Read-only identity preflight failed. Check local configuration, identity scopes and connectivity.');
+    console.error('Read-only identity preflight failed. Check config, AZURE_DEVOPS_IDENTITY_PAT, identity scopes and connectivity.');
     process.exitCode = 1;
   });
 }
