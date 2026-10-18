@@ -21,6 +21,12 @@
 - CSP forbids inline scripts, the Chart.js version is pinned; inline CSS styles and external CDN remain deployment concerns.
 - CI: TypeScript, lint, tests, build, HTTP auth/origin smoke, browser flows, production dependency audit, plus Windows/macOS core suites.
 
+## Additional ingress/CSRF code hardening — issue #11
+
+- The server now binds backend HTTP to loopback (`127.0.0.1`) by default **with or without Basic authentication**; authenticated deployments no longer silently expose the backend on all interfaces. Set `LISTEN_HOST` to a specific numeric address or `0.0.0.0` only when the ingress/network boundary is explicitly configured and restricted.
+- An unsafe API request with `Sec-Fetch-Site: same-site` and no Origin header is rejected. This addresses sibling-subdomain browser requests that might otherwise be mistaken for headerless trusted CLI callers. CLI callers without browser headers and true same-origin requests remain compatible.
+- Source/tests/CI are **implementation and fixture evidence only**. The HTTPS reverse-proxy/Origin/CSRF checkbox stays **BLOCKED** until a real deployment test confirms public and private network reachability, exact origins, header forwarding, client credentials and operator sign-off.
+
 ## Release blockers — external evidence needed
 
 | Gate | Status | Required proof |
