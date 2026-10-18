@@ -526,7 +526,11 @@ export class AzureWorkItemService implements WorkItemRepository {
           value: {
             rel: relation.rel,
             url: relation.url,
-            attributes: relation.attributes,
+            // Azure read-backs include computed attributes (e.g. name,
+            // isLocked). Do not POST these as though they were writable.
+            ...(relation.attributes?.comment
+              ? { attributes: { comment: relation.attributes.comment } }
+              : {}),
           },
         };
 
