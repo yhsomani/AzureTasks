@@ -394,6 +394,17 @@ describe('NodeSchedulerRepository', () => {
     expect(targetIso > todayIso).toBe(true);
   });
 
+  it('does not schedule unattended EOD closure after its configured daily window', () => {
+    const scheduler = new NodeSchedulerRepository({
+      timezone: 'UTC', startTime: '09:30', autoClose: true,
+      autoCloseStartTime: '18:15', autoCloseEndTime: '18:45',
+    });
+    const afterEnd = new Date('2026-10-19T19:00:00Z');
+    const next = (scheduler as any).getNextAutoCloseTarget(afterEnd);
+    expect(next.target.getTime()).toBeGreaterThan(afterEnd.getTime());
+    expect(next.target.toISOString().slice(0, 10)).toBe('2026-10-20');
+  });
+
   it('does not mark lastAutoClose as success when autoCloseFn finds 0 tasks', async () => {
     const cfgPath = path.join(dir, 'people.json');
     fs.writeFileSync(cfgPath, JSON.stringify({ people: [], autoClose: true }));
@@ -416,8 +427,25 @@ describe('NodeSchedulerRepository', () => {
 
     await (scheduler as any).runAutoCloseScheduled();
     const reloaded = await configRepo.load();
-    expect(reloaded.lastAutoClose).toBeUndefined();
+    expect(reloaded.lastAutoClose).toBeDefined();
     expect(scheduler.getStatus().lastAutoCloseResult).toBe('empty');
+  });
+
+  it('does not automatically rerun an empty EOD scan through the heartbeat', async () => {
+    const scheduler = new NodeSchedulerRepository({
+      timezone: 'UTC', startTime: '09:30', autoClose: true,
+      autoCloseStartTime: '00:00', autoCloseEndTime: '23:59',
+    });
+    let calls = 0;
+    scheduler.setAutoCloseFunction(async () => {
+      calls++;
+      return { totalFound: 0, totalClosed: 0, totalAlreadyClosed: 0, totalFailed: 0 };
+    });
+    await (scheduler as any).runAutoCloseScheduled();
+    await scheduler.start(false);
+    (scheduler as any).checkHeartbeat();
+    expect(calls).toBe(1);
+    await scheduler.stop(false);
   });
 
   it('persists lastAutoClose as success when autoCloseFn closes or finds tasks', async () => {

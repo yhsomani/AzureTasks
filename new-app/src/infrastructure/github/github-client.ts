@@ -110,19 +110,22 @@ export class GitHubClient {
    */
   async getUserPullRequests(
     username: string,
-    options: { org?: string; limit?: number } = {}
+    options: { org?: string; limit?: number; createdRange?: { from: string; to: string }; exhaustive?: boolean } = {}
   ): Promise<GitHubPullRequest[]> {
     const org = options.org || this.defaultOrg;
-    const limit = Math.min(Math.max(options.limit || 30, 1), 100);
+    const limit = options.exhaustive ? 100 : Math.min(Math.max(options.limit || 30, 1), 100);
 
     const query = [
       'type:pr',
       `author:${username}`,
       org ? `org:${org}` : '',
+      options.createdRange ? `created:${options.createdRange.from}..${options.createdRange.to}` : '',
     ].filter(Boolean).join(' ');
 
     try {
-      const data = await this.request<{
+      type SearchResult = {
+        total_count?: number;
+        incomplete_results?: boolean;
         items?: Array<{
           id: number;
           number: number;
@@ -135,27 +138,44 @@ export class GitHubClient {
           body?: string | null;
           repository_url: string;
         }>;
-      }>(`/search/issues?q=${encodeURIComponent(query)}&sort=created&order=desc&per_page=${limit}`);
-
-      if (!data?.items) {
-        return [];
+      };
+      const prs: GitHubPullRequest[] = [];
+      for (let page = 1; page <= (options.exhaustive ? 10 : 1); page++) {
+        const data = await this.request<SearchResult>(
+          `/search/issues?q=${encodeURIComponent(query)}&sort=created&order=desc&per_page=${limit}&page=${page}`
+        );
+        if (!Array.isArray(data.items)) {
+          throw new Error('GitHub returned an invalid search response; completeness is unknown.');
+        }
+        if (data.incomplete_results === true) {
+          throw new Error('GitHub reported incomplete search results; work evidence cannot be trusted.');
+        }
+        if (options.exhaustive && (data.total_count ?? 0) > 1000) {
+          throw new Error('GitHub date-scoped search exceeds the 1000-result API cap; narrow the repository scope.');
+        }
+        for (const item of data.items) {
+          if (!item.created_at || !item.html_url) {
+            throw new Error('GitHub returned a PR without its creation timestamp or URL.');
+          }
+          prs.push({
+            id: item.id,
+            number: item.number,
+            title: item.title,
+            htmlUrl: item.html_url,
+            state: item.state,
+            createdAt: item.created_at,
+            closedAt: item.closed_at,
+            mergedAt: item.pull_request?.merged_at,
+            body: item.body,
+            repositoryName: item.repository_url ? item.repository_url.split('/').pop() : undefined,
+          });
+        }
+        if (!options.exhaustive || data.items.length < limit ||
+            (typeof data.total_count === 'number' && prs.length >= data.total_count)) {
+          return prs;
+        }
       }
-
-      return data.items.map(item => {
-        const repoName = item.repository_url ? item.repository_url.split('/').pop() : undefined;
-        return {
-          id: item.id,
-          number: item.number,
-          title: item.title,
-          htmlUrl: item.html_url,
-          state: item.state,
-          createdAt: item.created_at,
-          closedAt: item.closed_at,
-          mergedAt: item.pull_request?.merged_at,
-          body: item.body,
-          repositoryName: repoName,
-        };
-      });
+      throw new Error('GitHub search reached its pagination limit; evidence may be incomplete.');
     } catch (err: any) {
       const reason = err instanceof Error ? err.message : String(err);
       logger.warn(`Failed to fetch GitHub PRs for user '${username}': ${reason}`);
@@ -176,7 +196,22 @@ export class GitHubClient {
     timezone: string,
     options: { org?: string; role?: string } = {}
   ): Promise<GitHubPrDeliverables> {
-    const prs = await this.getUserPullRequests(username, { org: options.org, limit: 50 });
+    // A 50-most-recent PR search can hide work from a busy contributor.
+    // Query a bounded UTC date range that safely covers the local date at
+    // every timezone offset, then exhaust GitHub's pages before filtering.
+    const day = new Date(`${targetIsoDate}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetIsoDate) ||
+      !Number.isFinite(day.getTime()) || day.toISOString().slice(0, 10) !== targetIsoDate) {
+      throw new Error('GitHub evidence date must be a valid YYYY-MM-DD date.');
+    }
+    new Intl.DateTimeFormat('en-CA', { timeZone: timezone });
+    const utcDay = (offset: number) =>
+      new Date(day.getTime() + offset * 86400000).toISOString().slice(0, 10);
+    const prs = await this.getUserPullRequests(username, {
+      org: options.org,
+      createdRange: { from: utcDay(-1), to: utcDay(1) },
+      exhaustive: true,
+    });
 
     // Filter strictly to PRs created on targetIsoDate in the specified timezone
     const todayPrs = prs.filter(pr => {
@@ -207,14 +242,15 @@ export class GitHubClient {
   private toLocalDateIso(utcIso: string, timezone: string): string {
     try {
       const d = new Date(utcIso);
+      if (Number.isNaN(d.getTime())) throw new Error('Invalid GitHub PR timestamp.');
       return new Intl.DateTimeFormat('en-CA', {
         timeZone: timezone,
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
       }).format(d);
-    } catch {
-      return utcIso.split('T')[0];
+    } catch (error) {
+      throw new Error(`Unable to evaluate GitHub PR time in configured timezone: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

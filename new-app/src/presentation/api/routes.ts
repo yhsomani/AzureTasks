@@ -155,6 +155,9 @@ export function createApiRouter(deps: ApiDependencies): Router {
   router.post('/tasks/execute', async (req, res) => {
     try {
       const { asOf, thursdayMode, dryRun } = req.body || {};
+      if (dryRun !== true && req.body?.confirm !== true) {
+        return res.status(400).json({ success: false, error: 'Explicit confirm=true is required for Azure task creation.' });
+      }
       const scope = resolvePersonScope(req.body);
       const data = await deps.createTasks.execute(
         {
@@ -188,6 +191,9 @@ export function createApiRouter(deps: ApiDependencies): Router {
 
       if (!personKey || !targetIsoDate) {
         return res.status(400).json({ success: false, error: 'personKey and targetIsoDate (YYYY-MM-DD) are required' });
+      }
+      if (req.body?.confirm !== true) {
+        return res.status(400).json({ success: false, error: 'Explicit confirm=true is required for ad-hoc Azure task creation.' });
       }
       if (bypassDuplicateCheck === true) {
         return res.status(400).json({ success: false, error: 'Duplicate-check bypass is disabled.' });
@@ -243,6 +249,9 @@ export function createApiRouter(deps: ApiDependencies): Router {
       }
       const { asOf } = req.body || {};
       const dryRun = req.body?.dryRun === true;
+      if (!dryRun && req.body?.confirm !== true) {
+        return res.status(400).json({ success: false, error: 'Explicit confirm=true is required for Azure EOD closure.' });
+      }
       // Closing tasks is a remote write. A missing or empty member scope must
       // never silently close all employees' work items.
       const scope = resolvePersonScope(req.body, dryRun);
@@ -288,6 +297,9 @@ export function createApiRouter(deps: ApiDependencies): Router {
   router.post('/explorer/create-missing', async (req, res) => {
     try {
       const { asOf, thursdayMode } = req.body || {};
+      if (req.body?.confirm !== true) {
+        return res.status(400).json({ success: false, error: 'Explicit confirm=true is required for missing-task creation.' });
+      }
       const scope = resolvePersonScope(req.body);
       const data = await deps.createTasks.execute(
         {
@@ -355,10 +367,13 @@ export function createApiRouter(deps: ApiDependencies): Router {
 
   router.post('/scheduler/toggle', async (req, res) => {
     try {
-      const shouldEnable = req.body?.enabled !== undefined
-        ? Boolean(req.body.enabled)
-        : Boolean(req.body?.enable);
-      const persist = req.body?.persist !== undefined ? Boolean(req.body.persist) : true;
+      const requestedEnable = req.body?.enabled !== undefined ? req.body.enabled : req.body?.enable;
+      if (typeof requestedEnable !== 'boolean' || (req.body?.persist !== undefined &&
+        typeof req.body.persist !== 'boolean')) {
+        return res.status(400).json({ success: false, error: 'Scheduler enabled and persist must be actual boolean values.' });
+      }
+      const shouldEnable = requestedEnable;
+      const persist = req.body?.persist ?? true;
       if (shouldEnable) await deps.scheduler.start(persist);
       else await deps.scheduler.stop(persist);
       res.json({ success: true, data: deps.scheduler.getStatus() });
@@ -370,6 +385,12 @@ export function createApiRouter(deps: ApiDependencies): Router {
   router.post('/scheduler/config', async (req, res) => {
     try {
       const { startTime, timezone, autoStart, autoClose, autoCloseStartTime, autoCloseEndTime } = req.body || {};
+      if ((autoStart !== undefined && typeof autoStart !== 'boolean') ||
+        (autoClose !== undefined && typeof autoClose !== 'boolean') ||
+        [startTime, timezone, autoCloseStartTime, autoCloseEndTime].some(value =>
+          value !== undefined && typeof value !== 'string')) {
+        return res.status(400).json({ success: false, error: 'Invalid scheduler settings types.' });
+      }
       if (deps.scheduler.configure) {
         await deps.scheduler.configure({
           startTime,

@@ -49,6 +49,37 @@ describe('AzureWorkItemService.getExistingTasksForPerson', () => {
   });
 });
 
+describe('AzureWorkItemService duplicate detection fail-closed', () => {
+  it('rejects a malformed WIQL response rather than claiming no duplicates', async () => {
+    const client = { async post<T>(): Promise<T> { return { unexpected: true } as T; } };
+    const service = new AzureWorkItemService(client as any);
+    await expect(service.getExistingTasksForPerson(
+      'P', 'Task', '3in1_PWA_MyAccount |', 'a@b.com', '2026-10-15', '2026-10-15'
+    )).rejects.toThrow(/invalid duplicate-detection WIQL/);
+  });
+
+  it('rejects candidate sets too large to check exhaustively', async () => {
+    const client = { async post<T>(): Promise<T> {
+      return { workItems: Array.from({ length: 5001 }, (_, i) => ({ id: i + 1 })) } as T;
+    }};
+    const service = new AzureWorkItemService(client as any);
+    await expect(service.getExistingTasksForPerson(
+      'P', 'Task', '3in1_PWA_MyAccount |', 'a@b.com', '2026-10-15', '2026-10-15'
+    )).rejects.toThrow(/Too many duplicate-detection/);
+  });
+
+  it('rejects missing batch rows instead of silently omitting duplicates', async () => {
+    const client = {
+      async post<T>(): Promise<T> { return { workItems: [{ id: 1 }, { id: 2 }] } as T; },
+      async get<T>(): Promise<T> { return { value: [{ id: 1, fields: { 'System.Title': 'x' } }] } as T; },
+    };
+    const service = new AzureWorkItemService(client as any);
+    await expect(service.getExistingTasksForPerson(
+      'P', 'Task', '3in1_PWA_MyAccount |', 'a@b.com', '2026-10-15', '2026-10-15'
+    )).rejects.toThrow(/incomplete work-item details/);
+  });
+});
+
 describe('AzureWorkItemService.createWorkItemWithReconciliation', () => {
   it('passes application/json-patch+json content type to client.post', async () => {
     let capturedOptions: any = null;

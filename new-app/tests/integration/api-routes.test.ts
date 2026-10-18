@@ -159,11 +159,29 @@ describe('API routes', () => {
     expect((await res.json()).error).toContain('no PAT');
   });
 
+  it('rejects mutations without explicit operator confirmation while permitting read-only previews', async () => {
+    const mutations = [
+      ['/api/tasks/execute', { all: true }],
+      ['/api/explorer/create-missing', { personKeys: ['p1'] }],
+      ['/api/tasks/close-today', { all: true, dryRun: false }],
+    ] as const;
+    vi.mocked(deps.createTasks.execute).mockClear();
+    vi.mocked(deps.closeDailyTasks!.execute).mockClear();
+    for (const [path, body] of mutations) {
+      const response = await json(path, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body) });
+      expect(response.status).toBe(400);
+      expect((await response.json()).error).toContain('confirm=true');
+    }
+    expect(deps.createTasks.execute).not.toHaveBeenCalled();
+    expect(deps.closeDailyTasks!.execute).not.toHaveBeenCalled();
+  });
+
   it('POST /api/tasks/execute forwards onProgress and forces yes=true', async () => {
     await json('/api/tasks/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ all: true }),
+      body: JSON.stringify({ all: true, confirm: true }),
     });
     const [input, onProgress] = (deps.createTasks.execute as any).mock.calls[0];
     expect(input.yes).toBe(true);
@@ -188,7 +206,7 @@ describe('API routes', () => {
     const response = await json('/api/tasks/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ all: true }),
+      body: JSON.stringify({ all: true, confirm: true }),
     });
     expect(response.status).toBe(200);
     expect(deps.createTasks.execute).toHaveBeenCalledWith(expect.objectContaining({
@@ -220,6 +238,17 @@ describe('API routes', () => {
     expect(deps.createTasks.execute).not.toHaveBeenCalled();
   });
 
+  it('blocks an ad-hoc Azure write without a confirmed request', async () => {
+    vi.mocked(deps.createTasks.executeAdHocTask).mockClear();
+    const res = await json('/api/tasks/adhoc', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personKey: 'p1', targetIsoDate: '2026-11-02' }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain('confirm=true');
+    expect(deps.createTasks.executeAdHocTask).not.toHaveBeenCalled();
+  });
+
   it('POST /api/tasks/adhoc creates a custom single task', async () => {
     const res = await json('/api/tasks/adhoc', {
       method: 'POST',
@@ -228,6 +257,7 @@ describe('API routes', () => {
         personKey: 'p1',
         targetIsoDate: '2026-10-15',
         customTitle: 'Custom Task Title',
+        confirm: true,
       }),
     });
     expect(res.status).toBe(200);
@@ -270,7 +300,7 @@ describe('API routes', () => {
     const res = await json('/api/explorer/create-missing', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ personKeys: ['p1'] }),
+      body: JSON.stringify({ personKeys: ['p1'], confirm: true }),
     });
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -295,12 +325,12 @@ describe('API routes', () => {
   it('rejects ad-hoc duplicate bypass and invalid numeric fields at the HTTP boundary', async () => {
     const bypass = await json('/api/tasks/adhoc', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ personKey: 'p1', targetIsoDate: '2026-11-02', bypassDuplicateCheck: true }),
+      body: JSON.stringify({ personKey: 'p1', targetIsoDate: '2026-11-02', confirm: true, bypassDuplicateCheck: true }),
     });
     expect(bypass.status).toBe(400);
     const badSource = await json('/api/tasks/adhoc', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ personKey: 'p1', targetIsoDate: '2026-11-02', sourceTaskId: '123oops' }),
+      body: JSON.stringify({ personKey: 'p1', targetIsoDate: '2026-11-02', confirm: true, sourceTaskId: '123oops' }),
     });
     expect(badSource.status).toBe(400);
   });
@@ -324,6 +354,25 @@ describe('API routes', () => {
     });
     expect(res.status).toBe(409);
     expect((await res.json()).error).toContain('Already executing');
+  });
+
+  it('rejects truthy string booleans for scheduler mutating controls', async () => {
+    const toggle = deps.scheduler.start as any;
+    toggle.mockClear();
+    const response = await json('/api/scheduler/toggle', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enable: 'false', persist: 'true' }),
+    });
+    expect(response.status).toBe(400);
+    expect(toggle).not.toHaveBeenCalled();
+    const conf = deps.scheduler.configure as any;
+    conf.mockClear();
+    const configResponse = await json('/api/scheduler/config', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ autoClose: 'false' }),
+    });
+    expect(configResponse.status).toBe(400);
+    expect(conf).not.toHaveBeenCalled();
   });
 
   it('POST /api/scheduler/config reconfigures schedule settings', async () => {
@@ -356,7 +405,7 @@ describe('API routes', () => {
     const res = await json('/api/tasks/close-today', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dryRun: false, all: true, asOf: '2026-10-15' }),
+      body: JSON.stringify({ dryRun: false, all: true, confirm: true, asOf: '2026-10-15' }),
     });
     expect(res.status).toBe(200);
     const body = await res.json();

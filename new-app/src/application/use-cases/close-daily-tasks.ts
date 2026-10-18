@@ -36,8 +36,8 @@ export interface ClosedTaskResult {
   plannedStartDate?: string;
   actualStartDate?: string;
   actualEndDate: string;
-  remainingWork: number;
-  completedWork: number;
+  remainingWork: number | null;
+  completedWork: number | null;
   githubUsername?: string;
   prCount: number;
   prSourceDate: string;
@@ -58,6 +58,12 @@ export interface CloseDailyTasksOutput {
   totalAlreadyClosed: number;
   totalFailed: number;
   results: ClosedTaskResult[];
+}
+
+function readRecordedWorkHours(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  const hours = Number(value);
+  return Number.isFinite(hours) && hours >= 0 ? hours : NaN;
 }
 
 export class CloseDailyTasksUseCase {
@@ -197,8 +203,8 @@ export class CloseDailyTasksUseCase {
             item.fields['Custom.ActualEndDate'] ||
             nowUtc
           ),
-          remainingWork: Number(item.fields['Microsoft.VSTS.Scheduling.RemainingWork'] || 0),
-          completedWork: Number(item.fields['Microsoft.VSTS.Scheduling.CompletedWork'] ?? 0),
+          remainingWork: readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.RemainingWork']),
+          completedWork: readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.CompletedWork']),
           prCount: 0,
           prSourceDate: targetDate,
           isTodayPr: false,
@@ -249,10 +255,10 @@ export class CloseDailyTasksUseCase {
 
         // Closing is not evidence of 8 hours worked. Preserve actuals already
         // recorded in Azure DevOps rather than fabricating a full workday.
-        const completedWork = Number(item.fields['Microsoft.VSTS.Scheduling.CompletedWork'] ?? 0);
-        const remainingWork = Number(item.fields['Microsoft.VSTS.Scheduling.RemainingWork'] ?? 0);
-        if (!Number.isFinite(completedWork) || completedWork < 0 ||
-            !Number.isFinite(remainingWork) || remainingWork < 0) {
+        const completedWork = readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.CompletedWork']);
+        const remainingWork = readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.RemainingWork']);
+        if ((completedWork !== null && Number.isNaN(completedWork)) ||
+            (remainingWork !== null && Number.isNaN(remainingWork))) {
           throw new Error('Invalid Azure work tracking values; closure requires review.');
         }
         // Preserve the Azure-authored description, recorded hours and actual
@@ -261,7 +267,7 @@ export class CloseDailyTasksUseCase {
           {
             op: 'add',
             path: '/fields/System.History',
-            value: `EOD closure requested at ${nowUtc}. Existing Completed Work: ${completedWork}h; Remaining Work: ${remainingWork}h (both unchanged). ${prDeliverables.summaryText}`,
+            value: `EOD closure requested at ${nowUtc}. Existing Completed Work: ${completedWork === null ? 'not recorded' : `${completedWork}h`}; Remaining Work: ${remainingWork === null ? 'not recorded' : `${remainingWork}h`} (both unchanged). ${prDeliverables.summaryText}`,
           },
           { op: 'add', path: '/fields/System.State', value: 'Closed' },
         ];
@@ -327,8 +333,8 @@ export class CloseDailyTasksUseCase {
           previousState: currentState,
           newState: currentState,
           actualEndDate: nowUtc,
-          remainingWork: Number(item.fields['Microsoft.VSTS.Scheduling.RemainingWork'] || 0),
-          completedWork: Number(item.fields['Microsoft.VSTS.Scheduling.CompletedWork'] || 0),
+          remainingWork: readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.RemainingWork']),
+          completedWork: readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.CompletedWork']),
           prCount: 0,
           prSourceDate: targetDate,
           isTodayPr: false,

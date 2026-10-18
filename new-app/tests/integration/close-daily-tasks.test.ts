@@ -223,6 +223,26 @@ describe('CloseDailyTasksUseCase', () => {
     expect(ops.some((op: any) => op.path === '/fields/Custom.ActualEnddate')).toBe(false);
   });
 
+  it('reports unrecorded hours as unknown rather than invented zero or eight', async () => {
+    (mockWorkItemRepo.findCandidateTasks as any).mockResolvedValue([{
+      id: 5022,
+      fields: {
+        'System.Title': '3in1_PWA_MyAccount | 15 Oct 2026',
+        'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+        'System.State': 'Active',
+        'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
+      },
+    }]);
+    const output = await new CloseDailyTasksUseCase(
+      baseConfig, mockWorkItemRepo, datePlanning, mockGitHubClient as GitHubClient
+    ).execute({ asOf: '2026-10-15', personKeys: ['yash_somani'] });
+    expect(output.totalClosed).toBe(1);
+    expect(output.results[0].completedWork).toBeNull();
+    expect(output.results[0].remainingWork).toBeNull();
+    const [, ops] = (mockWorkItemRepo.patchWorkItem as any).mock.calls[0];
+    expect(ops.find((op: any) => op.path === '/fields/System.History').value).toContain('not recorded');
+  });
+
   it('skips tasks that are already Closed without calling patch', async () => {
     const targetDate = '2026-10-15';
     const candidateTasks = [

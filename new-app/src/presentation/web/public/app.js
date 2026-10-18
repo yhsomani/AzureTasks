@@ -1494,6 +1494,7 @@ async function runForMember(personKey, personName) {
   openConsoleDrawer();
   try {
     const res = await api.post('/tasks/execute', {
+      confirm: true,
       personKeys: [personKey],
       asOf: $('#asOf')?.value || undefined,
       thursdayMode: $('#thursdayMode')?.value || undefined,
@@ -1641,6 +1642,7 @@ async function executeCreation() {
   try {
     const keys = [...state.selectedKeys];
     const res = await api.post('/tasks/execute', {
+      confirm: true,
       personKeys: keys.length ? keys : undefined,
       asOf: $('#asOf')?.value || undefined,
       thursdayMode: $('#thursdayMode')?.value || undefined,
@@ -1903,7 +1905,7 @@ async function refreshScheduler() {
     
     if ($('#schedLast')) {
       if (s.lastRun) {
-        const res = s.lastRunResult ? s.lastRunResult.toUpperCase() : 'DONE';
+        const res = s.lastRunResult ? s.lastRunResult.toUpperCase() : 'OUTCOME UNKNOWN';
         $('#schedLast').textContent = `${res} (${new Date(s.lastRun).toLocaleTimeString()})`;
       } else {
         $('#schedLast').textContent = 'No runs yet';
@@ -1922,7 +1924,7 @@ async function refreshScheduler() {
     }
 
     // EOD auto-close fields
-    const eodEnabled = s.autoCloseEnabled !== false;
+    const eodEnabled = s.autoCloseEnabled === true;
     if ($('#eodStatusPill')) {
       $('#eodStatusPill').textContent = eodEnabled ? '🟢 Enabled' : '⚪ Disabled';
       $('#eodStatusPill').style.color = eodEnabled ? 'var(--ok)' : 'var(--muted)';
@@ -1935,7 +1937,7 @@ async function refreshScheduler() {
     }
     if ($('#eodLastDisplay')) {
       if (s.lastAutoClose) {
-        const res = s.lastAutoCloseResult ? s.lastAutoCloseResult.toUpperCase() : 'DONE';
+        const res = s.lastAutoCloseResult ? s.lastAutoCloseResult.toUpperCase() : 'ATTEMPTED (OUTCOME UNKNOWN)';
         $('#eodLastDisplay').textContent = `${res} (${new Date(s.lastAutoClose).toLocaleTimeString()})`;
       } else {
         $('#eodLastDisplay').textContent = 'No runs yet';
@@ -2038,7 +2040,7 @@ async function triggerEodClosure(dryRun = false) {
   if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="muted" style="text-align:center; padding:24px;">Analyzing tasks for today...</td></tr>';
 
   try {
-    const res = await api.post('/tasks/close-today', { dryRun, all: true });
+    const res = await api.post('/tasks/close-today', { dryRun, all: true, confirm: !dryRun });
     state.lastEodResult = res;
 
     if (summaryEl) {
@@ -2083,8 +2085,8 @@ async function triggerEodClosure(dryRun = false) {
               el('div', {}, prBadge),
               el('div', { class: 'muted small', style: 'max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' }, r.summaryText),
             ]),
-            el('td', {}, String(r.remainingWork ?? 0) + 'h'),
-            el('td', {}, String(r.completedWork ?? 8) + 'h'),
+            el('td', {}, r.remainingWork == null ? 'Not recorded' : String(r.remainingWork) + 'h'),
+            el('td', {}, r.completedWork == null ? 'Not recorded' : String(r.completedWork) + 'h'),
             el('td', {}, statusBadge),
           ]);
           tbody.append(tr);
@@ -2286,6 +2288,9 @@ async function submitAdHocTask() {
     toast('Please select an assignee and target date', 'warn');
     return;
   }
+  if (!window.confirm(`Create a real Azure DevOps work item for ${personKey} on ${targetIsoDate}? This action writes to the configured project.`)) {
+    return;
+  }
 
   const btn = $('#btnSubmitAdHocTask');
   const origText = btn ? btn.textContent : '';
@@ -2296,6 +2301,7 @@ async function submitAdHocTask() {
 
   try {
     const payload = {
+      confirm: true,
       personKey,
       targetIsoDate,
       customTitle: $('#adHocTitleInput')?.value?.trim() || undefined,
