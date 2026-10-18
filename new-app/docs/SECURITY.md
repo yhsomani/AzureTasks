@@ -61,3 +61,9 @@ Regression tests live in `tests/unit/repositories.test.ts`; inspect the CI run f
 - Azure DevOps Explorer read failures now produce errors rather than fake zero-task coverage. Work-item details use available fields instead of assuming all tenants define the same `Custom.*` names. Source discovery no longer truncates to the first 100/200 candidates without warning; results over the bounded limit explicitly fail.
 - GitHub PR search errors are distinguished from zero PRs. The system must not report that development/review work was performed merely because GitHub returned no PRs.
 - The changes above have fixture/CI coverage only. They do not validate actual corporate identities, policies, remote work-item creation or closure, configured ingress/CSRF behavior, keychain storage or production restoration. Use the release gates in issue #11 before deployment.
+
+## Operator versus read-only viewer access
+
+The HTTP server can optionally accept a distinct `API_VIEWER_USER` / `API_VIEWER_TOKEN` Basic credential. Viewer credentials can inspect read-only views and API endpoints but are categorically forbidden from POST, PUT, PATCH and DELETE, including configuration and remote Azure mutations. The mandatory `API_AUTH_USER` / `API_AUTH_TOKEN` account remains the operator; viewer token must be distinct. Production refuses to silently increment a busy port.
+
+**Limitation:** This is only a role separation for trusted single-host deployments. Shared viewer/operator credentials are **not** enterprise SSO, person-level RBAC or tamper-resistant audit attribution. Real multi-operator installations still need a trusted identity provider, per-user authorization and attributable mutation journaling. Test behind the actual production HTTPS proxy.
