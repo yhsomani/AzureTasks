@@ -141,7 +141,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     autoCloseStartTime?: string;
     autoCloseEndTime?: string;
   }): Promise<void> {
-    const validTime = (value: string) => /^([01]\\d|2[0-3]):[0-5]\\d$/.test(value);
+    const validTime = (value: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
     for (const key of ['startTime', 'autoCloseStartTime', 'autoCloseEndTime'] as const) {
       if (options[key] !== undefined && !validTime(options[key]!)) {
         throw new Error(`Invalid scheduler ${key}; use HH:mm (24-hour).`);
