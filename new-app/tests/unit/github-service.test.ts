@@ -97,7 +97,7 @@ describe('GitHub Service & EMU Derivation', () => {
 
   it('formats configured commit evidence without claiming completed hours', () => {
     const commit: GitHubCommit = {
-      sha: 'abcdef1234567890', message: 'fix: safe <work> and escaping',
+      sha: 'abcdef1234567890', message: 'fix: safe <work> and escaping\\nCo-authored-by: Example',
       htmlUrl: 'https://github.com/team/repo/commit/abcdef1234567890',
       authoredAt: '2026-10-15T10:00:00Z', repositoryName: 'team/repo', branch: 'release/v2',
     };
@@ -107,6 +107,7 @@ describe('GitHub Service & EMU Derivation', () => {
     });
     expect(result.htmlDescription).toContain('release/v2');
     expect(result.htmlDescription).toContain('&lt;work&gt;');
+    expect(result.htmlDescription).not.toContain('Co-authored-by');
     expect(result.htmlDescription).toContain('not a verified timesheet');
     expect(result.summaryText).toContain('1 commit(s)');
   });
