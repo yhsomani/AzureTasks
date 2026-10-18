@@ -172,6 +172,25 @@ describe('FieldCopyService: buildFieldPatchOperations', () => {
     expect(new Date(startVal).getTime()).toBeLessThan(new Date(endVal).getTime());
   });
 
+  it('does not fabricate remaining hours when the original estimate is absent', () => {
+    const unknownEstimate: WorkItem = {
+      ...sourceItem,
+      fields: { ...sourceItem.fields, 'Microsoft.VSTS.Scheduling.OriginalEstimate': undefined },
+    };
+    const taskOps = svc.buildFieldPatchOperations({
+      sourceWorkItem: unknownEstimate,
+      newTitle: 't',
+      targetIsoDate: '2026-10-08',
+      assignedTo: 'x@b.com',
+      startTime: '09:30',
+      timezone: 'Asia/Kolkata',
+      copyEstimates: true,
+      resetActualWork: true,
+      defaultState: 'New',
+    });
+    expect(taskOps.find(op => op.path === '/fields/Microsoft.VSTS.Scheduling.RemainingWork')).toBeUndefined();
+  });
+
   it('honors copyEstimates=false and resetActualWork=false', () => {
     const ops2 = svc.buildFieldPatchOperations({
       sourceWorkItem: sourceItem,
