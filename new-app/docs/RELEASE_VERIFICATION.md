@@ -113,3 +113,36 @@ Scope: [PR #29](https://github.com/yhsomani/AzureTasks/pull/29), based on the me
 7. **Frontend and observability:** continue accessible real-device verification, break down the large `app.js` controller incrementally, and test browser against real but permissioned data.
 8. **Exact revision:** run and record successful CI for the final PR head and again on the release merge SHA. CI alone is not staging/deployment signoff.
 
+
+## PR #30 — coordinated follow-up repair workstreams
+
+The follow-up integration review is [PR #30](https://github.com/yhsomani/AzureTasks/pull/30). Its workstreams use this PR as their shared contract: domain/date safety and EOD authorization; security of local exports and credential handling; state recovery and journal durability; and QA validation across supported operating systems. These are coordinated roles within one implementation session, not separately running autonomous AI agents.
+
+### EOD and source date guardrails
+
+- Date matching no longer falls back to the UTC date prefix of Azure scheduling fields after rejecting a conflicting task title.
+- Legacy explicit-year task titles in `DD-MM-YYYY` or `DD Mon YYYY` format retain their declared year. A contradictory Azure planned/actual date is rejected.
+- An explicit source-task override is accepted only after both ownership validation and recorded-date reconciliation.
+
+### Operator state backup/restore
+
+**Stop the application before backup or restore** and make sure the execution lock no longer exists. Run in `new-app`:
+
+```bash
+npm run state:backup -- --state-dir /absolute/path/to/private/app-state --backup-dir /absolute/path/to/new/secure-backup --offline-confirm
+npm run state:verify -- --backup-dir /absolute/path/to/new/secure-backup
+npm run state:restore -- --state-dir /absolute/path/to/empty-restore-target --backup-dir /absolute/path/to/new/secure-backup --offline-confirm
+```
+
+Backups contain only `people.json`, the active audit journal and rotated journal archives when present. The tool writes a SHA-256 manifest, refuses a destination that already exists for backup, refuses to overwrite populated restore state, validates the manifest before restore and excludes the `.env` file, access tokens and local lock state.
+
+**Important:** A backup does NOT include PATs, secret-manager material or deployment settings. Restore into a new empty directory, inspect the restored records, provision fresh credentials separately, and only then reconfigure/restart the service in an approved maintenance window. Use externally managed, encrypted backups and scheduled retention for real production operations. `--offline-confirm` is an operator assertion, not proof that a process is stopped. A complete disaster-recovery signoff still requires a documented rehearsal in the deployed environment.
+
+### Outstanding release gates
+
+- Verify the updated work-item matchers against a real Azure staging project with authorized test identities and custom fields.
+- Revoke any credentials previously shared or exposed; provision replacement credentials through approved external secret stores.
+- Confirm HTTPS, exact origin/CORS, per-operator authentication and threat-model approval in the target deployment topology.
+- Decide on historical tasks without authoritative dates, child/attachment copying, GitHub evidence policy and single-host versus distributed scheduling.
+- Benchmark high-volume source discovery and document behavior at Azure's WIQL result limits.
+- Confirm cross-platform CI on the exact PR head and merge SHA and repeat the offline restore drill under operational supervision.
