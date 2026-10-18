@@ -250,3 +250,29 @@ describe('AzureWorkItemService source discovery completeness', () => {
     expect(sources.get('p1')?.parsedDate.isoDate).toBe('2026-10-16');
   });
 });
+
+describe('AzureWorkItemService candidate batch integrity', () => {
+  it('rejects missing details even when the result is a valid array', async () => {
+    const client = {
+      async post<T>(): Promise<T> { return { workItems: [{ id: 11 }, { id: 12 }] } as T; },
+      async get<T>(): Promise<T> {
+        return { value: [{ id: 11, fields: { 'System.Title': 'test' } }] } as T;
+      },
+    };
+    await expect(new AzureWorkItemService(client as any)
+      .findCandidateTasks('P', 'Task', 'Series |', undefined, undefined, ['a@b.com']))
+      .rejects.toThrow(/incomplete or mismatched work-item batch/i);
+  });
+
+  it('rejects a batch containing a different requested ID', async () => {
+    const client = {
+      async post<T>(): Promise<T> { return { workItems: [{ id: 11 }] } as T; },
+      async get<T>(): Promise<T> {
+        return { value: [{ id: 99, fields: { 'System.Title': 'test' } }] } as T;
+      },
+    };
+    await expect(new AzureWorkItemService(client as any)
+      .findCandidateTasks('P', 'Task', 'Series |', undefined, undefined, ['a@b.com']))
+      .rejects.toThrow(/incomplete or mismatched work-item batch/i);
+  });
+});
