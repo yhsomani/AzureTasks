@@ -70,6 +70,12 @@ describe('date-window: validateNotPastDate', () => {
     expect(() => validateNotPastDate('2026-10-10', '2026-10-09')).not.toThrow();
   });
 
+  it('rejects impossible and noncanonical ISO dates', () => {
+    expect(() => validateNotPastDate('2026-02-30', '2026-01-01')).toThrow(/YYYY-MM-DD/);
+    expect(() => validateNotPastDate('2026-99-01', '2026-01-01')).toThrow(/YYYY-MM-DD/);
+    expect(() => validateNotPastDate('tomorrow', '2026-01-01')).toThrow(/YYYY-MM-DD/);
+  });
+
   it('rejects past dates', () => {
     expect(() => validateNotPastDate('2026-10-08', '2026-10-09')).toThrow(/past/i);
   });
