@@ -260,15 +260,21 @@ export class AzureWorkItemService implements WorkItemRepository {
       personTasks.set(key, tasks[0]);
     }
 
-    // Apply default source task for people without a discovered task
+    // A default source is not a license to clone another person's work
+    // history. Apply it only to members who independently own the task.
     if (defaultSourceTaskId) {
       const workItem = await this.getWorkItem(defaultSourceTaskId);
-      const parsedDate = parseTitleDate(workItem.fields['System.Title'] || '', titlePrefix, true);
-      if (parsedDate.isValid) {
-        for (const person of discoveryPeople) {
-          if (!personTasks.has(person.key)) {
-            personTasks.set(person.key, { workItem, parsedDate, key: person.key });
-          }
+      for (const person of discoveryPeople) {
+        if (personTasks.has(person.key)) continue;
+        const prefix = person.titlePrefix || titlePrefix;
+        try {
+          const parsedDate = validateSourceTaskOwnership(
+            workItem, project, workItemType, prefix, person.assignedTo
+          );
+          personTasks.set(person.key, { workItem, parsedDate, key: person.key });
+        } catch {
+          // Missing or cross-member default source: report SOURCE_NOT_FOUND
+          // in the plan instead of presenting someone else's work as a template.
         }
       }
     }
