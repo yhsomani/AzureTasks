@@ -6,6 +6,7 @@
 
 import { WorkItemRepository, JournalRepository, JournalEntry } from '../../domain/ports/repositories.js';
 import { RelationCopyService } from '../../domain/services/task-services.js';
+import { filterCopyableRelations } from '../../domain/entities/task.js';
 
 export interface RepairRow {
   entry: JournalEntry;
@@ -57,12 +58,18 @@ export class RepairRelationsUseCase {
         ]);
 
         const result = await this.relationCopy.repairRelations(source, target);
-        const complete = result.failedCount === 0;
+        const required = filterCopyableRelations(source.relations ?? []);
+        const readBack = await this.workItemRepo.getWorkItem(entry.createdWorkItemId);
+        const actual = new Set((readBack.relations ?? []).map(r => `${r.rel}:::${r.url}`));
+        const verified = readBack.id === target.id &&
+          required.every(r => actual.has(`${r.rel}:::${r.url}`));
+        const complete = result.failedCount === 0 && verified;
         const note = complete
-          ? `Repaired: +${result.copiedCount} relation(s) copied.`
-          : `Repair incomplete: +${result.copiedCount} copied, ${result.failedCount} still failing.`;
+          ? `Repaired and independently verified: +${result.copiedCount} relation(s) copied.`
+          : `Repair incomplete or unverified: +${result.copiedCount} copied, ${result.failedCount} patch failures; read-back matched: ${verified}.`;
 
-        await this.journal.markRepaired(entry, complete ? 'SUCCESS' : 'PARTIAL', note);
+        const persisted = await this.journal.markRepaired(entry, complete ? 'SUCCESS' : 'PARTIAL', note, verified);
+        if (!persisted) throw new Error('Azure relations were processed but the local audit entry could not be found for reconciliation.');
 
         rows.push({
           entry,

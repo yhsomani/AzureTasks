@@ -76,7 +76,7 @@ describe('AzureWorkItemService duplicate detection fail-closed', () => {
     const service = new AzureWorkItemService(client as any);
     await expect(service.getExistingTasksForPerson(
       'P', 'Task', '3in1_PWA_MyAccount |', 'a@b.com', '2026-10-15', '2026-10-15'
-    )).rejects.toThrow(/incomplete work-item details/);
+    )).rejects.toThrow(/incomplete or mismatched duplicate-detection/);
   });
 });
 
@@ -118,11 +118,13 @@ describe('AzureWorkItemService.copyRelations', () => {
   it('passes application/json-patch+json content type to client.patch', async () => {
     let capturedOptions: any = null;
     let capturedPath = '';
+    let capturedBody: any = null;
     const fakeClient = {
       baseUrl: 'https://dev.azure.com',
       organization: 'test-org',
       async patch<T>(path: string, _body: any, options?: any): Promise<T> {
         capturedPath = path;
+        capturedBody = _body;
         capturedOptions = options;
         return { id: 5678 } as T;
       },
@@ -151,6 +153,7 @@ describe('AzureWorkItemService.copyRelations', () => {
     expect(result.copiedCount).toBe(1);
     expect(capturedPath).toContain('/_apis/wit/workitems/5678');
     expect(capturedOptions?.headers?.['Content-Type']).toBe('application/json-patch+json');
+    expect(capturedBody[0].value.attributes).toBeUndefined(); // read-only metadata omitted
   });
 });
 
@@ -248,5 +251,31 @@ describe('AzureWorkItemService source discovery completeness', () => {
       { key: 'p1', name: 'A', assignedTo: 'a@b.com', enabled: true } as any,
     ]);
     expect(sources.get('p1')?.parsedDate.isoDate).toBe('2026-10-16');
+  });
+});
+
+describe('AzureWorkItemService candidate batch integrity', () => {
+  it('rejects missing details even when the result is a valid array', async () => {
+    const client = {
+      async post<T>(): Promise<T> { return { workItems: [{ id: 11 }, { id: 12 }] } as T; },
+      async get<T>(): Promise<T> {
+        return { value: [{ id: 11, fields: { 'System.Title': 'test' } }] } as T;
+      },
+    };
+    await expect(new AzureWorkItemService(client as any)
+      .findCandidateTasks('P', 'Task', 'Series |', undefined, undefined, ['a@b.com']))
+      .rejects.toThrow(/incomplete or mismatched candidate work-item batch/i);
+  });
+
+  it('rejects a batch containing a different requested ID', async () => {
+    const client = {
+      async post<T>(): Promise<T> { return { workItems: [{ id: 11 }] } as T; },
+      async get<T>(): Promise<T> {
+        return { value: [{ id: 99, fields: { 'System.Title': 'test' } }] } as T;
+      },
+    };
+    await expect(new AzureWorkItemService(client as any)
+      .findCandidateTasks('P', 'Task', 'Series |', undefined, undefined, ['a@b.com']))
+      .rejects.toThrow(/incomplete or mismatched candidate work-item batch/i);
   });
 });

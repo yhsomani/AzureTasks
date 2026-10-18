@@ -212,23 +212,10 @@ export function planCreationDates(input: DatePlanInput): DatePlan {
   const nextThursdayIso = getNextThursdayIso(todayIso, thursdayMode, stopDayOfWeek);
   const plannedDates: PlannedDate[] = [];
 
-  // If latest existing task is beyond the window, warn
-  if (latestExistingTaskIso && latestExistingTaskIso > nextThursdayIso) {
-    return {
-      plannedDates: [],
-      effectiveStartDate: todayIso,
-      nextThursday: nextThursdayIso,
-      warningMessage: `Latest task date (${latestExistingTaskIso}) is ahead of creation window ending on Thursday (${nextThursdayIso}).`,
-    };
-  }
-
-  // Start from the day after the latest existing task, or today if no tasks exist
-  let currentIso = latestExistingTaskIso ? addDays(latestExistingTaskIso, 1) : todayIso;
-
-  // Don't go before today
-  if (currentIso < todayIso) {
-    currentIso = todayIso;
-  }
+  // Always inspect the entire requested window. The latest source task is a
+  // copy template, never a watermark proving earlier person/date coverage.
+  // Later-dated tasks must not hide missing dates or suppress backfill.
+  let currentIso = todayIso;
 
   // Evaluate each date up to and including nextThursday
   while (currentIso <= nextThursdayIso) {
@@ -291,6 +278,14 @@ export function planCreationDates(input: DatePlanInput): DatePlan {
  * Validate that a date is not in the past
  */
 export function validateNotPastDate(requestedIso: string, actualTodayIso: string): void {
+  const validIsoDate = (value: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const date = new Date(`${value}T00:00:00Z`);
+    return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  };
+  if (!validIsoDate(requestedIso) || !validIsoDate(actualTodayIso)) {
+    throw new Error('Validation Error: dates must be valid YYYY-MM-DD calendar dates.');
+  }
   if (requestedIso < actualTodayIso) {
     throw new Error(
       `Validation Error: The requested task creation date (${requestedIso}) is in the past. ` +

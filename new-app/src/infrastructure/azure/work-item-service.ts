@@ -10,7 +10,7 @@ import {
   DiscoveredTask, 
   Person, 
   CreatedTask,
-  parseTitleDate,
+  parseWorkItemTaskDate,
   matchesPerson,
   matchesTaskSeries,
   validateSourceTaskOwnership,
@@ -26,7 +26,18 @@ interface WorkItemBatchResult {
 }
 
 export class AzureWorkItemService implements WorkItemRepository {
-  constructor(private readonly client: AzureDevOpsClient) {}
+  constructor(private readonly client: AzureDevOpsClient, private readonly timezone: () => string = () => 'UTC') {}
+
+  private requireCompleteBatch(batch: WorkItemBatchResult, ids: number[], purpose: string): WorkItem[] {
+    const expected = new Set(ids);
+    if (!Array.isArray(batch?.value) || expected.size !== ids.length ||
+        batch.value.length !== expected.size ||
+        new Set(batch.value.map(w => w?.id)).size !== expected.size ||
+        batch.value.some(w => !w || !expected.has(w.id) || !w.fields)) {
+      throw new Error(`Azure DevOps returned incomplete or mismatched ${purpose} data. Refusing to infer missing tasks.`);
+    }
+    return batch.value;
+  }
 
   async validateProject(project: string): Promise<void> {
     await this.client.get<any>(`/_apis/projects/${project}?api-version=7.0`);
@@ -51,9 +62,11 @@ export class AzureWorkItemService implements WorkItemRepository {
     if (sourceTaskIdOverride) {
       const workItem = await this.getWorkItem(sourceTaskIdOverride);
       const parsedDate = validateSourceTaskOwnership(workItem, project, workItemType, titlePrefix, personIdentity);
+      const anchoredDate = parseWorkItemTaskDate(workItem, titlePrefix, this.timezone());
+      if (!anchoredDate.isValid) throw new Error('Source task title and recorded Azure dates conflict.');
       return {
         workItem,
-        parsedDate,
+        parsedDate: anchoredDate,
         key: personIdentity.toLowerCase().trim(),
       };
     }
@@ -112,10 +125,7 @@ export class AzureWorkItemService implements WorkItemRepository {
       const batch = await this.client.get<WorkItemBatchResult>(
         `/${project}/_apis/wit/workitems?ids=${ids}&$expand=relations&api-version=7.0`
       );
-      if (!Array.isArray(batch.value)) {
-        throw new Error('Azure DevOps returned an invalid source work-item batch.');
-      }
-      allFetched.push(...batch.value);
+      allFetched.push(...this.requireCompleteBatch(batch, result.workItems.slice(i, i + 100).map(w => w.id), 'source work-item batch'));
     }
 
     const candidateTasks: DiscoveredTask[] = [];
@@ -125,7 +135,7 @@ export class AzureWorkItemService implements WorkItemRepository {
       }
       const title = workItem.fields['System.Title'] || '';
       if (!matchesTaskSeries(title, titlePrefix)) continue;
-      const parsedDate = parseTitleDate(title, titlePrefix, true);
+      const parsedDate = parseWorkItemTaskDate(workItem, titlePrefix, this.timezone());
       if (parsedDate.isValid) {
         candidateTasks.push({
           workItem,
@@ -230,9 +240,7 @@ export class AzureWorkItemService implements WorkItemRepository {
         const batchResult = await this.client.get<WorkItemBatchResult>(
           `/${project}/_apis/wit/workitems?ids=${chunk}&$expand=relations&api-version=7.0`
         );
-        if (batchResult.value) {
-          allFetched.push(...batchResult.value);
-        }
+        allFetched.push(...this.requireCompleteBatch(batchResult, ids.slice(i, i + CHUNK_SIZE), 'team source work-item batch'));
       }
 
       for (const workItem of allFetched) {
@@ -242,7 +250,7 @@ export class AzureWorkItemService implements WorkItemRepository {
             const title = workItem.fields['System.Title'] || '';
             const prefix = person.titlePrefix || titlePrefix;
             if (!matchesTaskSeries(title, prefix)) continue;
-            const parsedDate = parseTitleDate(title, prefix, true);
+            const parsedDate = parseWorkItemTaskDate(workItem, prefix, this.timezone());
             if (parsedDate.isValid) {
               const list = personCandidateTasks.get(person.key) || [];
               list.push({ workItem, parsedDate, key: person.key });
@@ -350,13 +358,9 @@ export class AzureWorkItemService implements WorkItemRepository {
       for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
         const chunk = ids.slice(i, i + CHUNK_SIZE).join(',');
         const batchResult = await this.client.get<WorkItemBatchResult>(
-          `/${project}/_apis/wit/workitems?ids=${chunk}&fields=System.Id,System.Title,System.AssignedTo&api-version=7.0`
+          `/${project}/_apis/wit/workitems?ids=${chunk}&api-version=7.0`
         );
-        if (!Array.isArray(batchResult?.value) ||
-          batchResult.value.length !== ids.slice(i, i + CHUNK_SIZE).length) {
-          throw new Error('Azure DevOps duplicate detection returned incomplete work-item details.');
-        }
-        allFetched.push(...batchResult.value);
+        allFetched.push(...this.requireCompleteBatch(batchResult, ids.slice(i, i + CHUNK_SIZE), 'duplicate-detection work-item batch'));
       }
 
       for (const workItem of allFetched) {
@@ -365,7 +369,7 @@ export class AzureWorkItemService implements WorkItemRepository {
         }
         const title = workItem.fields['System.Title'];
         if (!title || !matchesTaskSeries(title, titlePrefix)) continue;
-        const parsed = parseTitleDate(title, titlePrefix, true);
+        const parsed = parseWorkItemTaskDate(workItem, titlePrefix, this.timezone());
         if (!parsed.isValid) continue;
         if (parsed.isoDate < startDate || parsed.isoDate > endDate) continue;
 
@@ -448,10 +452,7 @@ export class AzureWorkItemService implements WorkItemRepository {
         const batch = await this.client.get<WorkItemBatchResult>(
           `/${project}/_apis/wit/workitems?ids=${ids}&api-version=7.0`
         );
-        if (!Array.isArray(batch.value)) {
-          throw new Error('Azure DevOps returned an invalid work-item batch.');
-        }
-        items.push(...batch.value);
+        items.push(...this.requireCompleteBatch(batch, result.workItems.slice(i, i + CHUNK_SIZE).map(w => w.id), 'candidate work-item batch'));
       }
       return items;
     } catch (err) {
@@ -493,12 +494,9 @@ export class AzureWorkItemService implements WorkItemRepository {
       if (error.message.includes('duplicate') || error.message.includes('already exists')) {
         const existing = await this.findExistingByTitleAndAssignee(project, workItemType, reconciliationData);
         if (existing) {
-          return {
-            id: existing.id,
-            title: existing.fields['System.Title'] || '',
-            isoDate: existing.fields['Microsoft.VSTS.Scheduling.StartDate']?.split('T')[0] || '',
-            url: `${this.client.baseUrl}/${this.client.organization}/${project}/_workitems/edit/${existing.id}`,
-          };
+          // Never apply copied relations to a pre-existing item or count it as
+          // newly created. A fresh duplicate check must decide the next action.
+          throw new Error(`Azure DevOps already has matching work item #${existing.id}. No new task was created; refresh the plan before retrying.`);
         }
       }
       throw error;
@@ -528,7 +526,11 @@ export class AzureWorkItemService implements WorkItemRepository {
           value: {
             rel: relation.rel,
             url: relation.url,
-            attributes: relation.attributes,
+            // Azure read-backs include computed attributes (e.g. name,
+            // isLocked). Do not POST these as though they were writable.
+            ...(relation.attributes?.comment
+              ? { attributes: { comment: relation.attributes.comment } }
+              : {}),
           },
         };
 

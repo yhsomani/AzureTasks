@@ -48,18 +48,18 @@ export class GitHubClient {
   async resolveUserByEmail(email: string, customSuffix?: string): Promise<string | null> {
     if (!email) return null;
     const normalizedEmail = email.toLowerCase().trim();
-    if (this.emailCache.has(normalizedEmail)) {
-      return this.emailCache.get(normalizedEmail) ?? null;
-    }
-
     const suffix = customSuffix !== undefined ? customSuffix : this.defaultUserSuffix;
+    const cacheKey = `${normalizedEmail}::${suffix || ''}`;
+    if (this.emailCache.has(cacheKey)) {
+      return this.emailCache.get(cacheKey) ?? null;
+    }
 
     // 1. Primary: Deterministic EMU derivation for corporate accounts (when suffix is configured)
     if (suffix) {
       const derived = deriveGitHubUsernameFromEmail(normalizedEmail, suffix);
       if (derived) {
-        this.emailCache.set(normalizedEmail, derived);
-        logger.info(`Resolved GitHub login '${derived}' for email '${email}' via EMU derivation (suffix='${suffix}').`);
+        this.emailCache.set(cacheKey, derived);
+        logger.warn(`Derived GitHub login '${derived}' for email '${email}' from a naming convention (suffix='${suffix}'); identity has NOT been verified.`);
         return derived;
       }
     }
@@ -72,7 +72,7 @@ export class GitHubClient {
 
       if (userRes?.items && userRes.items.length > 0) {
         const login = userRes.items[0].login;
-        this.emailCache.set(normalizedEmail, login);
+        this.emailCache.set(cacheKey, login);
         logger.info(`Resolved GitHub login '${login}' for email '${email}' via User Search.`);
         return login;
       }
@@ -91,13 +91,13 @@ export class GitHubClient {
       if (commitRes?.items && commitRes.items.length > 0) {
         const login = commitRes.items[0].author?.login || commitRes.items[0].committer?.login;
         if (login) {
-          this.emailCache.set(normalizedEmail, login);
+          this.emailCache.set(cacheKey, login);
           logger.info(`Resolved GitHub login '${login}' for email '${email}' via Commit Author Search.`);
           return login;
         }
       }
 
-      this.emailCache.set(normalizedEmail, null);
+      this.emailCache.set(cacheKey, null);
       return null;
     } catch (err: any) {
       logger.warn(`Failed to query GitHub API for '${email}': ${err.message}`);

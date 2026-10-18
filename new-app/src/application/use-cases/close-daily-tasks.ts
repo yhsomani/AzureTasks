@@ -12,7 +12,7 @@ import {
   AppConfig,
   Person,
   matchesPerson,
-  parseTitleDate,
+  parseWorkItemTaskDate,
   matchesTaskSeries,
   DatePlanningService,
 } from '../../domain/index.js';
@@ -48,6 +48,7 @@ export interface ClosedTaskResult {
   status: 'closed' | 'simulated' | 'already_closed' | 'failed';
   error?: string;
   auditWarning?: string;
+  verified?: boolean;
 }
 
 export interface CloseDailyTasksOutput {
@@ -149,7 +150,7 @@ export class CloseDailyTasksUseCase {
           const personPrefix = p.titlePrefix || activeConfig.titlePrefix;
           // Never close an unrelated work item merely because its date matches.
           if (!matchesTaskSeries(title, personPrefix)) continue;
-          const parsed = parseTitleDate(title, personPrefix, true);
+          const parsed = parseWorkItemTaskDate(item, personPrefix, activeConfig.timezone);
           let itemDate = parsed.isValid ? parsed.isoDate : '';
 
           if (!itemDate && item.fields['Microsoft.VSTS.Scheduling.StartDate']) {
@@ -280,11 +281,25 @@ export class CloseDailyTasksUseCase {
         ];
 
         let auditWarning: string | undefined;
+        let verified = false;
         if (!isDryRun) {
           // Never bypass tenant workflow constraints, regardless of entry point.
           await this.workItemRepo.patchWorkItem(taskId, ops, { bypassRules: false });
           logger.info(`Closed task #${taskId} for ${person.name}; preserved Azure recorded work hours.`);
           totalClosed++;
+
+          // Treat the PATCH as accepted but separately verify the resulting state.
+          // A read-back failure must not turn an accepted write into a failed write.
+          try {
+            const current = await this.workItemRepo.getWorkItem(taskId);
+            verified = current.id === taskId &&
+              String(current.fields['System.State'] || '').trim().toLowerCase() === 'closed' &&
+              matchesPerson(current.fields['System.AssignedTo'], person);
+            if (!verified) auditWarning = `Azure accepted closure of #${taskId}, but final state and assignee could not be verified.`;
+          } catch (readbackError) {
+            auditWarning = `Azure accepted closure of #${taskId}, but read-back failed: ${readbackError instanceof Error ? readbackError.message : String(readbackError)}`;
+          }
+          if (auditWarning) logger.warn(auditWarning);
 
           // Record in Journal for persistent audit trail
           if (this.journalRepo) {
@@ -301,11 +316,12 @@ export class CloseDailyTasksUseCase {
                 createdWorkItemId: taskId,
                 fieldCopyStatus: 'SUCCESS',
                 relationCopyStatus: 'SUCCESS',
-                verified: false,
-                error: 'Closure API accepted; independent Azure DevOps read-back not performed.',
+                verified,
+                error: verified ? undefined : 'Closure accepted; independent final-state verification incomplete.',
               });
             } catch (jErr: any) {
-              auditWarning = `Azure task #${taskId} was closed, but recording the local audit journal failed: ${jErr instanceof Error ? jErr.message : String(jErr)}`;
+              const journalWarning = `Azure task #${taskId} was closed, but recording the local audit journal failed: ${jErr instanceof Error ? jErr.message : String(jErr)}`;
+              auditWarning = auditWarning ? `${auditWarning} ${journalWarning}` : journalWarning;
               logger.warn(auditWarning);
             }
           }
@@ -332,6 +348,7 @@ export class CloseDailyTasksUseCase {
           patchOperations: ops,
           status: isDryRun ? 'simulated' : 'closed',
           auditWarning,
+          verified: isDryRun ? false : verified,
         });
       } catch (err: any) {
         totalFailed++;

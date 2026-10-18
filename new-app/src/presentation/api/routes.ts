@@ -331,7 +331,10 @@ export function createApiRouter(deps: ApiDependencies): Router {
       });
       res.json({ success: true, data });
     } catch (err: any) {
-      res.status(400).json({ success: false, error: err.message });
+      // Failed Azure reads are not invalid input. A 400 would mislead operators
+      // into believing their selection was wrong rather than integration down.
+      const upstreamFailure = String(err?.message || '').includes('Azure DevOps task discovery failed');
+      res.status(upstreamFailure ? 502 : 400).json({ success: false, error: err.message });
     }
   });
 

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { validateSourceTaskOwnership } from '../../src/domain/entities/task';
 import {
   parseTitleDate,
+  parseWorkItemTaskDate,
   matchesTaskSeries,
   filterCopyableRelations,
   isRelationCopyable,
@@ -111,5 +112,44 @@ describe('source task ownership validation', () => {
     expect(() => validateSourceTaskOwnership(source, 'Project-B', '3in1 Task', prefix, 'member-a@company.test')).toThrow(/project and task type/);
     expect(() => validateSourceTaskOwnership(source, 'Project-A', 'Bug', prefix, 'member-a@company.test')).toThrow(/project and task type/);
     expect(() => validateSourceTaskOwnership(source, 'Project-A', '3in1 Task', 'OtherSeries |', 'member-a@company.test')).toThrow(/different task series/);
+  });
+});
+
+describe('year-aware Azure workday interpretation', () => {
+  const prefix = '3in1_PWA_MyAccount |';
+
+  it('uses Azure planned date rather than guessing the current year', () => {
+    const item = {
+      id: 5, rev: 1,
+      fields: {
+        'System.Title': '3in1_PWA_MyAccount | Dec 30',
+        'Custom.PlannedStartdate': '2025-12-30T04:00:00Z',
+      },
+    } as any;
+    const parsed = parseWorkItemTaskDate(item, prefix, 'Asia/Kolkata');
+    expect(parsed.isoDate).toBe('2025-12-30');
+    expect(parsed.year).toBe(2025);
+  });
+
+  it('uses local timezone across UTC midnight boundaries', () => {
+    const item = {
+      id: 6, rev: 1,
+      fields: {
+        'System.Title': '3in1_PWA_MyAccount | Jan 1',
+        'Microsoft.VSTS.Scheduling.StartDate': '2025-12-31T22:00:00Z',
+      },
+    } as any;
+    expect(parseWorkItemTaskDate(item, prefix, 'Asia/Kolkata').isoDate).toBe('2026-01-01');
+  });
+
+  it('does not silently accept a conflicting recorded work date', () => {
+    const item = {
+      id: 7, rev: 1,
+      fields: {
+        'System.Title': '3in1_PWA_MyAccount | Jan 1',
+        'Custom.PlannedStartdate': '2025-12-26T04:00:00Z',
+      },
+    } as any;
+    expect(parseWorkItemTaskDate(item, prefix, 'Asia/Kolkata').isValid).toBe(false);
   });
 });

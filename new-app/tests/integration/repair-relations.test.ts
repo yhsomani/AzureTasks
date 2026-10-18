@@ -33,6 +33,7 @@ const entry = (over: Partial<JournalEntry> = {}): JournalEntry => ({
 });
 
 function fakeRepo(overrides: Partial<WorkItemRepository> = {}): WorkItemRepository {
+  const targetLinks = [{ rel: 'System.LinkTypes.Related', url: 'vstfs:///x/1' }];
   return {
     async getWorkItem(id: number): Promise<WorkItem> {
       if (id === 1) {
@@ -50,10 +51,13 @@ function fakeRepo(overrides: Partial<WorkItemRepository> = {}): WorkItemReposito
         id: 2,
         rev: 1,
         fields: {},
-        relations: [{ rel: 'System.LinkTypes.Related', url: 'vstfs:///x/1' }],
+        relations: [...targetLinks],
       };
     },
     async copyRelations(src: WorkItem) {
+      for (const link of src.relations ?? []) {
+        if (!targetLinks.some(r => r.rel === link.rel && r.url === link.url)) targetLinks.push(link);
+      }
       return {
         copiedCount: (src.relations ?? []).length,
         failedCount: 0,
@@ -115,4 +119,20 @@ describe('RepairRelationsUseCase', () => {
     // Entry stays unfinished so it can be retried.
     expect(await journal.getUnfinishedRelations()).toHaveLength(1);
   });
+
+  it('does not mark incomplete Azure read-back as a successful repair', async () => {
+    const journal = new FileJournalRepository(path.join(dir, '.journal.json'));
+    await journal.record(entry());
+    // Simulate an accepted PATCH whose relation did not appear on read-back.
+    const repo = fakeRepo({
+      async copyRelations(src: WorkItem) {
+        return { copiedCount: (src.relations ?? []).length, failedCount: 0, totalRelations: (src.relations ?? []).length };
+      },
+    });
+    const report = await new RepairRelationsUseCase(repo, journal).execute();
+    expect(report.repaired).toBe(0);
+    expect(report.partial).toBe(1);
+    expect(await journal.getUnfinishedRelations()).toHaveLength(1);
+  });
+
 });

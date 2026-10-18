@@ -370,7 +370,11 @@ async function refreshDashboard() {
     if (kpiTz) kpiTz.textContent = `${cfg.timezone || 'Asia/Kolkata'}`;
     const kpiMode = $('#kpiMode');
     if (kpiMode) kpiMode.textContent = `Mode: ${cfg.thursdayMode === 'FOLLOWING' ? 'Following Thursday' : 'Current Week'}`;
-  }).catch(() => {});
+  }).catch(err => {
+    if ($('#kpiPeople')) $('#kpiPeople').textContent = 'Unavailable';
+    if ($('#kpiMode')) $('#kpiMode').textContent = 'Configuration unavailable';
+    console.warn('Dashboard configuration unavailable:', err.message);
+  });
 
   // 2. Scheduler state
   api.get('/scheduler', { swr: true, maxAgeMs: 15000 }).then(sched => {
@@ -379,7 +383,10 @@ async function refreshDashboard() {
     const kh = $('#kpiSchedHint');
     if (ks) ks.textContent = sched.running ? 'Running' : 'Disabled';
     if (kh) kh.textContent = sched.nextRun ? `Next: ${new Date(sched.nextRun).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'weekdays 09:30';
-  }).catch(() => {});
+  }).catch(err => {
+    if ($('#kpiSched')) $('#kpiSched').textContent = 'Unavailable';
+    if ($('#kpiSchedHint')) $('#kpiSchedHint').textContent = err.message;
+  });
 
   // 3. Plan Preview: render cached or progressive skeleton
   const dp = $('#dashboardPlan');
@@ -400,7 +407,10 @@ async function refreshDashboard() {
   // 4. Timeline journal
   api.get('/journal?limit=6', { swr: true, maxAgeMs: 20000 }).then(j => {
     renderTimeline(j.entries);
-  }).catch(() => {});
+  }).catch(err => {
+    const timeline = $('#dashboardJournal');
+    if (timeline) timeline.textContent = `Audit history unavailable: ${err.message}`;
+  });
 
   // 5. Insights & Overview Charts with SWR
   const insightsContainer = $('#insightsContainer');
@@ -1690,10 +1700,12 @@ async function executeCreation() {
     });
     const taskFailures = Number(res.totalTaskFailureCount) || 0;
     const sourceFailures = Number(res.totalSourceFailureCount) || 0;
-    if (taskFailures + sourceFailures > 0) {
-      toast(`Created ${res.totalCreatedCount || 0} tasks, skipped ${res.totalDuplicateCount || 0} duplicates; ${taskFailures} task failure(s), ${sourceFailures} source failure(s). Review Audit log.`, 'warn');
+    const relationFailures = Number(res.totalRelationFailureCount) || 0;
+    const auditWarnings = (res.personResults || []).flatMap(p => p.auditWarnings || []);
+    if (taskFailures + sourceFailures + relationFailures + auditWarnings.length > 0) {
+      toast(`Azure accepted ${res.totalCreatedCount || 0} task(s), skipped ${res.totalDuplicateCount || 0} duplicates; ${taskFailures} task failure(s), ${sourceFailures} source failure(s), ${relationFailures} relation failure(s), ${auditWarnings.length} audit/read-back warning(s). Review Audit log.`, 'warn');
     } else {
-      toast(`Created ${res.totalCreatedCount || 0} tasks, skipped ${res.totalDuplicateCount || 0} duplicates`, 'ok');
+      toast(`Azure accepted ${res.totalCreatedCount || 0} task(s), skipped ${res.totalDuplicateCount || 0} duplicates. Verify final state in Azure.`, 'ok');
     }
     refreshDashboard();
     runPlanPreview();

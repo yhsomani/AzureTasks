@@ -537,4 +537,51 @@ describe('CloseDailyTasksUseCase', () => {
     expect(mockWorkItemRepo.patchWorkItem).toHaveBeenCalledOnce();
   });
 
+  it('independently verifies the final Azure state after a successful closure', async () => {
+    (mockWorkItemRepo.findCandidateTasks as any).mockResolvedValue([{
+      id: 5011,
+      fields: {
+        'System.Title': '3in1_PWA_MyAccount | Oct 15',
+        'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+        'System.State': 'Active',
+        'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
+      },
+    }]);
+    (mockWorkItemRepo.getWorkItem as any).mockResolvedValue({
+      id: 5011,
+      fields: {
+        'System.State': 'Closed',
+        'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+      },
+    });
+    const result = await new CloseDailyTasksUseCase(
+      baseConfig, mockWorkItemRepo, datePlanning,
+      mockGitHubClient as unknown as GitHubClient
+    ).execute({ asOf: '2026-10-15', personKeys: ['yash_somani'], dryRun: false });
+    expect(result.totalClosed).toBe(1);
+    expect(result.results[0].verified).toBe(true);
+    expect(result.results[0].auditWarning).toBeUndefined();
+  });
+
+  it('preserves accepted status but warns when the Azure read-back fails', async () => {
+    (mockWorkItemRepo.findCandidateTasks as any).mockResolvedValue([{
+      id: 5012,
+      fields: {
+        'System.Title': '3in1_PWA_MyAccount | Oct 15',
+        'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+        'System.State': 'Active',
+        'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
+      },
+    }]);
+    (mockWorkItemRepo.getWorkItem as any).mockRejectedValue(new Error('read-only outage'));
+    const result = await new CloseDailyTasksUseCase(
+      baseConfig, mockWorkItemRepo, datePlanning,
+      mockGitHubClient as unknown as GitHubClient
+    ).execute({ asOf: '2026-10-15', personKeys: ['yash_somani'], dryRun: false });
+    expect(result.totalClosed).toBe(1);
+    expect(result.totalFailed).toBe(0);
+    expect(result.results[0].verified).toBe(false);
+    expect(result.results[0].auditWarning).toContain('read-only outage');
+  });
+
 });
