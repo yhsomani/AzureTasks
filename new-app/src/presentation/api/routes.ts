@@ -47,7 +47,11 @@ function resolvePersonScope(
     if (body?.all === true) {
       throw new Error('Choose personKeys or all=true, not both.');
     }
-    return { personKeys: keys.map(key => key.trim()), all: false };
+    const personKeys = keys.map(key => key.trim());
+    if (new Set(personKeys).size !== personKeys.length) {
+      throw new Error('personKeys must not contain duplicate member keys.');
+    }
+    return { personKeys, all: false };
   }
   if (body?.all === true || (allowImplicitAll && body?.all === undefined)) {
     return { all: true };
