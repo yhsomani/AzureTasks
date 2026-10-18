@@ -12,7 +12,7 @@ import {
   AppConfig,
   Person,
   matchesPerson,
-  parseTitleDate,
+  parseWorkItemTaskDate,
   matchesTaskSeries,
   DatePlanningService,
 } from '../../domain/index.js';
@@ -149,7 +149,7 @@ export class CloseDailyTasksUseCase {
           const personPrefix = p.titlePrefix || activeConfig.titlePrefix;
           // Never close an unrelated work item merely because its date matches.
           if (!matchesTaskSeries(title, personPrefix)) continue;
-          const parsed = parseTitleDate(title, personPrefix, true);
+          const parsed = parseWorkItemTaskDate(item, personPrefix, activeConfig.timezone);
           let itemDate = parsed.isValid ? parsed.isoDate : '';
 
           if (!itemDate && item.fields['Microsoft.VSTS.Scheduling.StartDate']) {
