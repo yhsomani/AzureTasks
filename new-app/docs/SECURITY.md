@@ -71,3 +71,5 @@ The HTTP server can optionally accept a distinct `API_VIEWER_USER` / `API_VIEWER
 ## Viewer and operator UI behavior
 
 On a deployment with optional `API_VIEWER_USER` and `API_VIEWER_TOKEN`, authenticated `GET /api/session` returns a server-assigned role. The web UI displays an explicit read-only notice and disables common write controls for viewers. The server still independently denies every viewer POST/PUT/PATCH/DELETE, including scheduler and settings mutations. The browser must never be trusted as an authorization enforcement point. Per-user enterprise SSO/RBAC and attributable audit remain deployment decisions and are **not** implemented by shared Basic credentials.
+
+**Read-only preview exception:** Viewer credentials can call the POST-based `/api/tasks/plan` preview and `/api/tasks/close-today` only with `dryRun:true`. The EOD route enforces the viewer role after parsing the body and returns 403 for `dryRun:false`. All other POST/PUT/PATCH/DELETE endpoints remain operator-only. Viewers are not authorized to mutate work items.

@@ -18,8 +18,13 @@ describe('Production web server access controls', () => {
     vi.stubEnv('API_VIEWER_TOKEN', 'viewer-test-secret');
     vi.stubEnv('API_VIEWER_USER', 'auditor');
     const triggerRunNow = vi.fn(async () => ({ success: true, message: 'triggered' }));
+    const plan = vi.fn(async () => ({ personPlans: [] }));
+    const closure = vi.fn(async () => ({ totalFound: 0, dryRun: true, results: [] }));
     const deps = {
       getStatus: { execute: async () => ({ connected: false }) },
+      config: { getConfig: async () => ({ timezone: 'UTC' }) },
+      planTasks: { execute: plan },
+      closeDailyTasks: { execute: closure },
       scheduler: { triggerRunNow, getStatus: () => ({ running: false }) },
     } as unknown as ApiDependencies;
     const server = new AppServer(deps, 0);
@@ -47,6 +52,26 @@ describe('Production web server access controls', () => {
       expect(denied.status).toBe(403);
       expect((await denied.json()).error).toContain('read-only');
       expect(triggerRunNow).not.toHaveBeenCalled();
+      const previewPlan = await fetch(`${target}/api/tasks/plan`, {
+        method: 'POST',
+        headers: { Authorization: auth('auditor', 'viewer-test-secret'), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ all: true }),
+      });
+      expect(previewPlan.status).toBe(200);
+      expect(plan).toHaveBeenCalledOnce();
+      const previewEod = await fetch(`${target}/api/tasks/close-today`, {
+        method: 'POST',
+        headers: { Authorization: auth('auditor', 'viewer-test-secret'), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun: true, all: true }),
+      });
+      expect(previewEod.status).toBe(200);
+      const forbiddenEod = await fetch(`${target}/api/tasks/close-today`, {
+        method: 'POST',
+        headers: { Authorization: auth('auditor', 'viewer-test-secret'), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun: false, confirm: true, all: true }),
+      });
+      expect(forbiddenEod.status).toBe(403);
+      expect(closure).toHaveBeenCalledOnce();
       const accepted = await fetch(`${target}/api/scheduler/run-now`, {
         method: 'POST',
         headers: { Authorization: auth('admin', 'operator-test-secret'), 'Content-Type': 'application/json' },

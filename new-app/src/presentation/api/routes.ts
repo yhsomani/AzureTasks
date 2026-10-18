@@ -256,6 +256,12 @@ export function createApiRouter(deps: ApiDependencies): Router {
       }
       const { asOf } = req.body || {};
       const dryRun = req.body?.dryRun === true;
+      if ((req as typeof req & { authRole?: string }).authRole === 'viewer' && !dryRun) {
+        return res.status(403).json({
+          success: false,
+          error: 'Read-only viewer credentials may preview EOD but may not close work items.',
+        });
+      }
       const runtimeConfig = await deps.config.getConfig();
       const today = getTodayIso(runtimeConfig.timezone || 'UTC');
       if (asOf !== undefined &&

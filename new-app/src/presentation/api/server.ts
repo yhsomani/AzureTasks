@@ -39,6 +39,10 @@ function basicAuth(user: string, token: string, viewerUser?: string, viewerToken
         // Viewer credentials may read the UI and API but cannot mutate local
         // configuration, credentials, scheduling or remote Azure work items.
         if (['GET', 'HEAD', 'OPTIONS'].includes(req.method.toUpperCase())) return next();
+        // These POST routes contain non-mutating previews. EOD previews are
+        // checked again after express.json() parses dryRun inside the route.
+        if (req.method === 'POST' &&
+          ['/api/tasks/plan', '/api/tasks/close-today'].includes(req.path)) return next();
         return res.status(403).json({
           success: false,
           error: 'This credential has read-only access. Operator authorization is required.',
