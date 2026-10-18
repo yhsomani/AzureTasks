@@ -374,7 +374,9 @@ export class AzureWorkItemService implements WorkItemRepository {
         const title = workItem.fields['System.Title'];
         if (!title || !matchesTaskSeries(title, titlePrefix)) continue;
         const parsed = parseWorkItemTaskDate(workItem, titlePrefix, this.timezone());
-        if (!parsed.isValid) continue;
+        if (!parsed.isValid) {
+          throw new Error(`Cannot prove workday for existing Azure task #${workItem.id} in this series. Resolve its title/scheduling fields before creating more tasks.`);
+        }
         if (parsed.isoDate < startDate || parsed.isoDate > endDate) continue;
 
         const existing = existingMap.get(parsed.isoDate);
