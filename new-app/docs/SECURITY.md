@@ -13,9 +13,9 @@ This document applies to the supported `new-app/` application. It records verifi
 
 1. Create a newly rotated Azure DevOps PAT and GitHub token with only the necessary read/write scopes.
 2. Provide a long, randomly generated `API_AUTH_TOKEN` before starting the web server with `NODE_ENV=production`. Production server startup refuses to run if absent.
-3. Terminate HTTPS at a trusted reverse proxy (or equivalent TLS-enabled network boundary). HTTP Basic authentication is not sufficient over plaintext public networks.
+3. Terminate HTTPS at a trusted reverse proxy (or equivalent TLS-enabled network boundary). HTTP Basic authentication is not sufficient over plaintext public networks. **Node's backend now binds to `127.0.0.1` by default even when authentication is enabled**, preventing a direct network path around a local reverse proxy. If your container or separate-host proxy needs a reachable interface, explicitly configure `LISTEN_HOST=0.0.0.0` (or a specific numeric IP address), restrict that port to the trusted ingress network with firewall/security-group rules, and verify direct public access is impossible. Merely setting `LISTEN_HOST` is never TLS, multi-host locking or ingress approval.
 4. Keep `NODE_TLS_REJECT_UNAUTHORIZED` enabled and do not enable `ALLOW_INSECURE_TLS`. Use `NODE_EXTRA_CA_CERTS` for a trusted corporate CA where appropriate.
-5. Restrict CORS to an explicit origin only when the web client must be served from a different origin. Normal application use requires no CORS configuration. For a TLS-terminating proxy that changes the scheme or Host seen by Node, set `PUBLIC_ORIGIN=https://your-public-host.example.com` (exact origin; no trailing slash/path), or preserve Host and configure the proxy correctly. The API checks browser `Origin` for POST/PUT/PATCH/DELETE and denies `Sec-Fetch-Site: cross-site` unless from an explicitly trusted CORS origin. CLI clients without browser headers still require authentication but can call the API.
+5. Restrict CORS to an explicit origin only when the web client must be served from a different origin. Normal application use requires no CORS configuration. For a TLS-terminating proxy that changes the scheme or Host seen by Node, set `PUBLIC_ORIGIN=https://your-public-host.example.com` (exact origin; no trailing slash/path), or preserve Host and configure the proxy correctly. The API checks browser `Origin` for POST/PUT/PATCH/DELETE and denies `Sec-Fetch-Site: cross-site` unless from an explicitly trusted CORS origin. It also denies `Sec-Fetch-Site: same-site` when the Origin header is absent (a sibling-domain browser request must not become a trusted CLI request merely because a proxy stripped Origin). Truly headerless CLI clients and same-origin requests without Origin remain supported but still require authentication.
 6. Keep automatic scheduling and auto-closure disabled on initial setup. A persisted deployment with automation enabled should be migrated explicitly, after reviewing its intended behavior. Start one scheduler instance per lock domain; coordinate shared locks if deploying multiple hosts.
 7. Test a **read-only plan** and inspect identities, date window, duplicate coverage and source work-item relationships before any actual task creation or closure.
 
@@ -32,6 +32,9 @@ This document applies to the supported `new-app/` application. It records verifi
 | `POST /api/config/settings` containing `githubToken` | Persisted by existing configuration repository; response returns masked token |
 | Unknown `/api/*` path | HTTP 404 with JSON failure object |
 | Production startup without `API_AUTH_TOKEN` | Startup error, not an exposed mutation service |
+| Authenticated startup with default `LISTEN_HOST` | Bind to `127.0.0.1`; do not expose a direct public HTTP port |
+| Browser `Sec-Fetch-Site: same-site` with no `Origin` on unsafe APIs | HTTP 403, regardless of valid Basic credentials |
+| Headerless authenticated CLI call to unsafe APIs | Can reach route-level authorization and explicit confirmation checks |
 | Startup with global insecure TLS bypass | Startup error, not an insecure network client |
 
 ## Verified versus unverified
