@@ -253,8 +253,8 @@ export function parseWorkItemTaskDate(
   // DD-MM-YYYY. That year is authoritative and must NOT be replaced with
   // the process's current year or merely compared by month/day.
   const titleSegment = title.split('|')[1]?.trim() || '';
-  const numeric = titleSegment.match(/^(\\d{1,2})[-/](\\d{1,2})[-/](\\d{4})(?:\\s|$)/);
-  const named = titleSegment.match(/^(\\d{1,2})\\s+([A-Za-z]{3,9})\\s+(\\d{4})(?:\\s|$)/);
+  const numeric = titleSegment.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:\s|$)/);
+  const named = titleSegment.match(/^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})(?:\s|$)/);
   let parsed = parseTitleDate(title, prefix, true);
   let explicitYear = false;
   if (numeric || named) {
