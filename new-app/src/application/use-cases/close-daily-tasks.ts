@@ -150,20 +150,10 @@ export class CloseDailyTasksUseCase {
           const personPrefix = p.titlePrefix || activeConfig.titlePrefix;
           // Never close an unrelated work item merely because its date matches.
           if (!matchesTaskSeries(title, personPrefix)) continue;
+          // Do not bypass title/date conflicts using raw StartDate strings.
+          // Both series and date must independently match before mutation.
           const parsed = parseWorkItemTaskDate(item, personPrefix, activeConfig.timezone);
-          let itemDate = parsed.isValid ? parsed.isoDate : '';
-
-          if (!itemDate && item.fields['Microsoft.VSTS.Scheduling.StartDate']) {
-            itemDate = String(item.fields['Microsoft.VSTS.Scheduling.StartDate']).split('T')[0];
-          }
-          if (!itemDate && item.fields['Custom.PlannedStartdate']) {
-            itemDate = String(item.fields['Custom.PlannedStartdate']).split('T')[0];
-          }
-          if (!itemDate && item.fields['Custom.ActualStartdate']) {
-            itemDate = String(item.fields['Custom.ActualStartdate']).split('T')[0];
-          }
-
-          if (itemDate === targetDate) {
+          if (parsed.isValid && parsed.isoDate === targetDate) {
             seenTaskIds.add(item.id);
             matchedTasks.push({ person: p, item });
             break;
