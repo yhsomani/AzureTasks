@@ -25,14 +25,30 @@ function validateJson(name, bytes) {
   if (name !== 'people.json' && !Array.isArray(parsed)) {
     fail(name + ' must contain an array of audit journal entries.');
   }
-  if (name === 'people.json' && (!parsed || typeof parsed !== 'object')) {
-    fail('people.json must contain an object or legacy people array.');
+  if (name === 'people.json') {
+    if (!parsed || typeof parsed !== 'object') {
+      fail('people.json must contain an object or legacy people array.');
+    }
+    // Historic configurations sometimes stored GitHub and Azure tokens in
+    // people.json. Never label a backup "secrets excluded" if that is true.
+    const forbidden = /^(?:pat|azuredevopspat|githubtoken|ghtoken|accesstoken|refreshtoken|apiauthtoken|password|clientsecret|authorization|credentials|secret)$/i;
+    const inspect = (value) => {
+      if (!value || typeof value !== 'object') return;
+      for (const [key, child] of Object.entries(value)) {
+        if (forbidden.test(key)) fail('State contains legacy credential fields. Migrate secrets before backup.');
+        inspect(child);
+      }
+    };
+    inspect(parsed);
   }
 }
 function fileNames(state) {
   const paths = ['people.json', '.task-journal.json'];
   const archives = path.join(state, '.journal-archives');
   if (fs.existsSync(archives)) {
+    if (fs.lstatSync(archives).isSymbolicLink() || !fs.statSync(archives).isDirectory()) {
+      fail('Refusing to read journal archives through a symbolic link or non-directory.');
+    }
     for (const name of fs.readdirSync(archives).sort()) {
       if (/^task-journal-[a-zA-Z0-9_.-]+\.json$/.test(name)) {
         paths.push('.journal-archives/' + name);

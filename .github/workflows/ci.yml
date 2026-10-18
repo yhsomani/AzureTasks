@@ -15,9 +15,9 @@ jobs:
         working-directory: new-app
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -26,10 +26,25 @@ jobs:
         run: npm ci
       - name: Production dependency vulnerability audit
         run: npm audit --omit=dev --audit-level=high
+      - name: Enforce complete dependency security audit (including development tooling)
+        run: |
+          set -euo pipefail
+          # Query the committed dependency graph, not the mutable node_modules tree.
+          # Retry registry transport/availability failures without suppressing
+          # high/critical advisories: every unsuccessful attempt blocks release.
+          for attempt in 1 2 3; do
+            if npm audit --package-lock-only --audit-level=high; then
+              exit 0
+            fi
+            echo "Full npm audit unsuccessful (attempt ${attempt}/3)."
+            sleep 2
+          done
+          echo "Full npm audit never passed; release blocked."
+          exit 1
       - name: Typecheck
         run: npm run typecheck
       - name: Lint
-        run: npm run lint
+        run: npm run lint -- --max-warnings=0
       - name: Test
         run: npm run test:coverage
       - name: Validate browser and staging verification scripts
@@ -75,7 +90,7 @@ jobs:
         run: node tests/browser/ui-journeys.mjs
       - name: Upload browser evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ui-browser-screenshots
           path: new-app/artifacts/*.png
@@ -94,9 +109,9 @@ jobs:
         working-directory: new-app
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm

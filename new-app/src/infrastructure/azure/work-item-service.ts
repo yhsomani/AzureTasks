@@ -61,7 +61,7 @@ export class AzureWorkItemService implements WorkItemRepository {
   ): Promise<DiscoveredTask | null> {
     if (sourceTaskIdOverride) {
       const workItem = await this.getWorkItem(sourceTaskIdOverride);
-      const parsedDate = validateSourceTaskOwnership(workItem, project, workItemType, titlePrefix, personIdentity);
+      validateSourceTaskOwnership(workItem, project, workItemType, titlePrefix, personIdentity);
       const anchoredDate = parseWorkItemTaskDate(workItem, titlePrefix, this.timezone());
       if (!anchoredDate.isValid) throw new Error('Source task title and recorded Azure dates conflict.');
       return {

@@ -91,7 +91,9 @@ class Logger {
     this.emit('success', message);
   }
   raw(message: string): void {
-    console.log(message);
+    // Even unformatted CLI output must never bypass registered secret
+    // scrubbing; external API error bodies can echo Authorization values.
+    console.log(this.scrub(message));
   }
 
   getRecentLogs(limit?: number): LogEntry[] {
