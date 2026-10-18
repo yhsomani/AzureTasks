@@ -67,6 +67,15 @@ describe('Production web server access controls', () => {
       expect(duplicatedMembers.status).toBe(400);
       expect((await duplicatedMembers.json()).error).toContain('duplicate member keys');
       expect(plan).toHaveBeenCalledOnce();
+      for (const route of ['/api/journal', '/api/logs/recent']) {
+        for (const invalidLimit of ['-1', '0', '1garbage', '999999']) {
+          const invalid = await fetch(`${target}${route}?limit=${invalidLimit}`, {
+            headers: { Authorization: auth('auditor', 'viewer-test-secret') },
+          });
+          expect(invalid.status).toBe(400);
+          expect((await invalid.json()).error).toContain('positive integer');
+        }
+      }
       const previewEod = await fetch(`${target}/api/tasks/close-today`, {
         method: 'POST',
         headers: { Authorization: auth('auditor', 'viewer-test-secret'), 'Content-Type': 'application/json' },
