@@ -241,3 +241,21 @@ The tool uses only `GET https://vssps.dev.azure.com/<org>/_apis/identities` and 
 
 This is read-only account resolution, **not proof** of project membership, work-item assignability, tenant process rules, source task ownership, correct prefixes, or safe task creation. Follow with authorized read-only WIQL/work-item comparison and separately approved bounded staging operations. Automated fixture tests run via `npm run test:identities`; production identity verification remains blocked until an operator records dated live-tenant evidence.
 
+
+### Scoped work-item prefix preflight (repository implementation, tenant verification pending)
+
+To compare configured per-person title prefixes with actual Azure DevOps work items created since a known date, provision a **new, work-item read-only** token (`vso.work`) from your approved vault. Run from `new-app/` after populating private `people.json` with real validated email/UPN identities:
+
+```bash
+# Provision AZURE_DEVOPS_WORK_READ_PAT securely (do not echo or check in).
+RELEASE_FROM_DATE=2026-10-01 npm run verify:workitems:readonly
+# Optional: scope to up to 20 enabled people by their local config keys:
+RELEASE_FROM_DATE=2026-10-01 RELEASE_PERSON_KEYS=member1,member2 npm run verify:workitems:readonly
+```
+
+The tool performs **Azure WIQL POST for a read-only SELECT query**, followed by **GET work-item details**; there are no item create, update, transition or delete calls. It filters each member's task type, project, *exact configured UPN*, and `System.CreatedDate >= RELEASE_FROM_DATE`. Every returned ID must have a matching read-back, project, type and assignee. A bounded query (maximum 200 work items per member and 20 selected members) fails closed on truncation, ambiguity, missing/mismatched identities, empty coverage or a missing configured series prefix. No titles, PATs or employee identifiers are printed.
+
+**Limitations:** `PREFIX_OBSERVED` means at least one recent title in the configured series was independently observed. It does **not** establish that all historical tasks, intended work dates, source-task ownership, assignment permissions or per-day deduplication are correct. It does not validate tasks created before the chosen creation-date bound. Human review of the actual person/date evidence and separately authorized staging writes are still required; issue #11's live tenant checklist stays open until dated evidence is recorded.
+
+Offline tests: `npm run test:workitems`.
+

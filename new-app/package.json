@@ -21,7 +21,9 @@
     "verify:schema:readonly": "node scripts/verify-azure-schema.mjs",
     "test:schema": "node --test scripts/verify-azure-schema.test.mjs",
     "verify:identities:readonly": "node scripts/verify-azure-identities.mjs",
-    "test:identities": "node --test scripts/verify-azure-identities.test.mjs"
+    "test:identities": "node --test scripts/verify-azure-identities.test.mjs",
+    "verify:workitems:readonly": "node scripts/verify-azure-workitems.mjs",
+    "test:workitems": "node --test scripts/verify-azure-workitems.test.mjs"
   },
   "keywords": [
     "azure-devops",
