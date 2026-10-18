@@ -224,3 +224,20 @@ npm run verify:staging:readonly
 ```
 
 The script reads `/api/health`, `/api/ready`, configuration and the journal, then sends POSTs **only to a nonexistent API route** to test same-origin and hostile-origin rejection. It does not create, close or repair Azure work items. It fails if read-only Azure readiness is unavailable. For a local host-only test, `ALLOW_LOCAL_HTTP=1` permits HTTP on localhost; never enable that for a remote deployment. This is not a substitute for operator-approved tenant write tests, SSO review, or restoration rehearsal.
+
+## Read-only identity lookup preflight (issue #11)
+
+After provisioning a **new** PAT with Azure DevOps **Identity (Read)** scope (`vso.identity`) from an approved secret store, run from `new-app/`:
+
+```bash
+# Do not reuse any previously exposed PAT.
+# Inject a dedicated AZURE_DEVOPS_IDENTITY_PAT securely; never commit or echo it.
+npm run verify:identities:readonly
+# To restrict a larger team to only two enabled member keys:
+RELEASE_PERSON_KEYS=member1,member2 npm run verify:identities:readonly
+```
+
+The tool uses only `GET https://vssps.dev.azure.com/<org>/_apis/identities` and verifies that each configured, enabled member's `assignedTo` exactly resolves to **one active, non-group identity**, with no duplicated member key/account/Azure identity. It requires an email/UPN or an Azure **subject descriptor**; ambiguous display names fail closed. Per-member `titlePrefix` is checked for presence, but **not** proven against live work items. Output includes only ordinal member numbers and statuses, not employee emails or credentials. A nonzero exit status blocks the gate.
+
+This is read-only account resolution, **not proof** of project membership, work-item assignability, tenant process rules, source task ownership, correct prefixes, or safe task creation. Follow with authorized read-only WIQL/work-item comparison and separately approved bounded staging operations. Automated fixture tests run via `npm run test:identities`; production identity verification remains blocked until an operator records dated live-tenant evidence.
+

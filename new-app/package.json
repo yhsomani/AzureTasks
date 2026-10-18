@@ -19,7 +19,9 @@
     "state:verify": "node scripts/state-backup.mjs verify",
     "state:restore": "node scripts/state-backup.mjs restore",
     "verify:schema:readonly": "node scripts/verify-azure-schema.mjs",
-    "test:schema": "node --test scripts/verify-azure-schema.test.mjs"
+    "test:schema": "node --test scripts/verify-azure-schema.test.mjs",
+    "verify:identities:readonly": "node scripts/verify-azure-identities.mjs",
+    "test:identities": "node --test scripts/verify-azure-identities.test.mjs"
   },
   "keywords": [
     "azure-devops",

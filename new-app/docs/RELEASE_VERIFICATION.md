@@ -27,7 +27,7 @@
 |---|---|---|
 | Azure DevOps credentials rotated | **BLOCKED** | Operator revokes all previously exposed PATs, provisions a least-privilege replacement, verifies no copies remain in logs or artifacts |
 | Production HTTPS, proxy and Origin/CSRF | **BLOCKED** | Real production FQDN/CA, auth, `PUBLIC_ORIGIN`, optional `CORS_ORIGIN`; exercise same-origin and hostile-origin requests through actual proxy |
-| Correct live members, per-person source prefix and dates | **BLOCKED** | Read-only scoped WIQL and identities compared with expected results; reject ambiguous names |
+| Correct live members, per-person source prefix and dates | **BLOCKED** | Read-only identity preflight now has fixture tests; still requires dated live identity + scoped WIQL/task-date evidence and operator review |
 | Bounded real task creation | **BLOCKED** | Explicit operator approval for one test member/date, verify idempotency, relations/fields, journal and safe reconciliation |
 | Relation recovery and EOD closure | **BLOCKED** | Permissioned test instance, dry-run then explicit authorized single task transition, verify actual Azure fields and relations by read-back |
 | Scheduler crash/restart / lock recovery | **BLOCKED** | Single host and cold restart, simulate missed window, failed checkpoint and concurrent operator, confirm zero surprise writes |
@@ -38,6 +38,22 @@
 | Exact release SHA signoff | **BLOCKED** | Record SHA, date, CI run, deployment URL, restore rehearsal, signed operator approval |
 
 **No-go rule:** any blocked production/tenant gate above prevents a claim of production-ready deployment, even when GitHub Actions is green. Do not run production mutations without explicit authorization.
+
+## Read-only identity lookup preflight (issue #11)
+
+After provisioning a **new** PAT with Azure DevOps **Identity (Read)** scope (`vso.identity`) from an approved secret store, run from `new-app/`:
+
+```bash
+# Do not reuse any previously exposed PAT.
+# Inject a dedicated AZURE_DEVOPS_IDENTITY_PAT securely; never commit or echo it.
+npm run verify:identities:readonly
+# To restrict a larger team to only two enabled member keys:
+RELEASE_PERSON_KEYS=member1,member2 npm run verify:identities:readonly
+```
+
+The tool uses only `GET https://vssps.dev.azure.com/<org>/_apis/identities` and verifies that each configured, enabled member's `assignedTo` exactly resolves to **one active, non-group identity**, with no duplicated member key/account/Azure identity. It requires an email/UPN or an Azure **subject descriptor**; ambiguous display names fail closed. Per-member `titlePrefix` is checked for presence, but **not** proven against live work items. Output includes only ordinal member numbers and statuses, not employee emails or credentials. A nonzero exit status blocks the gate.
+
+This is read-only account resolution, **not proof** of project membership, work-item assignability, tenant process rules, source task ownership, correct prefixes, or safe task creation. Follow with authorized read-only WIQL/work-item comparison and separately approved bounded staging operations. Automated fixture tests run via `npm run test:identities`; production identity verification remains blocked until an operator records dated live-tenant evidence.
 
 ## Minimal staged verification
 
