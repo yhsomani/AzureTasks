@@ -69,7 +69,7 @@ export async function buildApp(
   // request time for the same reason.
   const client = new AzureDevOpsClient(config);
 
-  const workItemRepo = new AzureWorkItemService(client);
+  const workItemRepo = new AzureWorkItemService(client, () => config.timezone);
   const journalRepo = new FileJournalRepository();
   const lockRepo = new FileLockRepository();
   const schedulerRepo = new NodeSchedulerRepository(config, configRepo);
