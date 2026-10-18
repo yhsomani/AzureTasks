@@ -101,8 +101,9 @@ export async function buildApp(
   // Wire scheduler to run task creation
   schedulerRepo.setScheduleFunction(async () => {
     const result = await createTasks.execute({ all: true, yes: true });
-    if (result.totalTaskFailureCount > 0) {
-      throw new Error(`${result.totalTaskFailureCount} task(s) failed`);
+    if (result.totalTaskFailureCount > 0 || result.totalRelationFailureCount > 0 ||
+      result.personResults.some(p => (p.auditWarnings?.length ?? 0) > 0)) {
+      throw new Error('Scheduled task creation had failures or unverified audit/relation results. Inspect the task journal.');
     }
   });
 

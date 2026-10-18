@@ -149,6 +149,18 @@ describe('CreateTasksUseCase (integration, fake repo)', () => {
     expect(journal.entries.every(e => e.fieldCopyStatus === 'SUCCESS')).toBe(true);
   });
 
+  it('never relabels an Azure-created task as a failed creation when journaling fails', async () => {
+    const repo = new FakeWorkItemRepo(true);
+    const expected = await plannedCount(repo);
+    journal.record = async () => { throw new Error('disk full'); };
+    const output = await build(repo).execute({ all: true, asOf: TODAY, yes: true });
+    expect(output.totalCreatedCount).toBe(expected);
+    expect(output.totalTaskFailureCount).toBe(0);
+    expect(repo.created).toHaveLength(expected);
+    expect(output.personResults.every(p => p.status === 'PARTIAL')).toBe(true);
+    expect(output.personResults.every(p => p.auditWarnings?.some(w => w.includes('journal write failed')))).toBe(true);
+  });
+
   it('assigns each created task to the correct person', async () => {
     const repo = new FakeWorkItemRepo(true);
     const perPerson = await plannedCount(repo) / 2;
