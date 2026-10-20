@@ -64,3 +64,33 @@ Ensure all safety mechanisms, dry-run flags, read-only guarantees, and credentia
 - [ ] `npm test` runs and all unit & integration test suites pass
 - [ ] New features or improved functionality are covered with automated tests
 - [ ] Production build succeeds (`npm run build`)
+
+## 2026-10-20T06:17:22Z
+
+Comprehensive audit of all existing AzureTasks (3in1 Task Studio) capabilities and selection of high-value new features to design and implement.
+
+Working directory: /Users/yashsomani/Desktop/Asure Bord Project/new-app
+Integrity mode: development
+
+## Requirements
+
+### R1. Existing Feature Verification & Matrix Audit
+Audit and cross-check the current 10 core capability areas (Intelligence Dashboard, My Work, Task Explorer, Plan & Create, EOD Closure, Scheduler, Relation Repair, Audit Journal, Roster Management, and Security/Logging) to ensure flawless operation and 100% test coverage.
+
+### R2. New Feature Prioritization & Implementation
+Select and implement the next major enhancements for the platform from the identified candidates:
+1. Leave & Holiday Calendar System (Skip public holidays and member vacation days from missing task detection & automated creation).
+2. Per-Member Workday Hours Customization (Support part-time, contractor, or custom effort hours per developer).
+3. Task Status Quick-Action in Task Explorer (Inline task state transitions and effort logging directly from the matrix).
+4. Slack / MS Teams Daily Standup Webhook Notification (Automated broadcast of created/closed tasks and PR deliverables).
+5. Active Sprint / Iteration Path Auto-Assignment (Map daily tasks to active Azure DevOps sprint iterations).
+
+## Acceptance Criteria
+
+### Audit & Verification
+- [ ] All 10 existing core modules cross-checked against production code and documented in an audit matrix.
+- [ ] All 39 test suites (554+ tests) and verification scripts continue to pass without regressions.
+
+### New Features Implementation
+- [ ] Selected features are backed by domain entities, use-cases, API routes, and web UI components.
+- [ ] New automated unit and integration tests written with full edge-case coverage.
