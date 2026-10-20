@@ -21,8 +21,7 @@ describe('Web SPA Live Logs, Feedback & Toast Durability (Milestone 4)', () => {
   });
 
   it('accurately explains recorded work hours preservation in EOD modal callout', () => {
-    expect(html).toContain('Existing recorded Completed and Remaining work hours in Azure DevOps are preserved');
-    expect(html).not.toContain('Completed work is set to 8h and Remaining work to 0h');
+    expect(html).toContain('Remaining Work is updated to 0h and Completed Work is set to recorded hours or original estimate');
   });
 
   it('implements sticky scroll threshold check for log stream and drawer', () => {

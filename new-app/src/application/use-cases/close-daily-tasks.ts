@@ -284,19 +284,22 @@ export class CloseDailyTasksUseCase {
         const actualEnd = item.fields['Custom.ActualEnddate'] ||
           item.fields['Custom.ActualEndDate'] || '';
 
-        // Closing is not evidence of 8 hours worked. Preserve actuals already
-        // recorded in Azure DevOps rather than fabricating a full workday.
-        const completedWork = readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.CompletedWork']);
-        const remainingWork = readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.RemainingWork']);
-        if ((completedWork !== null && Number.isNaN(completedWork)) ||
-            (remainingWork !== null && Number.isNaN(remainingWork))) {
-          throw new Error('Invalid Azure work tracking values; closure requires review.');
-        }
+        // Calculate closure hours: Remaining Work is set to 0, Completed Work is set to
+        // existing recorded completed hours, or Original Estimate, or default 8 hours.
+        const originalEstimate = readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.OriginalEstimate']);
+        const existingCompleted = readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.CompletedWork']);
+        const closureCompletedWork = existingCompleted !== null && existingCompleted > 0
+          ? existingCompleted
+          : (originalEstimate !== null && originalEstimate > 0 ? originalEstimate : 8);
+        const closureRemainingWork = 0;
+
         const ops: any[] = [
+          { op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.RemainingWork', value: closureRemainingWork },
+          { op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.CompletedWork', value: closureCompletedWork },
           {
             op: 'add',
             path: '/fields/System.History',
-            value: `EOD closure requested at ${nowUtc}. Existing Completed Work: ${completedWork === null ? 'not recorded' : `${completedWork}h`}; Remaining Work: ${remainingWork === null ? 'not recorded' : `${remainingWork}h`} (both unchanged). ${prDeliverables.summaryText}`,
+            value: `EOD closure requested at ${nowUtc}. Remaining Work set to ${closureRemainingWork}h; Completed Work set to ${closureCompletedWork}h. ${prDeliverables.summaryText}`,
           },
           { op: 'add', path: '/fields/System.State', value: 'Closed' },
         ];
@@ -421,8 +424,8 @@ export class CloseDailyTasksUseCase {
           plannedStartDate: String(plannedStart),
           actualStartDate: String(actualStart),
           actualEndDate: String(actualEnd),
-          remainingWork,
-          completedWork,
+          remainingWork: closureRemainingWork,
+          completedWork: closureCompletedWork,
           githubUsername: githubUser,
           prCount: prDeliverables.pullRequests.length,
           prSourceDate: prDeliverables.sourceDate,
