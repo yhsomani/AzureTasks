@@ -15,6 +15,7 @@ import {
   matchesPerson,
   matchesTaskSeries,
   validateSourceTaskOwnership,
+  isUserStoryOrParentContainer,
 } from '../../domain/index.js';
 
 interface WiqlQueryResult {
@@ -132,6 +133,7 @@ export class AzureWorkItemService implements WorkItemRepository {
     const candidateTasks: DiscoveredTask[] = [];
     const fallbackTasks: DiscoveredTask[] = [];
     for (const workItem of allFetched) {
+      if (isUserStoryOrParentContainer(workItem)) continue;
       if (!matchesPerson(workItem.fields['System.AssignedTo'], targetPerson)) {
         continue;
       }
@@ -276,6 +278,7 @@ export class AzureWorkItemService implements WorkItemRepository {
       const personFallbackTasks = new Map<string, DiscoveredTask[]>();
 
       for (const workItem of allFetched) {
+        if (isUserStoryOrParentContainer(workItem)) continue;
         const assignedToVal = workItem.fields['System.AssignedTo'];
         for (const person of discoveryPeople) {
           if (matchesPerson(assignedToVal, person)) {
@@ -423,12 +426,13 @@ export class AzureWorkItemService implements WorkItemRepository {
       for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
         const chunk = ids.slice(i, i + CHUNK_SIZE).join(',');
         const batchResult = await this.client.get<WorkItemBatchResult>(
-          `/${project}/_apis/wit/workitems?ids=${chunk}&api-version=7.0`
+          `/${project}/_apis/wit/workitems?ids=${chunk}&$expand=relations&api-version=7.0`
         );
         allFetched.push(...this.requireCompleteBatch(batchResult, ids.slice(i, i + CHUNK_SIZE), 'duplicate-detection work-item batch'));
       }
 
       for (const workItem of allFetched) {
+        if (isUserStoryOrParentContainer(workItem)) continue;
         if (!matchesPerson(workItem.fields['System.AssignedTo'], targetPerson)) {
           continue;
         }
@@ -534,7 +538,7 @@ export class AzureWorkItemService implements WorkItemRepository {
       for (let i = 0; i < result.workItems.length; i += CHUNK_SIZE) {
         const ids = result.workItems.slice(i, i + CHUNK_SIZE).map(w => w.id).join(',');
         const batch = await this.client.get<WorkItemBatchResult>(
-          `/${project}/_apis/wit/workitems?ids=${ids}&api-version=7.0`
+          `/${project}/_apis/wit/workitems?ids=${ids}&$expand=relations&api-version=7.0`
         );
         items.push(...this.requireCompleteBatch(batch, result.workItems.slice(i, i + CHUNK_SIZE).map(w => w.id), 'candidate work-item batch'));
       }

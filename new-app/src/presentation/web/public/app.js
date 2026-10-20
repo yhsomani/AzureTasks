@@ -1337,8 +1337,11 @@ function openDateInspectModal(cell, person) {
 
   const sumBox = $('#dateInspectSummary');
   if (sumBox) {
+    const isDup = (cell.tasks && cell.tasks.length > 1) || cell.status === 'DUPLICATE';
+    const statusText = isDup ? 'DUPLICATE' : (cell.tasks && cell.tasks.length === 1 ? 'CREATED' : cell.status);
+    const pillClass = isDup ? 'warn' : (statusText === 'CREATED' ? 'ok' : 'warn');
     sumBox.innerHTML = `
-      <span class="pill ${cell.status === 'CREATED' ? 'ok' : 'warn'}">${cell.status}</span>
+      <span class="pill ${pillClass}">${statusText}</span>
       <span class="pill">${cell.isWeekend ? 'Weekend' : 'Working Day'}</span>
     `;
   }

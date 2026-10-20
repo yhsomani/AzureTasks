@@ -11,6 +11,7 @@ import {
   parseTitleDate,
   matchesTaskSeries,
   extractWorkItemRecordedDate,
+  isUserStoryOrParentContainer,
 } from '../../domain/entities/task.js';
 import {
   getTodayIso,
@@ -307,6 +308,10 @@ export class ExploreTasksUseCase {
     }
 
     for (const item of candidateWorkItems) {
+      // Exclude User Stories and parent containers (which have child links or User Story type)
+      if (isUserStoryOrParentContainer(item)) {
+        continue;
+      }
       const assignedToVal = item.fields['System.AssignedTo'];
       const title = String(item.fields['System.Title'] || '');
 

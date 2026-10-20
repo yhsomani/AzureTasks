@@ -15,6 +15,7 @@ import {
   parseWorkItemTaskDate,
   parseTitleDate,
   matchesTaskSeries,
+  isUserStoryOrParentContainer,
   DatePlanningService,
 } from '../../domain/index.js';
 import { GitHubClient } from '../../infrastructure/github/github-client.js';
@@ -143,6 +144,8 @@ export class CloseDailyTasksUseCase {
 
     for (const item of candidateWorkItems) {
       if (seenTaskIds.has(item.id)) continue;
+      // Exclude User Stories and parent containers from daily closure
+      if (isUserStoryOrParentContainer(item)) continue;
       const assignedToVal = item.fields['System.AssignedTo'];
       const title = String(item.fields['System.Title'] || '');
 
