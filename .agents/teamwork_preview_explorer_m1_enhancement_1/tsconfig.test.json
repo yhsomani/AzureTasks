@@ -1,0 +1,22 @@
+{
+  "extends": "/Users/yashsomani/Desktop/Asure Bord Project/new-app/tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "/Users/yashsomani/Desktop/Asure Bord Project/new-app",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "typeRoots": [
+      "/Users/yashsomani/Desktop/Asure Bord Project/new-app/node_modules/@types",
+      "/Users/yashsomani/Desktop/Asure Bord Project/new-app/node_modules"
+    ],
+    "types": ["node", "vitest/globals"],
+    "noEmit": true
+  },
+  "include": [
+    "/Users/yashsomani/Desktop/Asure Bord Project/new-app/src/**/*",
+    "/Users/yashsomani/Desktop/Asure Bord Project/new-app/tests/**/*"
+  ],
+  "exclude": [
+    "/Users/yashsomani/Desktop/Asure Bord Project/new-app/node_modules",
+    "/Users/yashsomani/Desktop/Asure Bord Project/new-app/dist"
+  ]
+}

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { Person, PersonConfig } from '../../src/domain/entities/person';
 import { validateSourceTaskOwnership } from '../../src/domain/entities/task';
 import {
   parseTitleDate,
@@ -103,8 +104,74 @@ describe('source task ownership validation', () => {
     },
   };
 
-  it('accepts a matching project, type, series and exact Azure assignee', () => {
+  it('accepts a matching project, type, series and exact Azure assignee string', () => {
     expect(validateSourceTaskOwnership(source, 'Project-A', '3in1 Task', prefix, 'member-a@company.test').isValid).toBe(true);
+  });
+
+  it('accepts a Person entity when Azure provides uniqueName and displayName', () => {
+    const person = new Person({
+      key: 'member-a',
+      name: 'Member A',
+      assignedTo: 'member-a@company.test',
+    });
+    expect(validateSourceTaskOwnership(source, 'Project-A', '3in1 Task', prefix, person).isValid).toBe(true);
+  });
+
+  it('accepts a PersonConfig object when Azure provides uniqueName and displayName', () => {
+    const config: PersonConfig = {
+      key: 'member-a',
+      name: 'Member A',
+      assignedTo: 'member-a@company.test',
+    };
+    expect(validateSourceTaskOwnership(source, 'Project-A', '3in1 Task', prefix, config).isValid).toBe(true);
+  });
+
+  it('accepts a Person entity when Azure provides only displayName without uniqueName', () => {
+    const displayNameOnlySource = {
+      ...source,
+      fields: {
+        ...source.fields,
+        'System.AssignedTo': { displayName: 'Member A' },
+      },
+    };
+    const person = new Person({
+      key: 'member-a',
+      name: 'Member A',
+      assignedTo: 'member-a@company.test',
+    });
+    expect(validateSourceTaskOwnership(displayNameOnlySource, 'Project-A', '3in1 Task', prefix, person).isValid).toBe(true);
+  });
+
+  it('accepts a Person entity when Azure provides raw string displayName matching person name', () => {
+    const stringDisplayNameSource = {
+      ...source,
+      fields: {
+        ...source.fields,
+        'System.AssignedTo': 'Member A',
+      },
+    };
+    const person = new Person({
+      key: 'member-a',
+      name: 'Member A',
+      assignedTo: 'member-a@company.test',
+    });
+    expect(validateSourceTaskOwnership(stringDisplayNameSource, 'Project-A', '3in1 Task', prefix, person).isValid).toBe(true);
+  });
+
+  it('accepts a Person entity when Azure provides name <email> string format', () => {
+    const bracketSource = {
+      ...source,
+      fields: {
+        ...source.fields,
+        'System.AssignedTo': 'Member A <member-a@company.test>',
+      },
+    };
+    const person = new Person({
+      key: 'member-a',
+      name: 'Member A',
+      assignedTo: 'member-a@company.test',
+    });
+    expect(validateSourceTaskOwnership(bracketSource, 'Project-A', '3in1 Task', prefix, person).isValid).toBe(true);
   });
 
   it('blocks cross-person, cross-project and cross-series overrides', () => {
@@ -112,6 +179,44 @@ describe('source task ownership validation', () => {
     expect(() => validateSourceTaskOwnership(source, 'Project-B', '3in1 Task', prefix, 'member-a@company.test')).toThrow(/project and task type/);
     expect(() => validateSourceTaskOwnership(source, 'Project-A', 'Bug', prefix, 'member-a@company.test')).toThrow(/project and task type/);
     expect(() => validateSourceTaskOwnership(source, 'Project-A', '3in1 Task', 'OtherSeries |', 'member-a@company.test')).toThrow(/different task series/);
+
+    const wrongPerson = new Person({
+      key: 'member-b',
+      name: 'Member B',
+      assignedTo: 'member-b@company.test',
+    });
+    expect(() => validateSourceTaskOwnership(source, 'Project-A', '3in1 Task', prefix, wrongPerson)).toThrow(/not assigned/);
+  });
+
+  it('rejects when uniqueName conflicts even if displayName happens to match', () => {
+    const conflictingSource = {
+      ...source,
+      fields: {
+        ...source.fields,
+        'System.AssignedTo': { displayName: 'Member A', uniqueName: 'other@company.test' },
+      },
+    };
+    const person = new Person({
+      key: 'member-a',
+      name: 'Member A',
+      assignedTo: 'member-a@company.test',
+    });
+    expect(() => validateSourceTaskOwnership(conflictingSource, 'Project-A', '3in1 Task', prefix, person)).toThrow(/not assigned/);
+  });
+
+  it('accepts string identity matching displayName when Azure provides object with uniqueName and displayName', () => {
+    expect(validateSourceTaskOwnership(source, 'Project-A', '3in1 Task', prefix, 'Member A').isValid).toBe(true);
+  });
+
+  it('accepts string identity with name and angle-bracketed email matching displayName-only Azure source', () => {
+    const displayNameOnlySource = {
+      ...source,
+      fields: {
+        ...source.fields,
+        'System.AssignedTo': { displayName: 'Member A' },
+      },
+    };
+    expect(validateSourceTaskOwnership(displayNameOnlySource, 'Project-A', '3in1 Task', prefix, 'Member A <member-a@company.test>').isValid).toBe(true);
   });
 });
 

@@ -1,0 +1,173 @@
+--- a/src/infrastructure/lock/file-lock-repo.ts
++++ b/src/infrastructure/lock/file-lock-repo.ts
+@@ -42,36 +42,98 @@
+       }
+     };
+ 
++    // Fast path: attempt atomic creation if lock does not exist
+     if (writeExclusive()) return true;
++
++    // Slow path: lock exists. Evaluate staleness.
+     const existing = this.getLockInfo();
+     if (!existing?.stale) return false;
+ 
+-    // Best-effort single-host stale reclamation with TOCTOU race mitigation.
+-    // Atomically move the suspected stale lock out of the way before removing it.
+-    // If another process already moved, reclaimed, or removed it, renameSync throws ENOENT.
+-    const reclaimTemp = `${this.lockPath}.${process.pid}.${randomUUID()}.stale`;
+-    try {
+-      fs.renameSync(this.lockPath, reclaimTemp);
+-    } catch {
+-      return false;
+-    }
++    // Stale lock reclamation:
++    // To mitigate multi-process races (TOCTOU) where multiple contenders concurrently
++    // observe the same stale lock, we coordinate reclamation using an atomic companion
++    // reclamation lock (`.reclaim.lock`) with flag 'wx'.
++    //
++    // CRITICAL MUTUAL EXCLUSION INVARIANT:
++    // We NEVER move or vacate `this.lockPath`. Moving `this.lockPath` opens a window
++    // where a newly arriving process's `writeExclusive` succeeds while contenders are
++    // restoring files, leading to multiple simultaneous lock holders.
++    // Instead, we replace `this.lockPath` atomically via `fs.renameSync(stagingPath, this.lockPath)`
++    // only after acquiring the reclamation lock AND re-verifying that the lock on disk
++    // is still the exact stale lock observed earlier.
++    const reclaimPath = `${this.lockPath}.reclaim.lock`;
+ 
+-    try {
+-      const moved = this.readLockInfo(reclaimTemp);
+-      if (!moved?.stale || moved.pid !== existing.pid || moved.acquiredAt !== existing.acquiredAt) {
+-        // State changed between check and rename; attempt restoration
++    const acquireReclaimLock = (): boolean => {
++      try {
++        fs.writeFileSync(
++          reclaimPath,
++          JSON.stringify({ pid: process.pid, acquiredAt: Date.now() }),
++          { encoding: 'utf-8', flag: 'wx' }
++        );
++        return true;
++      } catch {
++        // Reclamation lock exists. Check if it is a stale leftover from an abruptly killed process.
+         try {
+-          fs.renameSync(reclaimTemp, this.lockPath);
++          const stat = fs.statSync(reclaimPath);
++          const ageMs = Date.now() - stat.mtimeMs;
++          let isReclaimStale = ageMs > 5_000;
++          if (!isReclaimStale) {
++            try {
++              const rec = JSON.parse(fs.readFileSync(reclaimPath, 'utf-8'));
++              if (rec && typeof rec.pid === 'number' && !this.isProcessAlive(rec.pid)) {
++                isReclaimStale = true;
++              }
++            } catch {
++              if (ageMs > 2_000) isReclaimStale = true;
++            }
++          }
++          if (isReclaimStale) {
++            try { fs.unlinkSync(reclaimPath); } catch {}
++            fs.writeFileSync(
++              reclaimPath,
++              JSON.stringify({ pid: process.pid, acquiredAt: Date.now() }),
++              { encoding: 'utf-8', flag: 'wx' }
++            );
++            return true;
++          }
+         } catch {
+-          try { fs.unlinkSync(reclaimTemp); } catch {}
++          return false;
+         }
+         return false;
+       }
+-      fs.unlinkSync(reclaimTemp);
+-      return writeExclusive();
++    };
++
++    if (!acquireReclaimLock()) {
++      return false;
++    }
++
++    const stagingPath = `${this.lockPath}.${process.pid}.${randomUUID()}.tmp`;
++    try {
++      // Re-verify that the lock is STILL the exact stale lock observed earlier
++      const current = this.readLockInfo(this.lockPath);
++      if (current === null) {
++        // Target lock was unlinked; attempt exclusive write
++        if (writeExclusive()) return true;
++        return false;
++      }
++
++      if (!current.stale || current.pid !== existing.pid || current.acquiredAt !== existing.acquiredAt) {
++        // State changed between initial inspection and reclaim lock acquisition
++        return false;
++      }
++
++      // Write candidate lock to staging file in the same directory (guaranteed same filesystem)
++      fs.writeFileSync(stagingPath, JSON.stringify(info, null, 2), { encoding: 'utf-8' });
++
++      // Atomically replace this.lockPath. this.lockPath is never vacated on disk!
++      fs.renameSync(stagingPath, this.lockPath);
++      this.ownerToken = token;
++      return true;
+     } catch {
+-      try { fs.unlinkSync(reclaimTemp); } catch {}
+       return false;
++    } finally {
++      try { fs.unlinkSync(stagingPath); } catch {}
++      try { fs.unlinkSync(reclaimPath); } catch {}
+     }
+   }
+ 
+@@ -89,10 +151,10 @@
+   }
+ 
+   isLocked(): boolean {
+-    if (!fs.existsSync(this.lockPath)) return false;
+     const info = this.getLockInfo();
+     // Fail closed when metadata is malformed and not yet stale.
+-    return info === null || !info.stale;
++    // If info is null, the lock file does not exist on disk, so it is not locked.
++    return info !== null && !info.stale;
+   }
+ 
+   getLockInfo(): LockInfo | null {
+@@ -100,12 +162,18 @@
+   }
+ 
+   private readLockInfo(targetPath: string): LockInfo | null {
+-    if (!fs.existsSync(targetPath)) return null;
+     let stat: fs.Stats;
+     try {
+       stat = fs.statSync(targetPath);
+-    } catch {
+-      return null;
++    } catch (err: unknown) {
++      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
++        return null;
++      }
++      return {
++        pid: 0,
++        acquiredAt: new Date().toISOString(),
++        stale: false,
++      };
+     }
+ 
+     // 0-byte lock files are immediately considered stale
+@@ -128,11 +196,15 @@
+           return { ...info, stale: !this.isProcessAlive(info.pid) };
+         }
+       }
+-    } catch {
+-      // JSON parse error or read failure: fall through to age-based corruption check
++    } catch (err: unknown) {
++      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
++        return null;
++      }
++      // JSON parse error or non-ENOENT read error: fall through to age-based corruption check
+     }
+ 
+-    // Unparseable / corrupted lock: allow reclamation if older than 60 seconds
++    // Unparseable / corrupted lock or primitive/array JSON payload:
++    // Fail closed if fresh (< 60 seconds), allow reclamation if aged (>= 60 seconds)
+     const ageMs = Date.now() - stat.mtimeMs;
+     return {
+       pid: 0,

@@ -35,6 +35,23 @@ export interface GitHubPrDeliverables {
   summaryText: string;
 }
 
+export interface MemberDailyPrSummary {
+  key: string;
+  name: string;
+  email: string;
+  githubUsername: string;
+  prCount: number;
+  pullRequests: GitHubPullRequest[];
+  filteredByRepositories?: string[];
+}
+
+export interface DailyPrTrackingResult {
+  targetDate: string;
+  timezone: string;
+  totalPrsToday: number;
+  members: MemberDailyPrSummary[];
+}
+
 /**
  * Derives a GitHub Enterprise Managed User (EMU) username from a corporate email.
  * Pattern: local-part dots replaced by hyphens + enterprise suffix (default "_bflghec")

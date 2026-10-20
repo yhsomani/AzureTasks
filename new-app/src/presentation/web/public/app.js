@@ -126,13 +126,30 @@ function toast(msg, type = 'ok') {
   if (!stack) return;
   const t = document.createElement('div');
   t.className = `toast ${type}`;
-  t.textContent = msg;
-  stack.append(t);
-  setTimeout(() => {
+
+  const textSpan = document.createElement('span');
+  textSpan.className = 'toast-msg';
+  textSpan.textContent = msg;
+  t.append(textSpan);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'toast-close';
+  closeBtn.setAttribute('aria-label', 'Dismiss notification');
+  closeBtn.textContent = '✕';
+  let dismissed = false;
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
     t.style.opacity = '0';
     t.style.transform = 'translateY(8px)';
     setTimeout(() => t.remove(), 200);
-  }, 4000);
+  };
+  closeBtn.addEventListener('click', dismiss);
+  t.append(closeBtn);
+
+  stack.append(t);
+  const timeoutMs = type === 'err' ? 8000 : 4000;
+  setTimeout(dismiss, timeoutMs);
 }
 
 function el(tag, attrs = {}, children = []) {
@@ -315,6 +332,9 @@ function switchView(view) {
   if (view === 'journal') refreshJournal();
   if (view === 'scheduler') refreshScheduler();
   if (view === 'settings') fillSettings();
+
+  // Always refresh connection status when navigating to any view
+  refreshStatus();
 }
 
 /* ------------------------------------------------------------- system status */
@@ -437,6 +457,135 @@ async function refreshDashboard() {
     }
     state.explorerData = null;
   });
+
+  // 6. Daily Pull Request Tracking
+  refreshDailyPrCounts();
+}
+
+let dailyPrTimer = null;
+
+async function refreshDailyPrCounts(options = {}) {
+  const forceFresh = Boolean(options.forceFresh);
+  const container = $('#dailyPrContainer');
+  const kpiVal = $('#kpiPrsToday');
+  const lastUpdated = $('#dailyPrLastUpdated');
+
+  if (container && (!state.dailyPrData || forceFresh)) {
+    container.innerHTML = `
+      <div style="padding:16px;">
+        <div class="skeleton-row skeleton" style="height:32px; margin-bottom:8px;"></div>
+        <div class="skeleton-row skeleton"></div>
+      </div>
+    `;
+  }
+
+  try {
+    const data = await api.get('/github/daily-prs', {
+      swr: !forceFresh,
+      forceFresh,
+      maxAgeMs: 25000,
+      abortKey: 'dashboard-daily-prs',
+      onStale: (stale) => {
+        state.dailyPrData = stale;
+        renderDailyPrTracking(stale);
+      },
+    });
+    state.dailyPrData = data;
+    renderDailyPrTracking(data);
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    if (kpiVal) kpiVal.textContent = '—';
+    if (lastUpdated) lastUpdated.textContent = 'Failed to load';
+    if (container) {
+      container.innerHTML = `<p class="muted" style="color:var(--danger); padding:16px;">⚠️ Unable to load daily PR activity: ${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  // Setup auto-refresh timer (every 60s when on dashboard in browser environment)
+  if (!dailyPrTimer && typeof setInterval === 'function') {
+    dailyPrTimer = setInterval(() => {
+      if (state.currentView === 'dashboard') {
+        refreshDailyPrCounts({ forceFresh: true });
+      }
+    }, 60000);
+  }
+}
+
+function renderDailyPrTracking(data) {
+  const kpiVal = $('#kpiPrsToday');
+  const kpiHint = $('#kpiPrsHint');
+  const lastUpdated = $('#dailyPrLastUpdated');
+  const container = $('#dailyPrContainer');
+
+  if (!data || !container) return;
+
+  const total = Number.isFinite(data.totalPrsToday) ? data.totalPrsToday : 0;
+  if (kpiVal) kpiVal.textContent = total;
+  if (kpiHint) kpiHint.textContent = `${data.targetDate || 'Today'} (${data.timezone || 'Local'})`;
+  if (lastUpdated) lastUpdated.textContent = `Updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+
+  const members = data.members || [];
+  if (members.length === 0) {
+    container.innerHTML = '<p class="muted" style="padding:16px;">No configured team members.</p>';
+    return;
+  }
+
+  const table = el('table', { class: 'table' }, [
+    el('thead', {}, el('tr', {}, [
+      el('th', {}, 'Team Member'),
+      el('th', { style: 'text-align:center;' }, 'PRs Raised Today'),
+      el('th', {}, 'Latest PR Activity'),
+    ])),
+  ]);
+
+  const tbody = el('tbody');
+  for (const m of members) {
+    const prCount = m.prCount || 0;
+    const badgeClass = prCount > 0 ? 'badge SUCCESS' : 'badge DUPLICATE';
+    
+    let activityNode;
+    if (m.pullRequests && m.pullRequests.length > 0) {
+      const latestPr = m.pullRequests[0];
+      const repoTag = latestPr.repositoryName ? `[${latestPr.repositoryName}] ` : '';
+      activityNode = el('div', { class: 'small' }, [
+        el('a', {
+          href: latestPr.htmlUrl,
+          target: '_blank',
+          rel: 'noopener noreferrer',
+          class: 'ado-link',
+        }, `${repoTag}PR #${latestPr.number}: ${latestPr.title}`),
+        m.pullRequests.length > 1 ? el('span', { class: 'muted', style: 'margin-left:6px;' }, `(+${m.pullRequests.length - 1} more)`) : null,
+      ]);
+    } else if (!m.githubUsername) {
+      activityNode = el('span', { class: 'muted small' }, 'No GitHub account mapped');
+    } else {
+      activityNode = el('span', { class: 'muted small' }, 'No PRs raised yet today');
+    }
+
+    const memberIdentity = el('div', {}, [
+      el('strong', {}, m.name || m.key),
+      m.githubUsername ? el('span', { class: 'pill', style: 'margin-left:6px; font-size:11px;' }, `@${m.githubUsername}`) : null,
+    ]);
+
+    tbody.append(el('tr', {}, [
+      el('td', {}, memberIdentity),
+      el('td', { style: 'text-align:center;' }, el('span', { class: badgeClass }, String(prCount))),
+      el('td', {}, activityNode),
+    ]));
+  }
+
+  // Footer summary row (Total)
+  const tfoot = el('tfoot', {}, el('tr', { style: 'font-weight:700; background:var(--bg-elev-2);' }, [
+    el('td', {}, 'Total PRs Created Today'),
+    el('td', { style: 'text-align:center;' }, el('span', { class: total > 0 ? 'badge SUCCESS' : 'badge DUPLICATE' }, String(total))),
+    el('td', { class: 'muted small' }, `${members.length} team member(s) tracked`),
+  ]));
+
+  table.append(tbody);
+  table.append(tfoot);
+
+  container.innerHTML = '';
+  container.append(table);
 }
 
 function renderPlanPreview(plan) {
@@ -1889,13 +2038,47 @@ async function savePersonFromModal() {
     enabled: true,
   };
 
-  // Adding a member changes the editable draft, not the remote configuration.
-  // The operator explicitly reviews and saves the entire roster using Save team.
   state.people.push(newMember);
   renderPeople();
-  updateTeamDirtyState();
   hideModal('#personModal');
-  toast(`Added ${name} to the draft. Select Save team to apply changes.`, 'warn');
+
+  // Immediately persist to backend and fetch data for the new member
+  try {
+    toast(`Saving ${name} and fetching team data…`, 'info');
+    await api.post('/config/people', { people: state.people });
+    api.invalidateCache();
+    if (!state.config) state.config = { people: [] };
+    state.config.people = state.people.map(p => ({ ...p }));
+    
+    // Automatically select the new member in Explorer & Planner
+    state.selectedKeys.add(key);
+    state.selectedExplorerKeys.add(key);
+    
+    state.explorerData = null;
+    state.burndownData = null;
+    state.pendingPlan = null;
+    state.isDataDirty = true;
+    updateTeamDirtyState(false);
+    
+    const enabled = new Set(state.people.filter(p => p.enabled !== false).map(p => p.key));
+    if ($('#kpiPeople')) $('#kpiPeople').textContent = enabled.size;
+    
+    toast(`Added and saved ${name}. Fetching live tasks…`, 'ok');
+    
+    // Proactively refresh Explorer and Burndown if active or available
+    if (typeof refreshExplorer === 'function') {
+      refreshExplorer({ forceFresh: true });
+    }
+    if (typeof loadBurndownMonth === 'function') {
+      loadBurndownMonth({ forceFresh: true });
+    }
+    if (typeof runPlanPreview === 'function') {
+      runPlanPreview();
+    }
+  } catch (err) {
+    updateTeamDirtyState(true);
+    toast(`Added ${name} to draft, but failed to auto-save: ${err.message}`, 'err');
+  }
 }
 
 // Prevent Enter submission without inline event handlers. The browser shell
@@ -2212,6 +2395,8 @@ async function fillSettings() {
   const cfg = await ensureConfig();
   if ($('#setOrg')) $('#setOrg').value = cfg.organization || '';
   if ($('#setProject')) $('#setProject').value = cfg.project || '';
+  if ($('#setWorkItemType')) $('#setWorkItemType').value = cfg.workItemType || '3in1 Task';
+  if ($('#setTitlePrefix')) $('#setTitlePrefix').value = cfg.titlePrefix || '3in1_PWA_MyAccount |';
   if ($('#setTz')) $('#setTz').value = cfg.timezone || 'Asia/Kolkata';
   if ($('#setStart')) $('#setStart').value = cfg.startTime || '09:30';
   if ($('#setGhToken')) {
@@ -2231,6 +2416,8 @@ async function saveSettings() {
     const body = {
       organization: $('#setOrg').value.trim(),
       project: $('#setProject').value.trim(),
+      workItemType: $('#setWorkItemType')?.value.trim() || undefined,
+      titlePrefix: $('#setTitlePrefix')?.value.trim() || undefined,
       timezone: $('#setTz').value.trim(),
       startTime: $('#setStart').value.trim(),
     };
@@ -2238,7 +2425,7 @@ async function saveSettings() {
     api.invalidateCache('/config');
     api.invalidateCache('/status');
     state.config = null;
-    toast('Settings saved successfully');
+    toast('Settings saved successfully', 'ok');
     refreshStatus();
   } catch (err) {
     toast(err.message, 'err');
@@ -2439,6 +2626,42 @@ function toggleConsoleDrawer() {
   if (drawer) drawer.classList.toggle('open');
 }
 
+const logBuffer = {
+  entries: [],
+  max: 500,
+  level: 'ALL',
+  query: '',
+  drawerLevel: 'ALL',
+};
+
+function renderLogStream() {
+  const term = $('#logStream');
+  if (!term) return;
+  const filtered = logBuffer.entries.filter(e => {
+    if (logBuffer.level !== 'ALL' && e.level !== logBuffer.level) return false;
+    if (logBuffer.query && !e.line.toLowerCase().includes(logBuffer.query)) return false;
+    return true;
+  });
+  term.textContent = filtered.map(e => e.line).join('');
+  term.scrollTop = term.scrollHeight;
+}
+
+function renderDrawerLogs() {
+  const drawerBody = $('#drawerBody');
+  if (!drawerBody) return;
+  const filtered = logBuffer.entries.filter(e => {
+    if (logBuffer.drawerLevel !== 'ALL' && e.level !== logBuffer.drawerLevel) return false;
+    return true;
+  });
+  drawerBody.textContent = '';
+  filtered.forEach(e => {
+    const span = document.createElement('div');
+    span.textContent = e.line.trim();
+    drawerBody.append(span);
+  });
+  drawerBody.scrollTop = drawerBody.scrollHeight;
+}
+
 function connectLogStream() {
   const term = $('#logStream');
   const drawerBody = $('#drawerBody');
@@ -2455,22 +2678,43 @@ function connectLogStream() {
     try {
       const entry = JSON.parse(event.data);
       const line = `[${new Date(entry.timestamp).toLocaleTimeString()}] [${entry.level}] ${entry.message}\n`;
+      const item = { level: entry.level, line, timestamp: entry.timestamp };
+
+      logBuffer.entries.push(item);
+      if (logBuffer.entries.length > logBuffer.max) {
+        logBuffer.entries.shift();
+      }
 
       if (term) {
-        term.append(document.createTextNode(line));
-        if (term.childNodes.length > 500) {
-          term.removeChild(term.firstChild);
+        const matchesLevel = logBuffer.level === 'ALL' || item.level === logBuffer.level;
+        const matchesQuery = !logBuffer.query || item.line.toLowerCase().includes(logBuffer.query);
+        if (matchesLevel && matchesQuery) {
+          // Sticky scroll: only auto-scroll if user is near bottom
+          const isNearBottom = term.scrollHeight - term.scrollTop - term.clientHeight < 40;
+          term.append(document.createTextNode(line));
+          if (term.childNodes.length > 500) {
+            term.removeChild(term.firstChild);
+          }
+          if (isNearBottom) {
+            term.scrollTop = term.scrollHeight;
+          }
         }
-        term.scrollTop = term.scrollHeight;
       }
+
       if (drawerBody) {
-        const span = document.createElement('div');
-        span.textContent = line.trim();
-        drawerBody.append(span);
-        if (drawerBody.children.length > 500) {
-          drawerBody.firstElementChild?.remove();
+        const matchesDrawerLevel = logBuffer.drawerLevel === 'ALL' || item.level === logBuffer.drawerLevel;
+        if (matchesDrawerLevel) {
+          const isNearBottom = drawerBody.scrollHeight - drawerBody.scrollTop - drawerBody.clientHeight < 40;
+          const span = document.createElement('div');
+          span.textContent = line.trim();
+          drawerBody.append(span);
+          if (drawerBody.children.length > 500) {
+            drawerBody.firstElementChild?.remove();
+          }
+          if (isNearBottom) {
+            drawerBody.scrollTop = drawerBody.scrollHeight;
+          }
         }
-        drawerBody.scrollTop = drawerBody.scrollHeight;
       }
     } catch {
       // ignore parse errors
@@ -2512,6 +2756,31 @@ function wire() {
 
   $('#consoleBtn')?.addEventListener('click', toggleConsoleDrawer);
   $('#btnCloseDrawer')?.addEventListener('click', () => $('#executionDrawer')?.classList.remove('open'));
+
+  // Live Logs controls
+  $('#logLevelFilter')?.addEventListener('change', (e) => {
+    logBuffer.level = e.target.value;
+    renderLogStream();
+  });
+  $('#logSearchInput')?.addEventListener('input', (e) => {
+    logBuffer.query = e.target.value.toLowerCase().trim();
+    renderLogStream();
+  });
+  $('#btnClearLogs')?.addEventListener('click', () => {
+    logBuffer.entries = [];
+    const term = $('#logStream');
+    if (term) term.textContent = '';
+  });
+
+  // Drawer Log controls
+  $('#drawerLevelFilter')?.addEventListener('change', (e) => {
+    logBuffer.drawerLevel = e.target.value;
+    renderDrawerLogs();
+  });
+  $('#btnClearDrawerLogs')?.addEventListener('click', () => {
+    const drawerBody = $('#drawerBody');
+    if (drawerBody) drawerBody.textContent = '';
+  });
 
   // Theme toggle
   $('#themeToggle')?.addEventListener('click', () => {
@@ -2713,6 +2982,10 @@ function wire() {
   $('#schedSaveConfigBtn')?.addEventListener('click', saveSchedulerConfig);
   $('#schedRunNowBtn')?.addEventListener('click', runSchedulerNow);
   $('#eodSaveConfigBtn')?.addEventListener('click', saveEodSchedulerConfig);
+  // End-of-Day Closure triggers
+  $('#closeTodayTasksBtn')?.addEventListener('click', () => triggerEodClosure(true));
+  $('#dashboardCloseTodayBtn')?.addEventListener('click', () => triggerEodClosure(true));
+  $('#plannerCloseTodayBtn')?.addEventListener('click', () => triggerEodClosure(true));
   $('#eodPreviewBtn')?.addEventListener('click', () => triggerEodClosure(true));
   $('#eodRunNowBtn')?.addEventListener('click', () => triggerEodClosure(true));
   $('#btnCloseEodModal')?.addEventListener('click', () => hideModal('#eodModal'));
@@ -2747,6 +3020,11 @@ function wire() {
 
   $('#btnRepairAll')?.addEventListener('click', (e) => repairRelationships(e.currentTarget));
   $('#journalRepairBtn')?.addEventListener('click', (e) => repairRelationships(e.currentTarget));
+
+  $('#refreshDailyPrBtn')?.addEventListener('click', () => {
+    refreshDailyPrCounts({ forceFresh: true });
+    toast('Refreshing daily PR counts from GitHub...', 'ok');
+  });
 
   $('#togglePatEye')?.addEventListener('click', () => {
     const input = $('#setPat');
@@ -2785,7 +3063,8 @@ function applyViewerMode() {
     }, 'Read-only viewer: inspect data and previews here. Task creation, closure, scheduler changes and configuration edits require operator credentials.'));
   }
   [
-    '#executeBtn', '#openAdHocModalBtn', '#savePeopleBtn', '#addPersonBtn',
+    '#executeBtn', '#openAdHocModalBtn', '#btnSubmitAdHocTask', '#explorerCreateMissingBtn',
+    '#savePeopleBtn', '#addPersonBtn',
     '#schedSaveConfigBtn', '#schedRunNowBtn', '#eodSaveConfigBtn',
     '#btnExecuteEodConfirmed', '#saveSettingsBtn', '#savePatBtn',
     '#saveGhSettingsBtn', '#journalRepairBtn', '#btnRepairAll',
@@ -2824,6 +3103,12 @@ async function bootstrap() {
 
   const initial = location.hash.slice(1) || 'dashboard';
   switchView(initial);
+  refreshStatus();
+
+  // Periodically refresh connection status every 30s
+  setInterval(() => {
+    refreshStatus();
+  }, 30000);
 }
 
 document.addEventListener('DOMContentLoaded', bootstrap);

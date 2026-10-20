@@ -5,7 +5,13 @@
 
 import { WorkItemRepository, AppConfig } from '../../domain/ports/repositories.js';
 import { Person, PersonConfig, matchesPerson } from '../../domain/entities/person.js';
-import { WorkItem, parseWorkItemTaskDate, matchesTaskSeries } from '../../domain/entities/task.js';
+import {
+  WorkItem,
+  parseWorkItemTaskDate,
+  parseTitleDate,
+  matchesTaskSeries,
+  extractWorkItemRecordedDate,
+} from '../../domain/entities/task.js';
 import {
   getTodayIso,
   getNextThursdayIso,
@@ -306,23 +312,34 @@ export class ExploreTasksUseCase {
 
       for (const p of selectedPeople) {
         if (matchesPerson(assignedToVal, p)) {
-          const personPrefix = p.titlePrefix || this.config.titlePrefix;
-          if (!matchesTaskSeries(title, personPrefix)) continue;
-          const parsed = parseWorkItemTaskDate(item, personPrefix, timezone);
-          let itemDate = parsed.isValid ? parsed.isoDate : '';
+          let itemDate = '';
 
-          // Secondary fallback: Microsoft.VSTS.Scheduling.StartDate, Custom.PlannedStartdate, Custom.ActualStartdate
-          if (!itemDate && item.fields['Microsoft.VSTS.Scheduling.StartDate']) {
-            const rawStart = String(item.fields['Microsoft.VSTS.Scheduling.StartDate']);
-            itemDate = rawStart.split('T')[0];
+          // If person has an explicit titlePrefix configured, check it first
+          if (p.titlePrefix) {
+            if (matchesTaskSeries(title, p.titlePrefix)) {
+              const parsed = parseWorkItemTaskDate(item, p.titlePrefix, timezone);
+              if (parsed.isValid) itemDate = parsed.isoDate;
+            }
+          } else {
+            // Check default series prefix
+            if (matchesTaskSeries(title, this.config.titlePrefix)) {
+              const parsed = parseWorkItemTaskDate(item, this.config.titlePrefix, timezone);
+              if (parsed.isValid) itemDate = parsed.isoDate;
+            } else if (!title.includes('|')) {
+              // Non-pipe task formats (e.g. Mukul's "23 Oct 26 - Task", "My Account Task - 21 Oct")
+              const titleParsed = parseTitleDate(title, undefined, true);
+              if (titleParsed.isValid) itemDate = titleParsed.isoDate;
+            }
           }
-          if (!itemDate && item.fields['Custom.PlannedStartdate']) {
-            const rawStart = String(item.fields['Custom.PlannedStartdate']);
-            itemDate = rawStart.split('T')[0];
-          }
-          if (!itemDate && item.fields['Custom.ActualStartdate']) {
-            const rawStart = String(item.fields['Custom.ActualStartdate']);
-            itemDate = rawStart.split('T')[0];
+
+          // Fallback to Azure scheduling dates if not already found (PlannedStartdate, StartDate, ActualStartdate)
+          // only if task belongs to their series or has no contradictory series
+          const memberPrefix = p.titlePrefix || this.config.titlePrefix;
+          if (!itemDate && (!title.includes('|') || (memberPrefix && matchesTaskSeries(title, memberPrefix)))) {
+            const recorded = extractWorkItemRecordedDate(item, timezone);
+            if (recorded) {
+              itemDate = recorded.isoDate;
+            }
           }
 
           if (!itemDate) continue;

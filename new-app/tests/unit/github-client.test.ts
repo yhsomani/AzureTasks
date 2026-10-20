@@ -317,4 +317,154 @@ describe('GitHubClient', () => {
     });
   });
 
+  describe('resilience, retries and timeout', () => {
+    it('times out and aborts long-hanging requests', async () => {
+      const fetchFn = vi.fn().mockImplementation((_url: string, init: any) => {
+        return new Promise((_, reject) => {
+          if (init?.signal) {
+            init.signal.addEventListener('abort', () => {
+              const err = new Error('The operation was aborted');
+              err.name = 'AbortError';
+              reject(err);
+            });
+          }
+        });
+      });
+
+      const client = new GitHubClient({
+        fetchFn,
+        timeout: 50,
+        maxRetries: 0,
+        initialRetryDelayMs: 5,
+      });
+
+      await expect(client.getUserPullRequests('dev'))
+        .rejects.toThrow(/timed out/);
+    });
+
+    it('retries on HTTP 429 with retry-after header and succeeds', async () => {
+      const fetchFn = vi.fn()
+        .mockResolvedValueOnce({
+          status: 429,
+          ok: false,
+          headers: {
+            get: (h: string) => (h.toLowerCase() === 'retry-after' ? '0' : null),
+          },
+          text: async () => 'Rate limit exceeded',
+        })
+        .mockResolvedValueOnce({
+          status: 200,
+          ok: true,
+          headers: { get: () => null },
+          json: async () => ({ items: [{ id: 1, number: 10, title: 'Fix bug', state: 'open', html_url: 'https://github.com/pr/10', created_at: '2026-10-15T10:00:00Z' }] }),
+        });
+
+      const client = new GitHubClient({
+        fetchFn,
+        maxRetries: 2,
+        initialRetryDelayMs: 5,
+      });
+
+      const prs = await client.getUserPullRequests('alice');
+      expect(prs).toHaveLength(1);
+      expect(prs[0].number).toBe(10);
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries on HTTP 403 when x-ratelimit-remaining is 0', async () => {
+      const fetchFn = vi.fn()
+        .mockResolvedValueOnce({
+          status: 403,
+          ok: false,
+          headers: {
+            get: (h: string) => (h.toLowerCase() === 'x-ratelimit-remaining' ? '0' : null),
+          },
+          text: async () => 'Secondary rate limit',
+        })
+        .mockResolvedValueOnce({
+          status: 200,
+          ok: true,
+          headers: { get: () => null },
+          json: async () => ({ items: [{ id: 2, number: 20, title: 'Add feature', state: 'open', html_url: 'https://github.com/pr/20', created_at: '2026-10-15T11:00:00Z' }] }),
+        });
+
+      const client = new GitHubClient({
+        fetchFn,
+        maxRetries: 2,
+        initialRetryDelayMs: 5,
+      });
+
+      const prs = await client.getUserPullRequests('bob');
+      expect(prs).toHaveLength(1);
+      expect(prs[0].number).toBe(20);
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries on HTTP 500 server error and succeeds on subsequent attempt', async () => {
+      const fetchFn = vi.fn()
+        .mockResolvedValueOnce({
+          status: 500,
+          ok: false,
+          headers: { get: () => null },
+          text: async () => 'Internal Server Error',
+        })
+        .mockResolvedValueOnce({
+          status: 200,
+          ok: true,
+          headers: { get: () => null },
+          json: async () => ({ items: [{ id: 3, number: 30, title: 'Refactor engine', state: 'closed', html_url: 'https://github.com/pr/30', created_at: '2026-10-15T12:00:00Z' }] }),
+        });
+
+      const client = new GitHubClient({
+        fetchFn,
+        maxRetries: 2,
+        initialRetryDelayMs: 5,
+      });
+
+      const prs = await client.getUserPullRequests('charlie');
+      expect(prs).toHaveLength(1);
+      expect(prs[0].number).toBe(30);
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+    });
+
+    it('throws error when server error retries are exhausted', async () => {
+      const fetchFn = vi.fn().mockResolvedValue({
+        status: 503,
+        ok: false,
+        headers: { get: () => null },
+        text: async () => 'Service Unavailable',
+      });
+
+      const client = new GitHubClient({
+        fetchFn,
+        maxRetries: 2,
+        initialRetryDelayMs: 5,
+      });
+
+      await expect(client.getUserPullRequests('exhausted'))
+        .rejects.toThrow(/GitHub API server error 503/);
+      expect(fetchFn).toHaveBeenCalledTimes(3); // attempt 0, 1, 2
+    });
+
+    it('does not retry non-retryable errors such as HTTP 404', async () => {
+      const fetchFn = vi.fn().mockResolvedValue({
+        status: 404,
+        statusText: 'Not Found',
+        ok: false,
+        headers: { get: () => null },
+        text: async () => 'Resource not found',
+      });
+
+      const client = new GitHubClient({
+        fetchFn,
+        maxRetries: 2,
+        initialRetryDelayMs: 5,
+      });
+
+      await expect(client.getUserPullRequests('notfound'))
+        .rejects.toThrow(/GitHub API error 404/);
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+    });
+  });
+
 });

@@ -5,7 +5,7 @@ import { addDays, formatTitleDate } from '../../src/domain/value-objects/date-wi
 /** Minimal Azure client fake: echoes the batch items regardless of the query. */
 class FakeClient {
   public wiql = '';
-  constructor(private readonly items: Array<{ id: number; title: string }>) {}
+  constructor(private readonly items: Array<{ id: number; title: string; fields?: Record<string, any> }>) {}
 
   async post<T>(_url: string, body: { query: string }): Promise<T> {
     this.wiql = body.query;
@@ -14,7 +14,15 @@ class FakeClient {
 
   async get<T>(_url: string): Promise<T> {
     return {
-      value: this.items.map(i => ({ id: i.id, rev: 1, fields: { 'System.Title': i.title, 'System.AssignedTo': 'a@b.com' } })),
+      value: this.items.map(i => ({
+        id: i.id,
+        rev: 1,
+        fields: {
+          'System.Title': i.title,
+          'System.AssignedTo': 'a@b.com',
+          ...(i.fields ?? {}),
+        },
+      })),
       count: this.items.length,
     } as T;
   }
@@ -46,6 +54,36 @@ describe('AzureWorkItemService.getExistingTasksForPerson', () => {
 
     expect(client.wiql).toContain("[System.TeamProject] = 'P'");
     expect(client.wiql).toContain("[System.WorkItemType] = 'Task'");
+  });
+
+  it('matches and indexes existing tasks by Custom.PlannedStartdate even with non-pipe titles', async () => {
+    const client = new FakeClient([
+      {
+        id: 101,
+        title: 'My Account Task - 21 Oct',
+        fields: {
+          'System.Title': 'My Account Task - 21 Oct',
+          'System.AssignedTo': 'a@b.com',
+          'Custom.PlannedStartdate': '2026-10-21T03:30:00.000Z',
+        },
+      },
+      {
+        id: 102,
+        title: '22 Oct 26 - Task',
+        fields: {
+          'System.Title': '22 Oct 26 - Task',
+          'System.AssignedTo': 'a@b.com',
+          'Custom.PlannedStartdate': '2026-10-22T03:30:00.000Z',
+        },
+      },
+    ]);
+    const svc = new AzureWorkItemService(client as any, () => 'Asia/Kolkata');
+    const map = await svc.getExistingTasksForPerson('P', 'Task', prefix, 'a@b.com', '2026-10-20', '2026-10-25');
+
+    expect(map.has('2026-10-21')).toBe(true);
+    expect(map.get('2026-10-21')?.id).toBe(101);
+    expect(map.has('2026-10-22')).toBe(true);
+    expect(map.get('2026-10-22')?.id).toBe(102);
   });
 });
 

@@ -322,7 +322,7 @@ export class CreateTasksUseCase {
       if (input.sourceTaskId) {
         const item = await this.workItemRepo.getWorkItem(input.sourceTaskId);
         const parsedDate = validateSourceTaskOwnership(
-          item, this.config.project, this.config.workItemType, memberPrefix, person.assignedTo
+          item, this.config.project, this.config.workItemType, memberPrefix, person
         );
         sourceTask = {
           workItem: item,

@@ -14,7 +14,7 @@ export interface LogEntry {
 
 type LogListener = (entry: LogEntry) => void;
 
-class Logger {
+export class Logger {
   private verbose = false;
   private secrets: string[] = [];
   private recentLogs: LogEntry[] = [];
@@ -42,13 +42,47 @@ class Logger {
     }
     // Sort longer patterns first to prevent partial token scrubbing
     this.secrets.sort((a, b) => b.length - a.length);
+
+    // Retroactively scrub existing in-memory buffer
+    for (const entry of this.recentLogs) {
+      entry.message = this.scrub(entry.message);
+    }
+  }
+
+  sanitize(message: string): string {
+    return this.scrub(message);
+  }
+
+  mask(secret: string): string {
+    if (!secret) return '';
+    return this.scrub(secret);
   }
 
   private scrub(message: string): string {
     let out = message;
+
+    // 1. Exact-match registered secrets (including base64 encodings)
     for (const secret of this.secrets) {
       if (secret) out = out.split(secret).join('***');
     }
+
+    // 2. Pattern-based regex scrubbing for standard credentials and authorization headers
+    // Bearer tokens
+    out = out.replace(/\bBearer\s+[A-Za-z0-9_\-.]+/gi, 'Bearer ***');
+
+    // HTTP Basic Authorization headers (e.g. Azure DevOps base64 PAT credentials)
+    out = out.replace(/\bBasic\s+[A-Za-z0-9+/=]{10,}/gi, 'Basic ***');
+
+    // GitHub classic Personal Access Tokens (ghp_ prefix + 36 alphanumeric characters)
+    out = out.replace(/\bghp_[A-Za-z0-9]{36}\b/g, '***');
+
+    // GitHub fine-grained Personal Access Tokens (github_pat_ prefix + 82 chars)
+    out = out.replace(/\bgithub_pat_[A-Za-z0-9_]{82}\b/g, '***');
+
+    // Azure DevOps Personal Access Tokens (standard 52-char base32 / alphanumeric format)
+    out = out.replace(/\b[a-z2-7]{52}\b/gi, '***');
+    out = out.replace(/\b[A-Za-z0-9]{52}\b/g, '***');
+
     return out;
   }
 

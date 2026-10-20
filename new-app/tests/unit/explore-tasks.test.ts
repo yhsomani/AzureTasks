@@ -6,18 +6,28 @@ describe('ExploreTasksUseCase', () => {
   const mockConfig: AppConfig = {
     organization: 'TestOrg',
     project: 'TestProj',
+    baseUrl: 'https://dev.azure.com',
     workItemType: 'Task',
+    taskSeries: '3in1',
     titlePrefix: '3in1_PWA_MyAccount |',
     timezone: 'Asia/Kolkata',
     startTime: '09:30',
     thursdayMode: 'CURRENT',
     skipWeekends: true,
+    stopDay: 'Thursday',
     stopDayOfWeek: 4,
+    defaultState: 'To Do',
+    autoClose: false,
+    copyEstimates: true,
+    resetActualWork: true,
+    maxRetries: 3,
+    initialRetryDelayMs: 1000,
     people: [
       { key: 'user1', name: 'Alice Smith', assignedTo: 'alice@example.com', enabled: true },
       { key: 'user2', name: 'Bob Jones', assignedTo: 'bob@example.com', enabled: true },
       { key: 'user3', name: 'Charlie Disabled', assignedTo: 'charlie@example.com', enabled: false },
     ],
+    schedulerEnabled: false,
   };
 
   it('computes preset date ranges correctly', () => {
@@ -89,6 +99,7 @@ describe('ExploreTasksUseCase', () => {
       findCandidateTasks: vi.fn(async () => [
         {
           id: 101,
+          rev: 1,
           fields: {
             'System.Title': '3in1_PWA_MyAccount | 12 Oct',
             'System.AssignedTo': { displayName: 'Alice Smith', uniqueName: 'alice@example.com' },
@@ -100,6 +111,7 @@ describe('ExploreTasksUseCase', () => {
         },
         {
           id: 102,
+          rev: 1,
           fields: {
             'System.Title': 'Unrelated_Project | 12 Oct',
             'System.AssignedTo': { displayName: 'Alice Smith', uniqueName: 'alice@example.com' },
@@ -111,7 +123,7 @@ describe('ExploreTasksUseCase', () => {
       getWorkItem: vi.fn(),
       createWorkItemWithReconciliation: vi.fn(),
       copyRelations: vi.fn(),
-      patchFields: vi.fn(),
+      patchWorkItem: vi.fn(async () => ({ id: 0, rev: 1, fields: {} })),
     };
 
     const useCase = new ExploreTasksUseCase(mockRepo, mockConfig);
@@ -142,5 +154,63 @@ describe('ExploreTasksUseCase', () => {
 
     expect(result.summary.stateCounts.Active).toBe(1);
     expect(result.detailedTasks.length).toBeGreaterThan(0);
+  });
+
+  it('correctly maps scheduling dates across UTC midnight boundaries to local timezone', async () => {
+    // 2026-10-19T20:00:00Z is 2026-10-20 01:30:00 in Asia/Kolkata (+05:30)
+    const mockRepo: WorkItemRepository = {
+      validateProject: vi.fn(),
+      validateWorkItemType: vi.fn(),
+      findLatestTaskForPerson: vi.fn(),
+      discoverLatestTasksForPeople: vi.fn(),
+      getExistingTasksForPerson: vi.fn(),
+      findCandidateTasks: vi.fn(async () => [
+        {
+          id: 201,
+          rev: 1,
+          fields: {
+            'System.Title': '3in1_PWA_MyAccount | Standup and Review',
+            'System.AssignedTo': { displayName: 'Alice Smith', uniqueName: 'alice@example.com' },
+            'System.State': 'Active',
+            'Custom.PlannedStartdate': '2026-10-19T20:00:00Z',
+          },
+        },
+        {
+          id: 202,
+          rev: 1,
+          fields: {
+            'System.Title': '3in1_PWA_MyAccount | Code Review',
+            'System.AssignedTo': { displayName: 'Bob Jones', uniqueName: 'bob@example.com' },
+            'System.State': 'Active',
+            'Custom.ActualStartDate': '2026-10-20T19:30:00Z', // 2026-10-21 01:00:00 in Asia/Kolkata
+          },
+        },
+      ]),
+      getWorkItem: vi.fn(),
+      createWorkItemWithReconciliation: vi.fn(),
+      copyRelations: vi.fn(),
+      patchWorkItem: vi.fn(async () => ({ id: 0, rev: 1, fields: {} })),
+    };
+
+    const useCase = new ExploreTasksUseCase(mockRepo, mockConfig);
+    const result = await useCase.execute({
+      startDate: '2026-10-19',
+      endDate: '2026-10-21',
+      asOf: '2026-10-19',
+    });
+
+    const aliceRow = result.matrix.find(r => r.person.key === 'user1');
+    expect(aliceRow).toBeDefined();
+    // 2026-10-19T20:00:00Z in Asia/Kolkata must map to 2026-10-20, NOT 2026-10-19
+    expect(aliceRow?.cells['2026-10-19'].status).toBe('MISSING');
+    expect(aliceRow?.cells['2026-10-20'].status).toBe('CREATED');
+    expect(aliceRow?.cells['2026-10-20'].tasks[0].id).toBe(201);
+
+    const bobRow = result.matrix.find(r => r.person.key === 'user2');
+    expect(bobRow).toBeDefined();
+    // 2026-10-20T19:30:00Z in Asia/Kolkata must map to 2026-10-21, NOT 2026-10-20
+    expect(bobRow?.cells['2026-10-20'].status).toBe('MISSING');
+    expect(bobRow?.cells['2026-10-21'].status).toBe('CREATED');
+    expect(bobRow?.cells['2026-10-21'].tasks[0].id).toBe(202);
   });
 });

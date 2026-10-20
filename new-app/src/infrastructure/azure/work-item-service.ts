@@ -11,6 +11,7 @@ import {
   Person, 
   CreatedTask,
   parseWorkItemTaskDate,
+  extractWorkItemRecordedDate,
   matchesPerson,
   matchesTaskSeries,
   validateSourceTaskOwnership,
@@ -129,28 +130,53 @@ export class AzureWorkItemService implements WorkItemRepository {
     }
 
     const candidateTasks: DiscoveredTask[] = [];
+    const fallbackTasks: DiscoveredTask[] = [];
     for (const workItem of allFetched) {
       if (!matchesPerson(workItem.fields['System.AssignedTo'], targetPerson)) {
         continue;
       }
       const title = workItem.fields['System.Title'] || '';
-      if (!matchesTaskSeries(title, titlePrefix)) continue;
-      const parsedDate = parseWorkItemTaskDate(workItem, titlePrefix, this.timezone());
-      if (parsedDate.isValid) {
-        candidateTasks.push({
-          workItem,
-          parsedDate,
-          key: personIdentity.toLowerCase().trim(),
-        });
+      if (matchesTaskSeries(title, titlePrefix)) {
+        const parsedDate = parseWorkItemTaskDate(workItem, titlePrefix, this.timezone());
+        if (parsedDate.isValid) {
+          candidateTasks.push({
+            workItem,
+            parsedDate,
+            key: personIdentity.toLowerCase().trim(),
+          });
+        }
+      } else {
+        // Fallback: check Planned Start Date or non-pipe title formats
+        const recorded = extractWorkItemRecordedDate(workItem, this.timezone());
+        const parsedDate = parseWorkItemTaskDate(workItem, '', this.timezone(), false, true);
+        if (recorded) {
+          fallbackTasks.push({
+            workItem,
+            parsedDate: {
+              isoDate: recorded.isoDate,
+              formattedTitleDate: parsedDate.isValid ? parsedDate.formattedTitleDate : recorded.isoDate.slice(5),
+              year: recorded.year,
+              isValid: true,
+            },
+            key: personIdentity.toLowerCase().trim(),
+          });
+        } else if (parsedDate.isValid && !title.includes('|')) {
+          fallbackTasks.push({
+            workItem,
+            parsedDate,
+            key: personIdentity.toLowerCase().trim(),
+          });
+        }
       }
     }
 
-    if (candidateTasks.length === 0) {
+    const pool = candidateTasks.length > 0 ? candidateTasks : fallbackTasks;
+    if (pool.length === 0) {
       return null;
     }
 
-    candidateTasks.sort((a, b) => b.parsedDate.isoDate.localeCompare(a.parsedDate.isoDate));
-    return candidateTasks[0];
+    pool.sort((a, b) => b.parsedDate.isoDate.localeCompare(a.parsedDate.isoDate));
+    return pool[0];
   }
 
   async discoverLatestTasksForPeople(
@@ -180,7 +206,7 @@ export class AzureWorkItemService implements WorkItemRepository {
         overrideCache.set(overrideId, workItem);
       }
       const prefix = person.titlePrefix || titlePrefix;
-      validateSourceTaskOwnership(workItem, project, workItemType, prefix, person.assignedTo);
+      validateSourceTaskOwnership(workItem, project, workItemType, prefix, person);
       const parsedDate = parseWorkItemTaskDate(workItem, prefix, this.timezone());
       if (!parsedDate.isValid) {
         throw new Error(`Source work item #${workItem.id} has conflicting title and recorded Azure dates.`);
@@ -247,19 +273,54 @@ export class AzureWorkItemService implements WorkItemRepository {
         allFetched.push(...this.requireCompleteBatch(batchResult, ids.slice(i, i + CHUNK_SIZE), 'team source work-item batch'));
       }
 
+      const personFallbackTasks = new Map<string, DiscoveredTask[]>();
+
       for (const workItem of allFetched) {
         const assignedToVal = workItem.fields['System.AssignedTo'];
         for (const person of discoveryPeople) {
           if (matchesPerson(assignedToVal, person)) {
             const title = workItem.fields['System.Title'] || '';
             const prefix = person.titlePrefix || titlePrefix;
-            if (!matchesTaskSeries(title, prefix)) continue;
-            const parsedDate = parseWorkItemTaskDate(workItem, prefix, this.timezone());
-            if (parsedDate.isValid) {
-              const list = personCandidateTasks.get(person.key) || [];
-              list.push({ workItem, parsedDate, key: person.key });
-              personCandidateTasks.set(person.key, list);
+            if (matchesTaskSeries(title, prefix)) {
+              const parsedDate = parseWorkItemTaskDate(workItem, prefix, this.timezone());
+              if (parsedDate.isValid) {
+                const list = personCandidateTasks.get(person.key) || [];
+                list.push({ workItem, parsedDate, key: person.key });
+                personCandidateTasks.set(person.key, list);
+              }
+            } else {
+              // Fallback: check Planned Start Date or non-pipe title formats
+              const recorded = extractWorkItemRecordedDate(workItem, this.timezone());
+              const parsedDate = parseWorkItemTaskDate(workItem, '', this.timezone(), false, true);
+              if (recorded) {
+                const list = personFallbackTasks.get(person.key) || [];
+                list.push({
+                  workItem,
+                  parsedDate: {
+                    isoDate: recorded.isoDate,
+                    formattedTitleDate: parsedDate.isValid ? parsedDate.formattedTitleDate : recorded.isoDate.slice(5),
+                    year: recorded.year,
+                    isValid: true,
+                  },
+                  key: person.key,
+                });
+                personFallbackTasks.set(person.key, list);
+              } else if (parsedDate.isValid && !title.includes('|')) {
+                const list = personFallbackTasks.get(person.key) || [];
+                list.push({ workItem, parsedDate, key: person.key });
+                personFallbackTasks.set(person.key, list);
+              }
             }
+          }
+        }
+      }
+
+      // If any person had no primary prefix match, use their fallback tasks
+      for (const person of discoveryPeople) {
+        if (!personCandidateTasks.has(person.key) || personCandidateTasks.get(person.key)!.length === 0) {
+          const fallbacks = personFallbackTasks.get(person.key);
+          if (fallbacks && fallbacks.length > 0) {
+            personCandidateTasks.set(person.key, fallbacks);
           }
         }
       }
@@ -281,7 +342,7 @@ export class AzureWorkItemService implements WorkItemRepository {
         const prefix = person.titlePrefix || titlePrefix;
         try {
           const parsedDate = validateSourceTaskOwnership(
-            workItem, project, workItemType, prefix, person.assignedTo
+            workItem, project, workItemType, prefix, person
           );
           personTasks.set(person.key, { workItem, parsedDate, key: person.key });
         } catch {
@@ -371,19 +432,36 @@ export class AzureWorkItemService implements WorkItemRepository {
         if (!matchesPerson(workItem.fields['System.AssignedTo'], targetPerson)) {
           continue;
         }
-        const title = workItem.fields['System.Title'];
-        if (!title || !matchesTaskSeries(title, titlePrefix)) continue;
-        const parsed = parseWorkItemTaskDate(workItem, titlePrefix, this.timezone());
-        if (!parsed.isValid) {
-          throw new Error(`Cannot prove workday for existing Azure task #${workItem.id} in this series. Resolve its title/scheduling fields before creating more tasks.`);
-        }
-        if (parsed.isoDate < startDate || parsed.isoDate > endDate) continue;
+        const title = workItem.fields['System.Title'] || '';
+        let isoDate = '';
 
-        const existing = existingMap.get(parsed.isoDate);
+        if (matchesTaskSeries(title, titlePrefix)) {
+          const parsed = parseWorkItemTaskDate(workItem, titlePrefix, this.timezone());
+          if (!parsed.isValid) {
+            throw new Error(`Cannot prove workday for existing Azure task #${workItem.id} in this series. Resolve its title/scheduling fields before creating more tasks.`);
+          }
+          isoDate = parsed.isoDate;
+        } else {
+          // If the task does not strictly match the prefix, check its Azure recorded date (e.g. Planned Start Date)
+          const recorded = extractWorkItemRecordedDate(workItem, this.timezone());
+          if (recorded) {
+            isoDate = recorded.isoDate;
+          } else if (!title.includes('|')) {
+            // Check non-pipe format task title
+            const parsed = parseWorkItemTaskDate(workItem, '', this.timezone(), false, true);
+            if (parsed.isValid) {
+              isoDate = parsed.isoDate;
+            }
+          }
+        }
+
+        if (!isoDate || isoDate < startDate || isoDate > endDate) continue;
+
+        const existing = existingMap.get(isoDate);
         if (existing) {
           existing.count = (existing.count ?? 1) + 1;
         } else {
-          existingMap.set(parsed.isoDate, { id: workItem.id, title, isoDate: parsed.isoDate, count: 1 });
+          existingMap.set(isoDate, { id: workItem.id, title, isoDate, count: 1 });
         }
       }
     }

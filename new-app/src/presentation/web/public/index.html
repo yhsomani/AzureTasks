@@ -76,6 +76,7 @@
           <span class="pill" id="orgProjectTag" style="display:flex; align-items:center; gap:6px;">—</span>
           <button class="btn ghost small" id="consoleBtn" title="Toggle Live Console Drawer">💻 Console</button>
           <button class="btn ghost small" id="refreshBtn">Refresh</button>
+          <button class="btn ghost small" id="closeTodayTasksBtn" title="Manually trigger end-of-day task closure flow">🌙 Close today's tasks</button>
           <button class="btn primary small" id="quickRunBtn">Review plan</button>
         </div>
       </header>
@@ -100,8 +101,25 @@
           <article class="card kpi"><span class="kpi-label">Connection</span><span class="kpi-value" id="kpiConn">—</span><span class="kpi-hint" id="kpiConnHint">Azure DevOps</span></article>
           <article class="card kpi"><span class="kpi-label">Team members</span><span class="kpi-value" id="kpiPeople">—</span><span class="kpi-hint" id="kpiPeopleHint">Configured team roster</span></article>
           <article class="card kpi"><span class="kpi-label">Rolling Window</span><span class="kpi-value small" id="kpiWindowRange">—</span><span class="kpi-hint" id="kpiMode">Today → Next Thursday</span></article>
-          <article class="card kpi"><span class="kpi-label">Daily Scheduler</span><span class="kpi-value" id="kpiSched">—</span><span class="kpi-hint" id="kpiSchedHint">weekdays 09:30</span></article>
+          <article class="card kpi"><span class="kpi-label">PRs Created Today</span><span class="kpi-value" id="kpiPrsToday">—</span><span class="kpi-hint" id="kpiPrsHint">Live GitHub activity</span></article>
         </div>
+
+        <!-- Daily PR Tracking by Team Member Card -->
+        <article class="card" id="dashboardPrTrackingCard" style="margin-bottom: 18px;">
+          <header class="card-head">
+            <div>
+              <h2>🐙 Daily PR Tracking by Team Member</h2>
+              <p class="muted small">Pull requests raised from 12:00 AM to current time in configured timezone</p>
+            </div>
+            <div class="row gap" style="margin: 0; align-items: center;">
+              <span class="muted small" id="dailyPrLastUpdated">Updating...</span>
+              <button type="button" class="btn ghost small" id="refreshDailyPrBtn">🔄 Refresh PRs</button>
+            </div>
+          </header>
+          <div id="dailyPrContainer" class="table-wrap">
+            <p class="muted" style="padding: 16px;">Loading daily pull request counts…</p>
+          </div>
+        </article>
 
         <div class="chart-grid">
           <article class="card">
@@ -116,7 +134,13 @@
 
         <div class="grid cols-2">
           <article class="card">
-            <header class="card-head"><h2>Today's plan</h2><button class="btn small ghost" data-view-link="planner">Open planner</button></header>
+            <header class="card-head">
+              <h2>Today's plan</h2>
+              <div class="row gap" style="margin:0;">
+                <button class="btn small ghost" id="dashboardCloseTodayBtn" title="Close tasks scheduled for today">🌙 Close today's tasks</button>
+                <button class="btn small ghost" data-view-link="planner">Open planner</button>
+              </div>
+            </header>
             <div id="dashboardPlan" class="plan-preview"><p class="muted">Loading plan…</p></div>
           </article>
           <article class="card">
@@ -283,6 +307,7 @@
             </div>
             <div class="row gap" style="margin: 0;">
               <button class="btn primary small" id="openAdHocModalBtn">➕ Create Ad-Hoc Task</button>
+              <button class="btn ghost small" id="plannerCloseTodayBtn" title="Close tasks scheduled for today">🌙 Close Today's Tasks</button>
               <button class="btn ghost small" id="btnSimulateWindow" title="Preview the next creation window without writing tasks">Preview Next Week</button>
               <button class="btn ghost small" id="btnResetPlannerWindow" title="Reset to today">↺ Reset to Today</button>
             </div>
@@ -508,6 +533,21 @@
         <article class="card">
           <header class="card-head"><h2>Live logs</h2><span class="pill" id="logStatus" role="status" aria-live="polite">Connecting…</span></header>
           <p class="muted small">Operational events only. For item-level execution history, open the Audit log.</p>
+          <div class="logs-toolbar" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
+            <div style="display:flex; gap:6px; align-items:center;">
+              <span class="muted small" style="font-weight:600;">Level:</span>
+              <select id="logLevelFilter" class="input" style="padding:4px 8px; font-size:12px; height:28px;">
+                <option value="ALL">ALL</option>
+                <option value="INFO">INFO</option>
+                <option value="WARN">WARN</option>
+                <option value="ERROR">ERROR</option>
+              </select>
+            </div>
+            <div style="display:flex; gap:6px; align-items:center; flex:1; min-width:180px;">
+              <input type="text" id="logSearchInput" placeholder="Filter logs..." class="input" style="padding:4px 8px; font-size:12px; height:28px; width:100%;" />
+            </div>
+            <button class="btn ghost small" id="btnClearLogs" style="height:28px; font-size:12px;">Clear</button>
+          </div>
           <pre class="logs" id="logStream" tabindex="0" aria-label="Recent operational logs"></pre>
         </article>
       </section>
@@ -530,6 +570,8 @@
           <div class="grid cols-2">
             <label class="field"><span>Organization</span><input type="text" id="setOrg" placeholder="BFLDevOpsOrg" /></label>
             <label class="field"><span>Project</span><input type="text" id="setProject" placeholder="3in1_Agile_Projects" /></label>
+            <label class="field"><span>Work Item Type</span><input type="text" id="setWorkItemType" placeholder="3in1 Task" /></label>
+            <label class="field"><span>Task Title Prefix</span><input type="text" id="setTitlePrefix" placeholder="3in1_PWA_MyAccount |" /></label>
             <label class="field" for="setTz"><span>Timezone (IANA)</span><input type="text" id="setTz" placeholder="Asia/Kolkata" aria-describedby="settingsTimezoneHelp" /><small class="field-help" id="settingsTimezoneHelp">Example: Asia/Kolkata. Determines task dates and scheduler windows.</small></label>
             <label class="field" for="setStart"><span>Workday start time (HH:mm)</span><input type="text" id="setStart" placeholder="09:30" inputmode="numeric" aria-describedby="settingsStartHelp" /><small class="field-help" id="settingsStartHelp">24-hour time in the configured timezone.</small></label>
           </div>
@@ -579,12 +621,21 @@
 
   <!-- LIVE EXECUTION CONSOLE DRAWER -->
   <div id="executionDrawer" class="drawer" aria-label="Console Drawer">
-    <div class="drawer-header">
+    <div class="drawer-header" style="flex-wrap:wrap; gap:8px;">
       <div style="display:flex; align-items:center; gap:8px;">
         <strong>⚡ Execution Console</strong>
         <span class="pill ok" id="drawerStatusPill">Live</span>
       </div>
-      <button class="icon-btn" id="btnCloseDrawer" style="width:28px; height:28px;">✕</button>
+      <div style="display:flex; align-items:center; gap:6px;">
+        <select id="drawerLevelFilter" class="input" style="padding:2px 6px; font-size:11px; height:24px;">
+          <option value="ALL">ALL</option>
+          <option value="INFO">INFO</option>
+          <option value="WARN">WARN</option>
+          <option value="ERROR">ERROR</option>
+        </select>
+        <button class="btn ghost small" id="btnClearDrawerLogs" style="height:24px; padding:2px 8px; font-size:11px;">Clear</button>
+        <button class="icon-btn" id="btnCloseDrawer" style="width:28px; height:28px;">✕</button>
+      </div>
     </div>
     <div id="drawerBody" class="drawer-body">
       <p style="color:var(--text-muted);">Initializing execution stream...</p>
@@ -745,7 +796,6 @@
             </label>
             <p class="muted small">Duplicate protection is always enabled.</p>
           </div>
-          </div>
 
           <label class="field">
             <span>Description (Optional)</span>
@@ -786,7 +836,7 @@
           </table>
         </div>
         <div style="background:rgba(0,120,212,0.1); border:1px solid rgba(0,120,212,0.3); padding:10px 14px; border-radius:var(--radius-sm); margin-top:14px; font-size:12.5px; color:var(--text);">
-          ℹ️ Planned Start and Actual Start dates are matched. Completed work is set to 8h and Remaining work to 0h. The generated task description contains clickable PR links and statuses to avoid rule validation errors.
+          ℹ️ Planned Start and Actual Start dates are matched. Existing recorded Completed and Remaining work hours in Azure DevOps are preserved without fabricating hours. The generated task description contains clickable PR links and statuses to avoid rule validation errors.
         </div>
       </div>
       <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">

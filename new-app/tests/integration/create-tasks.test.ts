@@ -90,6 +90,25 @@ class FakeWorkItemRepo implements WorkItemRepository {
   async copyRelations(): Promise<{ copiedCount: number; failedCount: number; totalRelations: number }> {
     return { copiedCount: 0, failedCount: 0, totalRelations: 0 };
   }
+
+  async findCandidateTasks(
+    _project: string,
+    _workItemType: string,
+    _titlePrefix: string,
+    _startDate?: string,
+    _endDate?: string,
+    _personIdentities?: string[]
+  ): Promise<WorkItem[]> {
+    return [];
+  }
+
+  async patchWorkItem(
+    id: number,
+    _fieldOps: any[],
+    _options?: { bypassRules?: boolean }
+  ): Promise<WorkItem> {
+    return { id, rev: 1, fields: this.createdFields.get(id) ?? {}, relations: [] };
+  }
 }
 
 class FakeJournalRepo implements JournalRepository {
@@ -98,6 +117,14 @@ class FakeJournalRepo implements JournalRepository {
   async getEntries(): Promise<JournalEntry[]> { return this.entries; }
   async getUnfinishedRelations(): Promise<JournalEntry[]> {
     return this.entries.filter(e => e.relationCopyStatus !== 'SUCCESS');
+  }
+  async markRepaired(
+    _entry: JournalEntry,
+    _status: JournalEntry['relationCopyStatus'],
+    _note: string,
+    _verified?: boolean
+  ): Promise<boolean> {
+    return true;
   }
   async exportCsv(): Promise<string> { return ''; }
   async exportJson(): Promise<string> { return JSON.stringify(this.entries); }

@@ -9,6 +9,20 @@ import { SchedulerRepository, SchedulerStatus, AppConfig, ConfigRepository } fro
 import { addDays, getDayOfWeek, zonedTimeToUtcIso } from '../../domain/value-objects/date-window.js';
 import { logger } from '../logging/logger.js';
 
+export type SchedulerConfig = Pick<AppConfig, 'timezone' | 'startTime'> &
+  Partial<
+    Pick<
+      AppConfig,
+      | 'scheduleTime'
+      | 'schedulerEnabled'
+      | 'schedulerAutoStart'
+      | 'autoClose'
+      | 'autoCloseStartTime'
+      | 'autoCloseEndTime'
+      | 'lastAutoClose'
+    >
+  >;
+
 export class NodeSchedulerRepository implements SchedulerRepository {
   private timer: NodeJS.Timeout | null = null;
   private autoCloseTimer: NodeJS.Timeout | null = null;
@@ -26,18 +40,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
   private isAutoCloseExecuting = false;
 
   constructor(
-    private readonly config: Pick<
-      AppConfig,
-      | 'timezone'
-      | 'startTime'
-      | 'scheduleTime'
-      | 'schedulerEnabled'
-      | 'schedulerAutoStart'
-      | 'autoClose'
-      | 'autoCloseStartTime'
-      | 'autoCloseEndTime'
-      | 'lastAutoClose'
-    > = {
+    private readonly config: SchedulerConfig = {
       timezone: 'Asia/Kolkata',
       startTime: '09:30',
       scheduleTime: '09:30',

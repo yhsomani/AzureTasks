@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { GetSystemStatusUseCase } from '../../src/application/use-cases/get-status';
 import { WorkItemRepository, AppConfig } from '../../src/domain/ports/repositories';
 
@@ -12,9 +12,18 @@ describe('GetSystemStatusUseCase', () => {
     workItemType: '3in1 Task',
     taskSeries: '3in1',
     titlePrefix: '3in1 |',
+    startTime: '09:30',
+    timezone: 'Asia/Kolkata',
+    skipWeekends: true,
+    stopDay: 'Thursday',
     stopDayOfWeek: 4,
     thursdayMode: 'CURRENT',
-    timezone: 'Asia/Kolkata',
+    defaultState: 'To Do',
+    autoClose: false,
+    copyEstimates: true,
+    resetActualWork: true,
+    maxRetries: 3,
+    initialRetryDelayMs: 1000,
     people: [],
     schedulerEnabled: false,
   };

@@ -3,12 +3,14 @@
  * Core business entities for Azure DevOps work items
  */
 
+import { matchesPerson, type Person, type PersonConfig } from './person.js';
+
 export interface WorkItemFields {
   'System.Id'?: number;
   'System.Title'?: string;
   'System.State'?: string;
   'System.WorkItemType'?: string;
-  'System.AssignedTo'?: string | { displayName: string; uniqueName: string };
+  'System.AssignedTo'?: string | { displayName: string; uniqueName?: string };
   'System.CreatedDate'?: string;
   'System.ChangedDate'?: string;
   'System.AreaPath'?: string;
@@ -162,10 +164,12 @@ export function parseTitleDate(
 
   // Mode 2: If no prefix, or allowAnyPrefix, or prefix wasn't matched, check segments and delimiters
   if (!monthStr && (!titlePrefix || allowAnyPrefix)) {
-    // 2a. Check segments split by pipe or colon
+    const MONTH_PATTERN = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
+
+    // 2a. Check segments split by pipe or colon or hyphen
     const segments = title.split(/[|:]/).map(s => s.trim());
     for (const seg of segments) {
-      const match = seg.match(/^(?:([A-Za-z]{3,9})[ -]+(\d{1,2})|(\d{1,2})[ -]+([A-Za-z]{3,9}))$/i);
+      const match = seg.match(new RegExp(`^(?:(${MONTH_PATTERN})[ -]+(\\d{1,2})(?:st|nd|rd|th)?|(\\d{1,2})(?:st|nd|rd|th)?[ -]+(${MONTH_PATTERN}))(?:\\s+\\d{2,4})?$`, 'i'));
       if (match) {
         const m = match[1] || match[4];
         if (monthStrToNumber(m) >= 0) {
@@ -176,9 +180,9 @@ export function parseTitleDate(
       }
     }
 
-    // 2b. Start of title with date (e.g. "12 October : ...", "12 Oct - ...", "October 12 : ...")
+    // 2b. Start of title with date (e.g. "12 October : ...", "12 Oct - ...", "October 12 : ...", "23 Oct 26 - Task")
     if (!monthStr) {
-      const startMatch = title.match(/^\s*(?:([A-Za-z]{3,9})[ -]+(\d{1,2})|(\d{1,2})[ -]+([A-Za-z]{3,9}))(?:\s*[:\-|]|\s+|$)/i);
+      const startMatch = title.match(new RegExp(`^\\s*(?:(${MONTH_PATTERN})[ -]+(\\d{1,2})(?:st|nd|rd|th)?|(\\d{1,2})(?:st|nd|rd|th)?[ -]+(${MONTH_PATTERN}))(?:\\s+\\d{2,4})?(?:\\s*[:\\-|]|\\s+|$)`, 'i'));
       if (startMatch) {
         const m = startMatch[1] || startMatch[4];
         if (monthStrToNumber(m) >= 0) {
@@ -188,9 +192,9 @@ export function parseTitleDate(
       }
     }
 
-    // 2c. Anywhere in title: word boundary month + day or day + month
+    // 2c. Anywhere in title: month + day or day + month (including ordinals like 19th Oct, 21 Oct)
     if (!monthStr) {
-      const anyMatch = title.match(/\b(?:([A-Za-z]{3,9})[ -]+(\d{1,2})|(\d{1,2})[ -]+([A-Za-z]{3,9}))\b/i);
+      const anyMatch = title.match(new RegExp(`(?:\\b(${MONTH_PATTERN})[ -]+(\\d{1,2})(?:st|nd|rd|th)?|(\\d{1,2})(?:st|nd|rd|th)?[ -]+(${MONTH_PATTERN})\\b)`, 'i'));
       if (anyMatch) {
         const m = anyMatch[1] || anyMatch[4];
         if (monthStrToNumber(m) >= 0) {
@@ -234,6 +238,37 @@ export function parseTitleDate(
 }
 
 /**
+ * Extracts the recorded start/work date from an Azure work item's fields in the specified timezone.
+ * Checks PlannedStartdate, PlannedStartDate, StartDate, ActualStartdate, and ActualStartDate.
+ */
+export function extractWorkItemRecordedDate(
+  item: WorkItem,
+  timezone = 'UTC'
+): { isoDate: string; year: number } | null {
+  const fieldNames = [
+    'Custom.PlannedStartdate', 'Custom.PlannedStartDate',
+    'Microsoft.VSTS.Scheduling.StartDate',
+    'Custom.ActualStartdate', 'Custom.ActualStartDate',
+  ];
+  for (const field of fieldNames) {
+    const raw = item.fields[field];
+    if (!raw) continue;
+    const date = new Date(String(raw));
+    if (!Number.isFinite(date.getTime())) continue;
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(date);
+    const part = (type: string) => parts.find(p => p.type === type)?.value || '';
+    const isoDate = `${part('year')}-${part('month')}-${part('day')}`;
+    const year = Number(part('year'));
+    if (isoDate && !Number.isNaN(year)) {
+      return { isoDate, year };
+    }
+  }
+  return null;
+}
+
+/**
  * Resolve a yearless task title using Azure's recorded task date instead of
  * assuming the current calendar year. Use the organization's timezone so a
  * UTC midnight boundary cannot move the workday into another date.
@@ -245,9 +280,10 @@ export function parseWorkItemTaskDate(
   prefix: string,
   timezone = 'UTC',
   requireRecordedWorkday = false,
+  allowAnyPrefix = false,
 ): ParsedTaskDate {
   const title = String(item.fields['System.Title'] || '');
-  if (!matchesTaskSeries(title, prefix)) {
+  if (!allowAnyPrefix && !matchesTaskSeries(title, prefix)) {
     return { isoDate: '', formattedTitleDate: '', year: 0, isValid: false };
   }
   // Legacy work item titles sometimes contain an explicit year, including
@@ -256,13 +292,13 @@ export function parseWorkItemTaskDate(
   const titleSegment = title.split('|')[1]?.trim() || '';
   const numeric = titleSegment.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:\s|$)/);
   const named = titleSegment.match(/^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})(?:\s|$)/);
-  let parsed = parseTitleDate(title, prefix, true);
+  let parsed = parseTitleDate(title, prefix, allowAnyPrefix ? true : true);
   let explicitYear = false;
   if (numeric || named) {
     const day = Number((numeric || named)![1]);
     const month = numeric
       ? Number(numeric[2])
-      : new Date(`${named![2]} 1, 2000`).getUTCMonth() + 1;
+      : monthStrToNumber(named![2]) + 1;
     const year = Number((numeric || named)![3]);
     const date = new Date(Date.UTC(year, month - 1, day));
     const valid = month >= 1 && month <= 12 && day >= 1 && day <= 31 &&
@@ -354,7 +390,7 @@ export function validateSourceTaskOwnership(
   project: string,
   workItemType: string,
   titlePrefix: string,
-  assignedTo: string,
+  assignedToOrPerson: Person | PersonConfig | string,
 ): ParsedTaskDate {
   const fields = workItem.fields;
   const same = (a: unknown, b: string) =>
@@ -368,15 +404,34 @@ export function validateSourceTaskOwnership(
     throw new Error(`Source work item #${workItem.id} belongs to a different task series.`);
   }
 
-  // Azure's uniqueName is preferred to display-name substring heuristics.
-  const raw = fields['System.AssignedTo'];
-  let actualIdentity: string | undefined;
-  if (typeof raw === 'string') {
-    actualIdentity = raw.match(/<([^>]+)>/)?.[1] || raw.trim();
-  } else if (raw && typeof raw === 'object') {
-    actualIdentity = String((raw as any).uniqueName || (raw as any).displayName || '').trim();
+  let targetPerson: Person | PersonConfig;
+  if (typeof assignedToOrPerson === 'string') {
+    const raw = assignedToOrPerson.trim();
+    const emailMatch = raw.match(/<([^>]+)>/);
+    const email = emailMatch ? emailMatch[1].trim() : raw;
+    const name = emailMatch ? raw.replace(/<[^>]+>/, '').trim() : raw;
+    targetPerson = { key: raw, name, assignedTo: email };
+  } else {
+    targetPerson = assignedToOrPerson;
   }
-  if (!actualIdentity || !same(actualIdentity, assignedTo)) {
+
+  let matched = matchesPerson(fields['System.AssignedTo'], targetPerson);
+  if (!matched && typeof assignedToOrPerson === 'string') {
+    const rawAssigned = fields['System.AssignedTo'];
+    const norm = (s: unknown) => (typeof s === 'string' ? s.trim().toLowerCase() : '');
+    const targetNorm = assignedToOrPerson.trim().toLowerCase();
+    if (typeof rawAssigned === 'string') {
+      const match = rawAssigned.match(/<([^>]+)>/);
+      const email = match ? match[1].trim() : rawAssigned;
+      const name = match ? rawAssigned.replace(/<[^>]+>/, '').trim() : rawAssigned;
+      matched = norm(email) === targetNorm || norm(name) === targetNorm;
+    } else if (rawAssigned && typeof rawAssigned === 'object') {
+      matched = norm((rawAssigned as any).uniqueName) === targetNorm ||
+        norm((rawAssigned as any).displayName) === targetNorm;
+    }
+  }
+
+  if (!matched) {
     throw new Error(`Source work item #${workItem.id} is not assigned to the selected team member.`);
   }
   const parsed = parseTitleDate(title, titlePrefix, true);

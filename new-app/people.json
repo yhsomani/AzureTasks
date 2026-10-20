@@ -8,7 +8,28 @@
   "thursdayMode": "CURRENT",
   "githubOrg": "3in1-AppFrontEnd",
   "githubUserSuffix": "_bflghec",
-  "people": [],
+  "people": [
+    {
+      "key": "yash_somani",
+      "name": "Yash Somani",
+      "assignedTo": "yash.somani@bajajfinserv.in",
+      "pod": "108_My Account Part 2",
+      "role": "Dev On-Role",
+      "titlePrefix": "3in1_PWA_MyAccount |",
+      "githubRepositories": [],
+      "githubBranches": [],
+      "enabled": true
+    },
+    {
+      "key": "mukul_ramteke",
+      "name": "Mukul Ramteke",
+      "assignedTo": "mukul.ramteke@bajajfinserv.in",
+      "pod": "SDM",
+      "githubRepositories": [],
+      "githubBranches": [],
+      "enabled": true
+    }
+  ],
   "schedulerEnabled": false,
   "scheduleTime": "09:30",
   "schedulerAutoStart": false,

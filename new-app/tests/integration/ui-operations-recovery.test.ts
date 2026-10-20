@@ -107,7 +107,7 @@ describe('operations and recovery UI trust', () => {
     }
   });
 
-  it('preserves operational actions', () => {
-    for(const id of ['schedRunNowBtn','schedToggle','schedSaveConfigBtn','eodPreviewBtn','eodRunNowBtn','eodSaveConfigBtn','journalRepairBtn','exportCsv','exportJson']) expect(html).toContain(`id="${id}"`);
+  it('preserves operational actions and provides dedicated manual EOD close triggers', () => {
+    for(const id of ['schedRunNowBtn','schedToggle','schedSaveConfigBtn','eodPreviewBtn','eodRunNowBtn','eodSaveConfigBtn','closeTodayTasksBtn','dashboardCloseTodayBtn','plannerCloseTodayBtn','journalRepairBtn','exportCsv','exportJson']) expect(html).toContain(`id="${id}"`);
   });
 });

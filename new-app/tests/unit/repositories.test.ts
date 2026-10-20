@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -67,6 +67,59 @@ describe('FileLockRepository', () => {
     const lock = new FileLockRepository(filename);
     expect(lock.acquire()).toBe(false);
     expect(fs.readFileSync(filename, 'utf8')).toBe('{not-valid-json');
+  });
+
+  it('reclaims a 0-byte lock file immediately as stale', () => {
+    const filename = path.join(dir, '.lock.json');
+    fs.writeFileSync(filename, '');
+    const lock = new FileLockRepository(filename);
+    expect(lock.isLocked()).toBe(false);
+    expect(lock.getLockInfo()?.stale).toBe(true);
+    expect(lock.acquire()).toBe(true);
+    expect(lock.isLocked()).toBe(true);
+  });
+
+  it('reclaims a corrupted lock file older than 60 seconds', () => {
+    const filename = path.join(dir, '.lock.json');
+    fs.writeFileSync(filename, '{"corrupted": true, incomplete');
+    const past = new Date(Date.now() - 65_000);
+    fs.utimesSync(filename, past, past);
+    const lock = new FileLockRepository(filename);
+    expect(lock.isLocked()).toBe(false);
+    expect(lock.getLockInfo()?.stale).toBe(true);
+    expect(lock.acquire()).toBe(true);
+    expect(lock.isLocked()).toBe(true);
+  });
+
+  it('does not reclaim a corrupted lock file newer than 60 seconds (fails closed)', () => {
+    const filename = path.join(dir, '.lock.json');
+    fs.writeFileSync(filename, '{"corrupted": true, incomplete');
+    const lock = new FileLockRepository(filename);
+    expect(lock.isLocked()).toBe(true);
+    expect(lock.getLockInfo()?.stale).toBe(false);
+    expect(lock.acquire()).toBe(false);
+  });
+
+  it('handles concurrent stale reclamation without unlinking active locks (TOCTOU mitigation)', () => {
+    const filename = path.join(dir, '.lock.json');
+    fs.writeFileSync(filename, JSON.stringify({
+      pid: 999999,
+      acquiredAt: new Date(Date.now() - 100_000).toISOString(),
+      stale: true,
+    }));
+    const lockA = new FileLockRepository(filename);
+    const lockB = new FileLockRepository(filename);
+
+    // Both observe stale
+    expect(lockA.getLockInfo()?.stale).toBe(true);
+    expect(lockB.getLockInfo()?.stale).toBe(true);
+
+    // Lock A acquires successfully
+    expect(lockA.acquire()).toBe(true);
+
+    // Lock B must NOT overwrite or destroy Lock A's acquired lock
+    expect(lockB.acquire()).toBe(false);
+    expect(lockA.isLocked()).toBe(true);
   });
 });
 
@@ -411,7 +464,7 @@ describe('NodeSchedulerRepository', () => {
   });
 
   it('schedules next auto-close for tomorrow or next weekday when lastAutoClose is already today', () => {
-    const todayIso = new Date().toLocaleDateString('en-CA');
+    const todayIso = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(new Date());
     const scheduler = new NodeSchedulerRepository({
       timezone: 'UTC',
       startTime: '09:30',

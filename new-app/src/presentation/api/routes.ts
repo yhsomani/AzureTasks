@@ -513,6 +513,29 @@ export function createApiRouter(deps: ApiDependencies): Router {
     }
   });
 
+  // Daily PR Tracking by Team Member
+  router.get('/github/daily-prs', async (req, res) => {
+    try {
+      if (!deps.githubClient) {
+        return res.status(501).json({ success: false, error: 'GitHub client not configured' });
+      }
+      const config = await deps.config.getConfig();
+      const timezone = config.timezone || 'Asia/Kolkata';
+      const targetDate = String(req.query.date || '').trim() || getTodayIso(timezone);
+
+      const result = await deps.githubClient.getDailyPullRequestsSummary({
+        people: config.people || [],
+        targetIsoDate: targetDate,
+        timezone,
+        org: config.githubOrg,
+      });
+
+      res.json({ success: true, data: result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // Logs
   router.get('/logs/recent', (req, res) => {
     try {

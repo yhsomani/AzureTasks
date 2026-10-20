@@ -3,7 +3,16 @@
  * Connects to GitHub API v3 to resolve user emails to logins and fetch Pull Requests
  */
 
-import { GitHubPullRequest, GitHubPrDeliverables, GitHubCommit, formatPrTaskDescription, deriveGitHubUsernameFromEmail } from '../../domain/services/github-service.js';
+import {
+  GitHubPullRequest,
+  GitHubPrDeliverables,
+  GitHubCommit,
+  MemberDailyPrSummary,
+  DailyPrTrackingResult,
+  formatPrTaskDescription,
+  deriveGitHubUsernameFromEmail,
+} from '../../domain/services/github-service.js';
+import { PersonConfig } from '../../domain/entities/person.js';
 import { logger } from '../logging/logger.js';
 
 export interface GitHubClientOptions {
@@ -12,6 +21,9 @@ export interface GitHubClientOptions {
   org?: string;
   userSuffix?: string;
   fetchFn?: typeof fetch;
+  timeout?: number;    // default 30000 ms
+  maxRetries?: number; // default 3 attempts
+  initialRetryDelayMs?: number; // default 1000 ms
 }
 
 export class GitHubClient {
@@ -19,11 +31,29 @@ export class GitHubClient {
   private readonly apiUrl: string;
   private readonly fetchFn: typeof fetch;
   private readonly emailCache = new Map<string, string | null>();
+  private readonly timeout: number;
+  private readonly maxRetries: number;
+  private readonly initialRetryDelayMs: number;
 
   constructor(options: GitHubClientOptions = {}) {
     this.options = options;
     this.apiUrl = (options.apiUrl || process.env.GITHUB_API_URL || 'https://api.github.com').replace(/\/+$/, '');
     this.fetchFn = options.fetchFn || globalThis.fetch;
+    this.timeout = options.timeout ?? 30000;
+    this.maxRetries = options.maxRetries ?? 3;
+    this.initialRetryDelayMs = options.initialRetryDelayMs ?? 1000;
+  }
+
+  private calculateBackoff(attempt: number): number {
+    const baseDelay = this.initialRetryDelayMs;
+    const maxDelay = 30000;
+    const exp = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
+    const jitter = Math.random() * 200;
+    return exp + jitter;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   get token(): string | undefined {
@@ -312,6 +342,103 @@ export class GitHubClient {
     };
   }
 
+  /**
+   * Fetches daily pull requests created from 12:00 AM up to the current time
+   * on the specified targetDate for all configured team members in the configured timezone.
+   */
+  async getDailyPullRequestsSummary(options: {
+    people: PersonConfig[];
+    targetIsoDate: string;
+    timezone: string;
+    org?: string;
+  }): Promise<DailyPrTrackingResult> {
+    const { people, targetIsoDate, timezone, org = this.defaultOrg } = options;
+
+    const day = new Date(`${targetIsoDate}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetIsoDate) ||
+      !Number.isFinite(day.getTime()) || day.toISOString().slice(0, 10) !== targetIsoDate) {
+      throw new Error('Daily PR evidence date must be a valid YYYY-MM-DD date.');
+    }
+    new Intl.DateTimeFormat('en-CA', { timeZone: timezone });
+    const utcDay = (offset: number) =>
+      new Date(day.getTime() + offset * 86400000).toISOString().slice(0, 10);
+
+    const members: MemberDailyPrSummary[] = [];
+    let totalPrsToday = 0;
+
+    for (const person of people) {
+      if (person.enabled === false) continue;
+
+      let ghUsername = person.githubUsername?.trim() || '';
+      if (!ghUsername && person.assignedTo) {
+        ghUsername = (await this.resolveUserByEmail(person.assignedTo)) || '';
+      }
+
+      if (!ghUsername) {
+        members.push({
+          key: person.key,
+          name: person.name,
+          email: person.assignedTo,
+          githubUsername: '',
+          prCount: 0,
+          pullRequests: [],
+        });
+        continue;
+      }
+
+      try {
+        const prs = await this.getUserPullRequests(ghUsername, {
+          org,
+          createdRange: { from: utcDay(-1), to: utcDay(1) },
+          exhaustive: true,
+        });
+
+        // Filter strictly to PRs created on targetIsoDate in the specified timezone (12:00 AM to 11:59:59 PM)
+        let memberPrs = prs.filter(pr => {
+          const localDate = this.toLocalDateIso(pr.createdAt, timezone);
+          return localDate === targetIsoDate;
+        });
+
+        // If person has explicit githubRepositories configured, filter to those repositories
+        if (person.githubRepositories && person.githubRepositories.length > 0) {
+          const allowedRepos = new Set(
+            person.githubRepositories.map(r => r.includes('/') ? r.split('/').pop()!.toLowerCase() : r.toLowerCase())
+          );
+          memberPrs = memberPrs.filter(pr => pr.repositoryName && allowedRepos.has(pr.repositoryName.toLowerCase()));
+        }
+
+        totalPrsToday += memberPrs.length;
+
+        members.push({
+          key: person.key,
+          name: person.name,
+          email: person.assignedTo,
+          githubUsername: ghUsername,
+          prCount: memberPrs.length,
+          pullRequests: memberPrs,
+          filteredByRepositories: person.githubRepositories && person.githubRepositories.length > 0 ? person.githubRepositories : undefined,
+        });
+      } catch (err: any) {
+        logger.warn(`Failed to retrieve daily PRs for ${person.name} (${ghUsername}): ${err.message}`);
+        members.push({
+          key: person.key,
+          name: person.name,
+          email: person.assignedTo,
+          githubUsername: ghUsername,
+          prCount: 0,
+          pullRequests: [],
+        });
+      }
+    }
+
+    return {
+      targetDate: targetIsoDate,
+      timezone,
+      totalPrsToday,
+      members,
+    };
+  }
+
   private toLocalDateIso(utcIso: string, timezone: string): string {
     try {
       const d = new Date(utcIso);
@@ -329,22 +456,93 @@ export class GitHubClient {
 
   private async request<T>(endpoint: string, init: RequestInit = {}): Promise<T> {
     const url = `${this.apiUrl}${endpoint}`;
-    const headers: Record<string, string> = {
+    const baseHeaders: Record<string, string> = {
       Accept: 'application/vnd.github.v3+json',
       'User-Agent': 'Azure-DevOps-Task-Creator',
       ...(init.headers as Record<string, string> || {}),
     };
 
     if (this.token) {
-      headers.Authorization = `Bearer ${this.token}`;
+      baseHeaders.Authorization = `Bearer ${this.token}`;
     }
 
-    const res = await this.fetchFn(url, { ...init, headers });
-    if (!res.ok) {
-      const errorBody = await res.text().catch(() => '');
-      throw new Error(`GitHub API error ${res.status} (${res.statusText}): ${errorBody.slice(0, 200)}`);
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
+      try {
+        const res = await this.fetchFn(url, {
+          ...init,
+          headers: baseHeaders,
+          signal: controller.signal,
+        });
+
+        const status = res.status ?? 200;
+        const remainingHeader = res.headers?.get?.('x-ratelimit-remaining');
+        const retryAfterHeader = res.headers?.get?.('retry-after');
+        const isRateLimited = status === 429 || (
+          status === 403 && (remainingHeader === '0' || Boolean(retryAfterHeader))
+        );
+
+        if (isRateLimited) {
+          if (attempt >= this.maxRetries) {
+            const errorBody = typeof res.text === 'function' ? await res.text().catch(() => '') : '';
+            throw new Error(`GitHub API rate limit exceeded (HTTP ${status}): ${errorBody.slice(0, 200)}`);
+          }
+          let delay = this.calculateBackoff(attempt);
+          if (retryAfterHeader) {
+            const sec = Number(retryAfterHeader);
+            if (Number.isFinite(sec) && sec > 0) delay = Math.min(sec * 1000, 60000);
+          } else {
+            const resetHeader = res.headers?.get?.('x-ratelimit-reset');
+            if (resetHeader) {
+              const resetSec = Number(resetHeader);
+              if (Number.isFinite(resetSec)) {
+                const diffMs = resetSec * 1000 - Date.now();
+                if (diffMs > 0) delay = Math.min(diffMs, 60000);
+              }
+            }
+          }
+          await this.sleep(delay);
+          continue;
+        }
+
+        if (status >= 500) {
+          if (attempt >= this.maxRetries) {
+            const errorBody = typeof res.text === 'function' ? await res.text().catch(() => '') : '';
+            throw new Error(`GitHub API server error ${status}: ${errorBody.slice(0, 200)}`);
+          }
+          await this.sleep(this.calculateBackoff(attempt));
+          continue;
+        }
+
+        if (!res.ok) {
+          const errorBody = typeof res.text === 'function' ? await res.text().catch(() => '') : '';
+          throw new Error(`GitHub API error ${res.status} (${res.statusText}): ${errorBody.slice(0, 200)}`);
+        }
+
+        return (await res.json()) as T;
+      } catch (err: any) {
+        if (err?.name === 'AbortError') {
+          if (attempt >= this.maxRetries) {
+            throw new Error(`GitHub API request timed out after ${this.timeout}ms: ${endpoint}`);
+          }
+          await this.sleep(this.calculateBackoff(attempt));
+          continue;
+        }
+
+        const isNetworkError = err instanceof TypeError || String(err?.message || '').toLowerCase().includes('fetch');
+        if (isNetworkError && attempt < this.maxRetries) {
+          await this.sleep(this.calculateBackoff(attempt));
+          continue;
+        }
+
+        throw err;
+      } finally {
+        clearTimeout(timeoutId);
+      }
     }
 
-    return (await res.json()) as T;
+    throw new Error(`GitHub API request failed after ${this.maxRetries} retries: ${endpoint}`);
   }
 }

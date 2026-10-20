@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as http from 'node:http';
 import { AppServer } from '../../src/presentation/api/server';
 import { ApiDependencies } from '../../src/presentation/api/routes';
+import { buildApp } from '../../src/container';
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -43,14 +44,14 @@ describe('Production web server access controls', () => {
         headers: { Authorization: auth('auditor', 'viewer-test-secret') },
       });
       expect(viewerSession.status).toBe(200);
-      expect((await viewerSession.json()).data.role).toBe('viewer');
+      expect(((await viewerSession.json()) as any).data.role).toBe('viewer');
       const denied = await fetch(`${target}/api/scheduler/run-now`, {
         method: 'POST',
         headers: { Authorization: auth('auditor', 'viewer-test-secret'), 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirm: true, all: true }),
       });
       expect(denied.status).toBe(403);
-      expect((await denied.json()).error).toContain('read-only');
+      expect(((await denied.json()) as any).error).toContain('read-only');
       expect(triggerRunNow).not.toHaveBeenCalled();
       const previewPlan = await fetch(`${target}/api/tasks/plan`, {
         method: 'POST',
@@ -65,7 +66,7 @@ describe('Production web server access controls', () => {
         body: JSON.stringify({ personKeys: ['member-a', ' member-a '] }),
       });
       expect(duplicatedMembers.status).toBe(400);
-      expect((await duplicatedMembers.json()).error).toContain('duplicate member keys');
+      expect(((await duplicatedMembers.json()) as any).error).toContain('duplicate member keys');
       expect(plan).toHaveBeenCalledOnce();
       for (const route of ['/api/journal', '/api/logs/recent']) {
         for (const invalidLimit of ['-1', '0', '1garbage', '999999']) {
@@ -73,7 +74,7 @@ describe('Production web server access controls', () => {
             headers: { Authorization: auth('auditor', 'viewer-test-secret') },
           });
           expect(invalid.status).toBe(400);
-          expect((await invalid.json()).error).toContain('positive integer');
+          expect(((await invalid.json()) as any).error).toContain('positive integer');
         }
       }
       const previewEod = await fetch(`${target}/api/tasks/close-today`, {
@@ -98,7 +99,7 @@ describe('Production web server access controls', () => {
       const operatorSession = await fetch(`${target}/api/session`, {
         headers: { Authorization: auth('admin', 'operator-test-secret') },
       });
-      expect((await operatorSession.json()).data.role).toBe('operator');
+      expect(((await operatorSession.json()) as any).data.role).toBe('operator');
       expect(triggerRunNow).toHaveBeenCalledOnce();
       const unauthenticated = await fetch(`${target}/api/status`);
       expect(unauthenticated.status).toBe(401);
@@ -269,5 +270,16 @@ describe('Production web server access controls', () => {
       await server.stop();
     }
   });
+});
 
+describe('Defense-in-depth TLS safety assertions in buildApp()', () => {
+  it('rejects buildApp() initialization when ALLOW_INSECURE_TLS is true', async () => {
+    vi.stubEnv('ALLOW_INSECURE_TLS', 'true');
+    await expect(buildApp()).rejects.toThrow(/TLS certificate verification must remain enabled/);
+  });
+
+  it('rejects buildApp() initialization when NODE_TLS_REJECT_UNAUTHORIZED is 0', async () => {
+    vi.stubEnv('NODE_TLS_REJECT_UNAUTHORIZED', '0');
+    await expect(buildApp()).rejects.toThrow(/TLS certificate verification must remain enabled/);
+  });
 });

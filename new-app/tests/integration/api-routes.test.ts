@@ -100,7 +100,9 @@ afterAll(async () => {
   await server.stop();
 });
 
-const json = (path: string, init?: RequestInit) => fetch(base + path, init);
+type TestResponse = Omit<Response, 'json'> & { json(): Promise<any> };
+const json = async (path: string, init?: RequestInit): Promise<TestResponse> =>
+  fetch(base + path, init) as unknown as Promise<TestResponse>;
 
 describe('API routes', () => {
   it('GET /api/health', async () => {
@@ -578,7 +580,7 @@ describe('API auth (HTTP Basic, opt-in via API_AUTH_TOKEN)', () => {
   it('accepts the correct credentials', async () => {
     const res = await fetch(authBase + '/api/status', { headers: basic('admin:sekret') });
     expect(res.status).toBe(200);
-    expect((await res.json()).success).toBe(true);
+    expect(((await res.json()) as any).success).toBe(true);
   });
 
   it('rejects credentialed cross-origin scheduler POST before any mutation runs', async () => {
@@ -588,7 +590,7 @@ describe('API auth (HTTP Basic, opt-in via API_AUTH_TOKEN)', () => {
       headers: { ...basic('admin:sekret'), Origin: 'https://attacker.example.invalid' },
     });
     expect(res.status).toBe(403);
-    expect((await res.json()).success).toBe(false);
+    expect(((await res.json()) as any).success).toBe(false);
     expect(authDeps.scheduler.triggerRunNow).not.toHaveBeenCalled();
   });
 

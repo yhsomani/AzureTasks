@@ -22,6 +22,7 @@ import { GitHubClient } from './infrastructure/github/github-client.js';
 import { DatePlanningService } from './domain/index.js';
 import { AppConfig } from './domain/ports/repositories.js';
 import { logger } from './infrastructure/logging/logger.js';
+import { assertTlsSafety } from './infrastructure/security/tls-safety.js';
 
 export interface App {
   config: AppConfig;
@@ -52,6 +53,10 @@ export async function buildApp(
     const resolved = path.resolve(process.cwd(), configFilePath);
     dotenv.config({ path: path.join(path.dirname(resolved), '.env'), override: false, quiet: true });
   }
+
+  // Defense-in-depth: enforce strict TLS safety regardless of invocation pathway
+  assertTlsSafety();
+
   const configRepo = new FileConfigRepository(configFilePath);
   const config = await configRepo.load();
 
@@ -87,7 +92,7 @@ export async function buildApp(
   const exploreTasks = new ExploreTasksUseCase(workItemRepo, config);
   const getStatus = new GetSystemStatusUseCase(workItemRepo, config);
   const configUseCases = new ConfigUseCases(configRepo, config);
-  const repairRelations = new RepairRelationsUseCase(workItemRepo, journalRepo);
+  const repairRelations = new RepairRelationsUseCase(workItemRepo, journalRepo, lockRepo);
   const closeDailyTasks = new CloseDailyTasksUseCase(
     config,
     workItemRepo,
