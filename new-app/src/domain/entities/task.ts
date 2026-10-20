@@ -116,20 +116,35 @@ export function isRelationExcluded(relType: string): boolean {
 }
 
 /**
- * Checks whether a work item is a User Story or parent container rather than a leaf execution task.
+ * Checks whether a work item is a User Story or parent container rather than an execution task.
  * In Azure DevOps:
- * 1. An item with Hierarchy-Forward (Child) links is a parent container/User Story.
- * 2. An item explicitly typed as "User Story" or containing "User Story" is a story.
+ * 1. An item explicitly typed as "User Story" or containing "User Story" / "Requirement" is a story.
+ * 2. An item with iteration path sitting at the root project level (no sprint) while parenting children is a container story.
+ * 3. Daily execution tasks are scheduled inside a sprint (System.IterationLevel2/Level3 or nested path).
  */
 export function isUserStoryOrParentContainer(item: WorkItem): boolean {
   if (!item) return false;
-  const type = String(item.fields?.['System.WorkItemType'] || '').trim().toLowerCase();
+  const fields = item.fields || {};
+  const type = String(fields['System.WorkItemType'] || '').trim().toLowerCase();
   if (type.includes('user story') || type.includes('requirement')) {
     return true;
   }
-  // Check if work item has Child links (Hierarchy-Forward)
+  
+  // A User Story in this tenant sits at root project iteration (no sprint subdivision)
+  // while tasks sit in sprints (e.g. "3in1_Agile_Projects\DPAOP4B\Oct Sprint").
+  const iterPath = String(fields['System.IterationPath'] || '').trim();
+  const teamProject = String(fields['System.TeamProject'] || '').trim();
+  const isRootIteration = !iterPath.includes('\\') || (teamProject && iterPath.toLowerCase() === teamProject.toLowerCase());
+  
   const rels = item.relations || [];
-  return rels.some(r => r.rel === 'System.LinkTypes.Hierarchy-Forward');
+  const hasChildren = rels.some(r => r.rel === 'System.LinkTypes.Hierarchy-Forward');
+
+  // If it's at root iteration and has children, it's the US-level container
+  if (isRootIteration && hasChildren) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
