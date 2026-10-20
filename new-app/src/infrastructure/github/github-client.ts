@@ -140,7 +140,13 @@ export class GitHubClient {
    */
   async getUserPullRequests(
     username: string,
-    options: { org?: string; limit?: number; createdRange?: { from: string; to: string }; exhaustive?: boolean } = {}
+    options: {
+      org?: string;
+      limit?: number;
+      createdRange?: { from: string; to: string };
+      updatedRange?: { from: string; to: string };
+      exhaustive?: boolean;
+    } = {}
   ): Promise<GitHubPullRequest[]> {
     const org = options.org || this.defaultOrg;
     const limit = options.exhaustive ? 100 : Math.min(Math.max(options.limit || 30, 1), 100);
@@ -150,6 +156,7 @@ export class GitHubClient {
       `author:${username}`,
       org ? `org:${org}` : '',
       options.createdRange ? `created:${options.createdRange.from}..${options.createdRange.to}` : '',
+      options.updatedRange ? `updated:${options.updatedRange.from}..${options.updatedRange.to}` : '',
     ].filter(Boolean).join(' ');
 
     try {
@@ -163,6 +170,7 @@ export class GitHubClient {
           html_url: string;
           state: string;
           created_at: string;
+          updated_at?: string;
           closed_at?: string | null;
           pull_request?: { merged_at?: string | null };
           body?: string | null;
@@ -194,6 +202,7 @@ export class GitHubClient {
             htmlUrl: item.html_url,
             state: item.state,
             createdAt: item.created_at,
+            updatedAt: item.updated_at,
             closedAt: item.closed_at,
             mergedAt: item.pull_request?.merged_at,
             body: item.body,
@@ -365,6 +374,8 @@ export class GitHubClient {
 
     const members: MemberDailyPrSummary[] = [];
     let totalPrsToday = 0;
+    let totalOpenPrsToday = 0;
+    let totalMergedPrsToday = 0;
 
     for (const person of people) {
       if (person.enabled === false) continue;
@@ -381,22 +392,41 @@ export class GitHubClient {
           email: person.assignedTo,
           githubUsername: '',
           prCount: 0,
+          openCount: 0,
+          mergedCount: 0,
           pullRequests: [],
+          openPrs: [],
+          mergedPrs: [],
         });
         continue;
       }
 
       try {
-        const prs = await this.getUserPullRequests(ghUsername, {
-          org,
-          createdRange: { from: utcDay(-1), to: utcDay(1) },
-          exhaustive: true,
-        });
+        // Query PRs created in the range or updated in the range to catch PRs created or updated today
+        const [createdPrs, updatedPrs] = await Promise.all([
+          this.getUserPullRequests(ghUsername, {
+            org,
+            createdRange: { from: utcDay(-1), to: utcDay(1) },
+            exhaustive: true,
+          }),
+          this.getUserPullRequests(ghUsername, {
+            org,
+            updatedRange: { from: utcDay(-1), to: utcDay(1) },
+            exhaustive: true,
+          }),
+        ]);
 
-        // Filter strictly to PRs created on targetIsoDate in the specified timezone (12:00 AM to 11:59:59 PM)
-        let memberPrs = prs.filter(pr => {
-          const localDate = this.toLocalDateIso(pr.createdAt, timezone);
-          return localDate === targetIsoDate;
+        // Merge without duplicates by PR ID
+        const prMap = new Map<number, GitHubPullRequest>();
+        for (const pr of [...createdPrs, ...updatedPrs]) {
+          prMap.set(pr.id, pr);
+        }
+
+        // Filter to PRs created OR updated on targetIsoDate in configured timezone
+        let memberPrs = Array.from(prMap.values()).filter(pr => {
+          const createdDate = this.toLocalDateIso(pr.createdAt, timezone);
+          const updatedDate = pr.updatedAt ? this.toLocalDateIso(pr.updatedAt, timezone) : createdDate;
+          return createdDate === targetIsoDate || updatedDate === targetIsoDate;
         });
 
         // If person has explicit githubRepositories configured, filter to those repositories
@@ -407,7 +437,17 @@ export class GitHubClient {
           memberPrs = memberPrs.filter(pr => pr.repositoryName && allowedRepos.has(pr.repositoryName.toLowerCase()));
         }
 
+        // Categorize into Open PRs and Merged PRs
+        // In GitHub API:
+        // - Open PRs: pr.state === 'open'
+        // - Merged PRs: pr.mergedAt != null (or closed with mergedAt)
+        // - Closed without merge: pr.state === 'closed' && !pr.mergedAt
+        const openPrs = memberPrs.filter(pr => pr.state === 'open');
+        const mergedPrs = memberPrs.filter(pr => Boolean(pr.mergedAt));
+
         totalPrsToday += memberPrs.length;
+        totalOpenPrsToday += openPrs.length;
+        totalMergedPrsToday += mergedPrs.length;
 
         members.push({
           key: person.key,
@@ -415,7 +455,11 @@ export class GitHubClient {
           email: person.assignedTo,
           githubUsername: ghUsername,
           prCount: memberPrs.length,
+          openCount: openPrs.length,
+          mergedCount: mergedPrs.length,
           pullRequests: memberPrs,
+          openPrs,
+          mergedPrs,
           filteredByRepositories: person.githubRepositories && person.githubRepositories.length > 0 ? person.githubRepositories : undefined,
         });
       } catch (err: any) {
@@ -426,7 +470,11 @@ export class GitHubClient {
           email: person.assignedTo,
           githubUsername: ghUsername,
           prCount: 0,
+          openCount: 0,
+          mergedCount: 0,
           pullRequests: [],
+          openPrs: [],
+          mergedPrs: [],
         });
       }
     }
@@ -435,6 +483,8 @@ export class GitHubClient {
       targetDate: targetIsoDate,
       timezone,
       totalPrsToday,
+      totalOpenPrsToday,
+      totalMergedPrsToday,
       members,
     };
   }

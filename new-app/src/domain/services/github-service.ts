@@ -10,6 +10,7 @@ export interface GitHubPullRequest {
   htmlUrl: string;
   state: string; // 'open' | 'closed' | 'all'
   createdAt: string; // ISO string
+  updatedAt?: string; // ISO string
   closedAt?: string | null;
   mergedAt?: string | null;
   body?: string | null;
@@ -41,7 +42,11 @@ export interface MemberDailyPrSummary {
   email: string;
   githubUsername: string;
   prCount: number;
+  openCount: number;
+  mergedCount: number;
   pullRequests: GitHubPullRequest[];
+  openPrs: GitHubPullRequest[];
+  mergedPrs: GitHubPullRequest[];
   filteredByRepositories?: string[];
 }
 
@@ -49,6 +54,8 @@ export interface DailyPrTrackingResult {
   targetDate: string;
   timezone: string;
   totalPrsToday: number;
+  totalOpenPrsToday: number;
+  totalMergedPrsToday: number;
   members: MemberDailyPrSummary[];
 }
 

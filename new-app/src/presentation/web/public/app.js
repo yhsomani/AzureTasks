@@ -520,8 +520,11 @@ function renderDailyPrTracking(data) {
   if (!data || !container) return;
 
   const total = Number.isFinite(data.totalPrsToday) ? data.totalPrsToday : 0;
+  const totalOpen = Number.isFinite(data.totalOpenPrsToday) ? data.totalOpenPrsToday : 0;
+  const totalMerged = Number.isFinite(data.totalMergedPrsToday) ? data.totalMergedPrsToday : 0;
+
   if (kpiVal) kpiVal.textContent = total;
-  if (kpiHint) kpiHint.textContent = `${data.targetDate || 'Today'} (${data.timezone || 'Local'})`;
+  if (kpiHint) kpiHint.textContent = `${totalOpen} Open · ${totalMerged} Merged · ${data.targetDate || 'Today'}`;
   if (lastUpdated) lastUpdated.textContent = `Updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
 
   const members = data.members || [];
@@ -532,35 +535,62 @@ function renderDailyPrTracking(data) {
 
   const table = el('table', { class: 'table' }, [
     el('thead', {}, el('tr', {}, [
-      el('th', {}, 'Team Member'),
-      el('th', { style: 'text-align:center;' }, 'PRs Raised Today'),
-      el('th', {}, 'Latest PR Activity'),
+      el('th', { style: 'width:24%;' }, 'Team Member'),
+      el('th', { style: 'text-align:center; width:12%;' }, 'Total Today'),
+      el('th', { style: 'width:32%;' }, '🟢 Open PRs'),
+      el('th', { style: 'width:32%;' }, '🟣 Merged PRs'),
     ])),
   ]);
 
   const tbody = el('tbody');
   for (const m of members) {
     const prCount = m.prCount || 0;
+    const openList = m.openPrs || (m.pullRequests ? m.pullRequests.filter(p => p.state === 'open') : []);
+    const mergedList = m.mergedPrs || (m.pullRequests ? m.pullRequests.filter(p => Boolean(p.mergedAt)) : []);
     const badgeClass = prCount > 0 ? 'badge SUCCESS' : 'badge DUPLICATE';
-    
-    let activityNode;
-    if (m.pullRequests && m.pullRequests.length > 0) {
-      const latestPr = m.pullRequests[0];
-      const repoTag = latestPr.repositoryName ? `[${latestPr.repositoryName}] ` : '';
-      activityNode = el('div', { class: 'small' }, [
-        el('a', {
-          href: latestPr.htmlUrl,
-          target: '_blank',
-          rel: 'noopener noreferrer',
-          class: 'ado-link',
-        }, `${repoTag}PR #${latestPr.number}: ${latestPr.title}`),
-        m.pullRequests.length > 1 ? el('span', { class: 'muted', style: 'margin-left:6px;' }, `(+${m.pullRequests.length - 1} more)`) : null,
-      ]);
-    } else if (!m.githubUsername) {
-      activityNode = el('span', { class: 'muted small' }, 'No GitHub account mapped');
-    } else {
-      activityNode = el('span', { class: 'muted small' }, 'No PRs raised yet today');
-    }
+
+    // Helper to render a list of PR links
+    const renderPrList = (prItems, emptyText) => {
+      if (!m.githubUsername) {
+        return el('span', { class: 'muted small' }, 'No GitHub account mapped');
+      }
+      if (!prItems || prItems.length === 0) {
+        return el('span', { class: 'muted small' }, emptyText);
+      }
+      const listContainer = el('div', { style: 'display:flex; flex-direction:column; gap:4px;' });
+      for (const pr of prItems) {
+        const repoTag = pr.repositoryName ? `[${pr.repositoryName}] ` : '';
+        const prRow = el('div', { class: 'small', style: 'display:flex; align-items:center; gap:6px;' }, [
+          el('a', {
+            href: pr.htmlUrl,
+            target: '_blank',
+            rel: 'noopener noreferrer',
+            class: 'ado-link',
+            style: 'font-weight:600; text-decoration:none;',
+          }, `${repoTag}#${pr.number}`),
+          el('span', {
+            style: 'max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;',
+            title: pr.title,
+          }, pr.title),
+        ]);
+        listContainer.append(prRow);
+      }
+      return listContainer;
+    };
+
+    const openCellContent = el('div', {}, [
+      openList.length > 0
+        ? el('div', { style: 'margin-bottom:4px;' }, el('span', { class: 'pill ok', style: 'font-size:11px;' }, `${openList.length} Open`))
+        : null,
+      renderPrList(openList, '0 open'),
+    ]);
+
+    const mergedCellContent = el('div', {}, [
+      mergedList.length > 0
+        ? el('div', { style: 'margin-bottom:4px;' }, el('span', { class: 'pill', style: 'background:rgba(138,43,226,0.15); color:#8a2be2; font-size:11px;' }, `${mergedList.length} Merged`))
+        : null,
+      renderPrList(mergedList, '0 merged'),
+    ]);
 
     const memberIdentity = el('div', {}, [
       el('strong', {}, m.name || m.key),
@@ -570,15 +600,17 @@ function renderDailyPrTracking(data) {
     tbody.append(el('tr', {}, [
       el('td', {}, memberIdentity),
       el('td', { style: 'text-align:center;' }, el('span', { class: badgeClass }, String(prCount))),
-      el('td', {}, activityNode),
+      el('td', { style: 'vertical-align:top;' }, openCellContent),
+      el('td', { style: 'vertical-align:top;' }, mergedCellContent),
     ]));
   }
 
   // Footer summary row (Total)
   const tfoot = el('tfoot', {}, el('tr', { style: 'font-weight:700; background:var(--bg-elev-2);' }, [
-    el('td', {}, 'Total PRs Created Today'),
+    el('td', {}, 'Total PRs Created / Updated Today'),
     el('td', { style: 'text-align:center;' }, el('span', { class: total > 0 ? 'badge SUCCESS' : 'badge DUPLICATE' }, String(total))),
-    el('td', { class: 'muted small' }, `${members.length} team member(s) tracked`),
+    el('td', {}, el('span', { class: 'pill ok' }, `${totalOpen} Total Open`)),
+    el('td', {}, el('span', { class: 'pill', style: 'background:rgba(138,43,226,0.15); color:#8a2be2;' }, `${totalMerged} Total Merged`)),
   ]));
 
   table.append(tbody);

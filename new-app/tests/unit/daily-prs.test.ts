@@ -221,4 +221,81 @@ describe('Daily PR Tracking by Team Member', () => {
     expect(result.members.find(m => m.key === 'user1')?.prCount).toBe(2);
     expect(result.members.find(m => m.key === 'user2')?.prCount).toBe(1);
   });
+
+  it('categorizes PRs into Open and Merged sections with accurate counts', async () => {
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/search/issues')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            total_count: 3,
+            incomplete_results: false,
+            items: [
+              {
+                id: 401,
+                number: 101,
+                title: 'Open Work in Progress',
+                html_url: 'https://github.com/org/repo/pull/101',
+                state: 'open',
+                created_at: '2026-10-20T04:00:00Z',
+                repository_url: 'https://api.github.com/repos/org/repo',
+              },
+              {
+                id: 402,
+                number: 102,
+                title: 'Merged Hotfix',
+                html_url: 'https://github.com/org/repo/pull/102',
+                state: 'closed',
+                created_at: '2026-10-20T05:00:00Z',
+                pull_request: { merged_at: '2026-10-20T06:00:00Z' },
+                repository_url: 'https://api.github.com/repos/org/repo',
+              },
+              {
+                id: 403,
+                number: 103,
+                title: 'Another Open Feature',
+                html_url: 'https://github.com/org/repo/pull/103',
+                state: 'open',
+                created_at: '2026-10-20T07:00:00Z',
+                repository_url: 'https://api.github.com/repos/org/repo',
+              },
+            ],
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    });
+
+    const client = new GitHubClient({
+      token: 'test-token',
+      fetchFn: mockFetch,
+    });
+
+    const people: PersonConfig[] = [
+      {
+        key: 'dev_lead',
+        name: 'Dev Lead',
+        assignedTo: 'lead@example.com',
+        githubUsername: 'lead_bflghec',
+        enabled: true,
+      },
+    ];
+
+    const result = await client.getDailyPullRequestsSummary({
+      people,
+      targetIsoDate: '2026-10-20',
+      timezone: 'UTC',
+    });
+
+    expect(result.totalPrsToday).toBe(3);
+    expect(result.totalOpenPrsToday).toBe(2);
+    expect(result.totalMergedPrsToday).toBe(1);
+
+    const member = result.members[0];
+    expect(member.prCount).toBe(3);
+    expect(member.openCount).toBe(2);
+    expect(member.mergedCount).toBe(1);
+    expect(member.openPrs.map(p => p.number)).toEqual([101, 103]);
+    expect(member.mergedPrs.map(p => p.number)).toEqual([102]);
+  });
 });
