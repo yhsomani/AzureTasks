@@ -536,9 +536,9 @@ function renderDailyPrTracking(data) {
   const table = el('table', { class: 'table' }, [
     el('thead', {}, el('tr', {}, [
       el('th', { style: 'width:24%;' }, 'Team Member'),
-      el('th', { style: 'text-align:center; width:12%;' }, 'Total Today'),
-      el('th', { style: 'width:32%;' }, '🟢 Open PRs'),
-      el('th', { style: 'width:32%;' }, '🟣 Merged PRs'),
+      el('th', { style: 'text-align:center; width:16%;' }, 'PRs Raised Today'),
+      el('th', { style: 'width:30%;' }, 'Open PR'),
+      el('th', { style: 'width:30%;' }, 'Merged PR'),
     ])),
   ]);
 
