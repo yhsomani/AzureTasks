@@ -129,7 +129,16 @@ export class AppServer {
       ? (fs.existsSync(distPublicDir) ? distPublicDir : publicDir)
       : publicDir;
 
-    this.app.use(express.static(staticDir));
+    this.app.use(express.static(staticDir, {
+      maxAge: 0,
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html') || filePath.endsWith('.js') || filePath.endsWith('.css')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+        }
+      },
+    }));
 
     // SPA fallback (Express 5: use middleware, not a '*' route)
     this.app.use((_req, res) => {
