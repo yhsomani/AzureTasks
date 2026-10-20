@@ -130,17 +130,29 @@ export function isUserStoryOrParentContainer(item: WorkItem): boolean {
     return true;
   }
   
-  // A User Story in this tenant sits at root project iteration (no sprint subdivision)
-  // while tasks sit in sprints (e.g. "3in1_Agile_Projects\DPAOP4B\Oct Sprint").
+  // In this tenant:
+  // Root User Stories sit at root Area/Iteration (e.g. AreaPath="3in1_Agile_Projects", IterationPath="3in1_Agile_Projects")
+  // and parent children (System.LinkTypes.Hierarchy-Forward).
+  // Daily execution tasks sit in a Sub-Area (e.g. "3in1_Agile_Projects\\107_My Account Part 1")
+  // and/or a Sprint Iteration (e.g. "3in1_Agile_Projects\\DPAOP4B\\Oct Sprint").
+  const areaPath = String(fields['System.AreaPath'] || '').trim();
   const iterPath = String(fields['System.IterationPath'] || '').trim();
   const teamProject = String(fields['System.TeamProject'] || '').trim();
+
   const isRootIteration = !iterPath.includes('\\') || (teamProject && iterPath.toLowerCase() === teamProject.toLowerCase());
-  
+  const isRootArea = !areaPath.includes('\\') || (teamProject && areaPath.toLowerCase() === teamProject.toLowerCase());
+
   const rels = item.relations || [];
   const hasChildren = rels.some(r => r.rel === 'System.LinkTypes.Hierarchy-Forward');
 
-  // If it's at root iteration and has children, it's the US-level container
-  if (isRootIteration && hasChildren) {
+  // If it's at root area or root iteration AND has children, it's a parent container/User Story
+  if ((isRootArea || isRootIteration) && hasChildren) {
+    return true;
+  }
+
+  // Furthermore, if an item sits strictly at root area AND root iteration with no sprint or subarea subdivision
+  // while typed generically, it's a container story, not a sprint daily task.
+  if (isRootArea && isRootIteration && hasChildren) {
     return true;
   }
 

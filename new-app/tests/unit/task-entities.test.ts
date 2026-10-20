@@ -9,6 +9,7 @@ import {
   isRelationCopyable,
   isRelationExcluded,
   COPYABLE_RELATION_TYPES,
+  isUserStoryOrParentContainer,
 } from '../../src/domain/entities/task';
 
 describe('task: parseTitleDate', () => {
@@ -290,5 +291,76 @@ describe('explicit-year title validation', () => {
       'System.Title': '3in1_PWA_MyAccount | 31-02-2026',
     } } as any;
     expect(parseWorkItemTaskDate(task, prefix, 'Asia/Kolkata').isValid).toBe(false);
+  });
+});
+
+describe('isUserStoryOrParentContainer', () => {
+  it('flags items explicitly typed as User Story or Requirement', () => {
+    const story = {
+      id: 100,
+      fields: {
+        'System.WorkItemType': 'User Story',
+        'System.Title': 'Customer Login',
+      },
+    } as any;
+    expect(isUserStoryOrParentContainer(story)).toBe(true);
+
+    const req = {
+      id: 101,
+      fields: {
+        'System.WorkItemType': 'Requirement',
+        'System.Title': 'Export API',
+      },
+    } as any;
+    expect(isUserStoryOrParentContainer(req)).toBe(true);
+  });
+
+  it('flags root area and root iteration work items that have child relations as container stories', () => {
+    const rootContainer = {
+      id: 10582886,
+      fields: {
+        'System.WorkItemType': '3in1 Task',
+        'System.TeamProject': '3in1_Agile_Projects',
+        'System.AreaPath': '3in1_Agile_Projects',
+        'System.IterationPath': '3in1_Agile_Projects',
+        'System.Title': 'Development-US for developers - Message Center',
+      },
+      relations: [
+        { rel: 'System.LinkTypes.Hierarchy-Forward', url: 'https://dev.azure.com/.../10594440' },
+      ],
+    } as any;
+    expect(isUserStoryOrParentContainer(rootContainer)).toBe(true);
+  });
+
+  it('keeps execution tasks sitting in a sub-area and sprint iteration even if they have children', () => {
+    const sprintTask = {
+      id: 10594440,
+      fields: {
+        'System.WorkItemType': '3in1 Task',
+        'System.TeamProject': '3in1_Agile_Projects',
+        'System.AreaPath': '3in1_Agile_Projects\\107_My Account Part 1',
+        'System.IterationPath': '3in1_Agile_Projects\\DPAOP4B\\Oct Sprint',
+        'System.Title': 'Development-Informative Strips Development',
+      },
+      relations: [
+        { rel: 'System.LinkTypes.Hierarchy-Forward', url: 'https://dev.azure.com/.../10594442' },
+      ],
+    } as any;
+    expect(isUserStoryOrParentContainer(sprintTask)).toBe(false);
+  });
+
+  it('keeps normal execution leaf tasks without children', () => {
+    const leafTask = {
+      id: 10594442,
+      fields: {
+        'System.WorkItemType': '3in1 Task',
+        'System.TeamProject': '3in1_Agile_Projects',
+        'System.AreaPath': '3in1_Agile_Projects\\107_My Account Part 1',
+        'System.IterationPath': '3in1_Agile_Projects\\DPAOP4B\\Oct Sprint',
+        'System.Title': '3in1_PWA_MyAccount | Oct 2',
+      },
+      relations: [],
+    } as any;
+    expect(isUserStoryOrParentContainer(leafTask)).toBe(false);
   });
 });
