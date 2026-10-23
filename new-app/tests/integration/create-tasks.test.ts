@@ -338,4 +338,37 @@ describe('CreateTasksUseCase (integration, fake repo)', () => {
     await expect(build(repo).execute({ all: true, asOf: '2020-01-01', yes: true }))
       .rejects.toThrow(/past/i);
   });
+
+  it('skips task creation when a task already exists for a planned date (duplicate prevention)', async () => {
+    const repo = new FakeWorkItemRepo(true);
+    // Pretend a task already exists for TODAY
+    repo.existingByDate.set(TODAY, { id: 9999, title: `3in1_PWA_MyAccount | ${TODAY}`, isoDate: TODAY });
+
+    const result = await build(repo).execute({ all: true, asOf: TODAY, yes: true });
+    
+    // Check that TODAY was skipped as duplicate and not re-created
+    for (const p of result.personResults) {
+      const duplicateSkip = p.duplicateSkips.find(d => d.isoDate === TODAY);
+      expect(duplicateSkip).toBeDefined();
+      expect(duplicateSkip?.status).toBe('DUPLICATE_ALREADY_EXISTS');
+      // No created task for TODAY
+      expect(p.createdTasks.some(t => t.isoDate === TODAY)).toBe(false);
+    }
+  });
+
+  it('FOLLOWING mode advances 7 days when reference date is Friday', async () => {
+    // Pick a Friday strictly in the future
+    const dayOfWeek = (new Date(TODAY + 'T00:00:00Z').getUTCDay());
+    const daysUntilFriday = (5 - dayOfWeek + 7) % 7 || 7;
+    const futureFriday = addDays(TODAY, daysUntilFriday);
+    const expected = addDays(futureFriday, 7);
+
+    const repo = new FakeWorkItemRepo(true);
+    const out = await new PlanTasksUseCase(repo, config).execute({
+      all: true,
+      asOf: futureFriday,
+      thursdayMode: 'FOLLOWING',
+    });
+    expect(out.nextThursdayIso).toBe(expected);
+  });
 });

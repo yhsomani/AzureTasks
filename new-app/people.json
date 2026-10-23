@@ -18,13 +18,44 @@
       "titlePrefix": "3in1_PWA_MyAccount |",
       "githubRepositories": [],
       "githubBranches": [],
-      "enabled": true
+      "enabled": true,
+      "githubUsername": "yash-somani_bflghec"
     },
     {
       "key": "mukul_ramteke",
       "name": "Mukul Ramteke",
       "assignedTo": "mukul.ramteke@bajajfinserv.in",
       "pod": "SDM",
+      "githubRepositories": [],
+      "githubBranches": [],
+      "enabled": true,
+      "githubUsername": "mukul-ramteke_bflghec"
+    },
+    {
+      "key": "yash_mutatkar",
+      "name": "Yash Mutatkar",
+      "assignedTo": "yash.mutatkar@bajajfinserv.in",
+      "role": "Dev On-Role",
+      "githubRepositories": [],
+      "githubBranches": [],
+      "enabled": true,
+      "githubUsername": "yash-mutatkar_bflghec"
+    },
+    {
+      "key": "ajinkya_lendikar",
+      "name": "Ajinkya Lendikar",
+      "assignedTo": "ajinkya.lendikar@bajajfinserv.in",
+      "role": "SDM",
+      "githubRepositories": [],
+      "githubBranches": [],
+      "enabled": true,
+      "githubUsername": "ajinkya-lendikar_bflghec"
+    },
+    {
+      "key": "vishal_shinde17",
+      "name": "Vishal Shinde17",
+      "assignedTo": "vishal.shinde17@bajajfinserv.in",
+      "role": "SDM",
       "githubRepositories": [],
       "githubBranches": [],
       "enabled": true

@@ -2837,12 +2837,12 @@ function wire() {
 
   $('#btnSimulateWindow')?.addEventListener('click', () => {
     const today = state.todayIso || isoDateInTimeZone(new Date(), state.config?.timezone);
-    // Advance date to next Thursday + 1 day (Friday) to simulate following week
+    // Advance date to next Friday (day 5) or by 7 days to simulate following week
     const [y, m, d] = today.split('-').map(Number);
     const dt = new Date(Date.UTC(y, m - 1, d));
     const dow = dt.getUTCDay();
-    const daysUntilNextThu = (4 - dow + 7) % 7 || 7;
-    dt.setUTCDate(dt.getUTCDate() + daysUntilNextThu + 1);
+    const daysUntilNextFri = (5 - dow + 7) % 7 || 7;
+    dt.setUTCDate(dt.getUTCDate() + daysUntilNextFri);
     const simDate = dt.toISOString().slice(0, 10);
     const asOfInput = $('#asOf');
     if (asOfInput) asOfInput.value = simDate;

@@ -633,6 +633,16 @@ export class CreateTasksUseCase {
       let relsFailed = 0;
 
       for (const item of toCreate) {
+        // Double-check duplicate prevention before creation to guarantee no duplicate is created
+        if (this.duplicateDetector.isDuplicate(person, item.isoDate)) {
+          const existing = this.duplicateDetector.getExistingTask(person, item.isoDate);
+          item.status = 'DUPLICATE_ALREADY_EXISTS';
+          item.skipReason = existing?.count && existing.count > 1
+            ? `${existing.count} tasks already exist for this date`
+            : `Task already exists (#${existing?.id ?? 'existing'})`;
+          continue;
+        }
+
         onProgress?.({ type: 'progress', message: `Creating task for ${person.name} on ${item.formattedTitleDate}...`, timestamp: new Date().toISOString() });
 
         try {

@@ -80,7 +80,8 @@ export function getNextThursdayIso(
   const target = ((Math.trunc(stopDayOfWeek) % 7) + 7) % 7;
   const day = getDayOfWeek(fromIso);
   let daysUntilStopDay = (target - day + 7) % 7;
-  if (mode === 'FOLLOWING' && day === target) daysUntilStopDay = 7; // already the stop day -> next week
+  // Following week mode advances 7 days on Friday (day 5) or when already on target stop day
+  if (mode === 'FOLLOWING' && (day === 5 || day === target)) daysUntilStopDay = 7;
   return addDays(fromIso, daysUntilStopDay);
 }
 

@@ -327,6 +327,14 @@ export class CloseDailyTasksUseCase {
                   value: prDeliverables.htmlDescription || `<div><p>Task completed on ${targetDate}. ${prDeliverables.summaryText}</p></div>`,
                 });
               }
+
+              // Fill Original Estimate if missing – the tenant requires it on Closed state
+              const hasOriginalEstimate = originalEstimate !== null && !Number.isNaN(originalEstimate) && originalEstimate > 0;
+              if (!hasOriginalEstimate) {
+                // Use the same value as Completed Work so the hours stay self-consistent
+                ruleOps.push({ op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.OriginalEstimate', value: closureCompletedWork });
+              }
+
               const hasActualStart = Boolean(item.fields['Custom.ActualStartdate'] || item.fields['Custom.ActualStartDate']);
               const hasActualEnd = Boolean(item.fields['Custom.ActualEnddate'] || item.fields['Custom.ActualEndDate']);
 
@@ -341,12 +349,32 @@ export class CloseDailyTasksUseCase {
 
               const startField = prefersPascalCase ? 'Custom.ActualStartDate' : 'Custom.ActualStartdate';
               const endField = prefersPascalCase ? 'Custom.ActualEndDate' : 'Custom.ActualEnddate';
+              const plannedStartField = prefersPascalCase ? 'Custom.PlannedStartDate' : 'Custom.PlannedStartdate';
+              const plannedEndField = prefersPascalCase ? 'Custom.PlannedEndDate' : 'Custom.PlannedEnddate';
 
               if (!hasActualStart) {
                 ruleOps.push({ op: 'add', path: `/fields/${startField}`, value: String(plannedStart || `${targetDate}T04:00:00Z`) });
               }
               if (!hasActualEnd) {
                 ruleOps.push({ op: 'add', path: `/fields/${endField}`, value: `${targetDate}T13:00:00Z` });
+              }
+
+              // Fill Planned dates and standard scheduling fields if missing
+              const hasPlannedStart = Boolean(
+                item.fields['Custom.PlannedStartdate'] || item.fields['Custom.PlannedStartDate'] ||
+                item.fields['Microsoft.VSTS.Scheduling.StartDate']
+              );
+              const hasPlannedEnd = Boolean(
+                item.fields['Custom.PlannedEnddate'] || item.fields['Custom.PlannedEndDate'] ||
+                item.fields['Microsoft.VSTS.Scheduling.FinishDate']
+              );
+              if (!hasPlannedStart) {
+                ruleOps.push({ op: 'add', path: `/fields/${plannedStartField}`, value: `${targetDate}T04:00:00Z` });
+                ruleOps.push({ op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.StartDate', value: `${targetDate}T04:00:00Z` });
+              }
+              if (!hasPlannedEnd) {
+                ruleOps.push({ op: 'add', path: `/fields/${plannedEndField}`, value: `${targetDate}T13:00:00Z` });
+                ruleOps.push({ op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.FinishDate', value: `${targetDate}T13:00:00Z` });
               }
 
               try {
@@ -356,7 +384,11 @@ export class CloseDailyTasksUseCase {
                   op.path === '/fields/Custom.ActualStartdate' ||
                   op.path === '/fields/Custom.ActualStartDate' ||
                   op.path === '/fields/Custom.ActualEnddate' ||
-                  op.path === '/fields/Custom.ActualEndDate'
+                  op.path === '/fields/Custom.ActualEndDate' ||
+                  op.path === '/fields/Custom.PlannedStartdate' ||
+                  op.path === '/fields/Custom.PlannedStartDate' ||
+                  op.path === '/fields/Custom.PlannedEnddate' ||
+                  op.path === '/fields/Custom.PlannedEndDate'
                 );
                 if (hasInvertibleOps) {
                   const alternateOps = ruleOps.map(op => {
@@ -364,6 +396,10 @@ export class CloseDailyTasksUseCase {
                     if (op.path === '/fields/Custom.ActualStartDate') return { ...op, path: '/fields/Custom.ActualStartdate' };
                     if (op.path === '/fields/Custom.ActualEnddate') return { ...op, path: '/fields/Custom.ActualEndDate' };
                     if (op.path === '/fields/Custom.ActualEndDate') return { ...op, path: '/fields/Custom.ActualEnddate' };
+                    if (op.path === '/fields/Custom.PlannedStartdate') return { ...op, path: '/fields/Custom.PlannedStartDate' };
+                    if (op.path === '/fields/Custom.PlannedStartDate') return { ...op, path: '/fields/Custom.PlannedStartdate' };
+                    if (op.path === '/fields/Custom.PlannedEnddate') return { ...op, path: '/fields/Custom.PlannedEndDate' };
+                    if (op.path === '/fields/Custom.PlannedEndDate') return { ...op, path: '/fields/Custom.PlannedEnddate' };
                     return op;
                   });
                   await this.workItemRepo.patchWorkItem(taskId, alternateOps, { bypassRules: false });

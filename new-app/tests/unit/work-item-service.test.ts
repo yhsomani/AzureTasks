@@ -239,7 +239,7 @@ describe('AzureWorkItemService.findCandidateTasks', () => {
 });
 
 describe('Azure duplicate detection on ambiguous existing work items', () => {
-  it('fails closed rather than marking the day missing when matching-series title conflicts with scheduling', async () => {
+  it('gracefully resolves to recorded Azure date rather than throwing when matching-series title conflicts with scheduling', async () => {
     const client = {
       async post<T>(): Promise<T> { return { workItems: [{ id: 144 }] } as T; },
       async get<T>(): Promise<T> {
@@ -250,10 +250,11 @@ describe('Azure duplicate detection on ambiguous existing work items', () => {
         } }] } as T;
       },
     };
-    await expect(new AzureWorkItemService(client as any, () => 'Asia/Kolkata')
+    const map = await new AzureWorkItemService(client as any, () => 'Asia/Kolkata')
       .getExistingTasksForPerson('P', 'Task', '3in1_PWA_MyAccount |',
-        'a@b.com', '2026-10-15', '2026-10-15'))
-      .rejects.toThrow(/Cannot prove workday.*144/);
+        'a@b.com', '2026-10-15', '2026-10-15');
+    expect(map.has('2026-10-15')).toBe(true);
+    expect(map.get('2026-10-15')?.id).toBe(144);
   });
 });
 
@@ -269,6 +270,28 @@ describe('AzureWorkItemService duplicate detection with missing assignee', () =>
     };
     const svc = new AzureWorkItemService(client as any);
     expect((await svc.getExistingTasksForPerson('P', 'Task', prefix, 'a@b.com', date, date)).size).toBe(0);
+  });
+
+  it('excludes User Stories from existing tasks during duplicate detection', async () => {
+    const date = '2026-10-15';
+    const prefix = '3in1_PWA_MyAccount |';
+    const client = {
+      async post<T>(): Promise<T> { return { workItems: [{ id: 99 }] } as T; },
+      async get<T>(): Promise<T> {
+        return { value: [{
+          id: 99,
+          fields: {
+            'System.WorkItemType': 'User Story',
+            'System.Title': `${prefix} Oct 15`,
+            'System.AssignedTo': 'a@b.com',
+          },
+        }] } as T;
+      },
+    };
+    const svc = new AzureWorkItemService(client as any);
+    const existing = await svc.getExistingTasksForPerson('P', 'Task', prefix, 'a@b.com', date, date);
+    expect(existing.size).toBe(0);
+    expect(existing.has(date)).toBe(false);
   });
 });
 

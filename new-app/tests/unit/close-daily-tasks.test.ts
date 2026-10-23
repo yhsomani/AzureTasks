@@ -217,4 +217,74 @@ describe('CloseDailyTasksUseCase - Process Rule Recovery (TF401320)', () => {
     expect(paths).toContain('/fields/Custom.ActualStartDate');
     expect(paths).toContain('/fields/Custom.ActualEndDate');
   });
+
+  it('fills OriginalEstimate and all scheduling fields when task has none (production TF401320 scenario)', async () => {
+    // This reproduces the exact failure: task #10707242 had no Original Estimate,
+    // no Actual dates, no Planned dates, and no Description
+    const candidateTasks = [{
+      id: 10707242,
+      fields: {
+        'System.Id': 10707242,
+        'System.Title': '3in1_PWA_MyAccount | 22 Oct',
+        'System.AssignedTo': { displayName: 'Alice Smith', uniqueName: 'alice@example.com' },
+        'System.State': 'New',
+        'Custom.PlannedStartDate': '2026-10-22T04:00:00.000Z',
+        // No OriginalEstimate, no CompletedWork, no RemainingWork
+        // No ActualStartDate, no ActualEndDate
+        // No Description
+      },
+    }];
+
+    const patchCalls: any[] = [];
+    const mockRepo: WorkItemRepository = {
+      validateProject: vi.fn(),
+      validateWorkItemType: vi.fn(),
+      findLatestTaskForPerson: vi.fn(),
+      discoverLatestTasksForPeople: vi.fn(),
+      getExistingTasksForPerson: vi.fn(),
+      findCandidateTasks: vi.fn().mockResolvedValue(candidateTasks),
+      getWorkItem: vi.fn().mockResolvedValue({
+        id: 10707242,
+        fields: {
+          'System.State': 'Closed',
+          'System.AssignedTo': { displayName: 'Alice Smith', uniqueName: 'alice@example.com' },
+        },
+      }),
+      createWorkItemWithReconciliation: vi.fn(),
+      copyRelations: vi.fn(),
+      patchWorkItem: vi.fn().mockImplementation(async (id, ops) => {
+        patchCalls.push({ id, ops });
+        if (patchCalls.length === 1) {
+          // Mirrors the real error: OriginalEstimate Required + 6 additional errors
+          throw new Error(
+            'TF401320: Rule Error for field Original Estimate. Error code: Required, InvalidEmpty. ' +
+            '6 additional errors occurred during validation of the work item.'
+          );
+        }
+        return { id, rev: 2, fields: {} };
+      }),
+    };
+
+    const useCase = new CloseDailyTasksUseCase(baseConfig, mockRepo, mockDatePlanning, mockGitHubClient);
+    const result = await useCase.execute({ asOf: '2026-10-22', dryRun: false });
+
+    expect(result.totalClosed).toBe(1);
+    expect(result.totalFailed).toBe(0);
+    expect(patchCalls).toHaveLength(2);
+
+    const recoveryOps = patchCalls[1].ops;
+    const paths = recoveryOps.map((op: any) => op.path);
+
+    // Must include OriginalEstimate to satisfy the tenant rule
+    expect(paths).toContain('/fields/Microsoft.VSTS.Scheduling.OriginalEstimate');
+
+    // The Original Estimate value should default to 8 (closureCompletedWork fallback)
+    const origEstOp = recoveryOps.find((op: any) => op.path === '/fields/Microsoft.VSTS.Scheduling.OriginalEstimate');
+    expect(origEstOp.value).toBe(8);
+
+    // Must also include Description, Actual dates
+    expect(paths).toContain('/fields/System.Description');
+    expect(paths).toContain('/fields/Custom.ActualStartDate');
+    expect(paths).toContain('/fields/Custom.ActualEndDate');
+  });
 });

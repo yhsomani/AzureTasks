@@ -4,6 +4,7 @@
  */
 
 import { AzureDevOpsClient } from './client.js';
+import { logger } from '../logging/logger.js';
 import { 
   WorkItemRepository, 
   WorkItem, 
@@ -441,10 +442,26 @@ export class AzureWorkItemService implements WorkItemRepository {
 
         if (matchesTaskSeries(title, titlePrefix)) {
           const parsed = parseWorkItemTaskDate(workItem, titlePrefix, this.timezone());
-          if (!parsed.isValid) {
-            throw new Error(`Cannot prove workday for existing Azure task #${workItem.id} in this series. Resolve its title/scheduling fields before creating more tasks.`);
+          if (parsed.isValid) {
+            isoDate = parsed.isoDate;
+          } else {
+            // Graceful resilience: If the title date parsing was ambiguous or conflicted,
+            // fall back to recorded Azure scheduling dates (PlannedStartdate, StartDate, ActualStartdate)
+            // or non-pipe title date instead of crashing the entire preview/planning execution.
+            const recorded = extractWorkItemRecordedDate(workItem, this.timezone());
+            if (recorded) {
+              isoDate = recorded.isoDate;
+              logger.debug(`Existing Azure task #${workItem.id} in series had ambiguous title date ("${title}"); resolved to recorded Azure date ${isoDate}.`);
+            } else {
+              const fallbackParsed = parseWorkItemTaskDate(workItem, '', this.timezone(), false, true);
+              if (fallbackParsed.isValid) {
+                isoDate = fallbackParsed.isoDate;
+                logger.debug(`Existing Azure task #${workItem.id} in series had ambiguous title date ("${title}"); resolved to parsed date ${isoDate}.`);
+              } else {
+                logger.warn(`Could not prove workday for existing Azure task #${workItem.id} ("${title}"); skipping from duplicate map.`);
+              }
+            }
           }
-          isoDate = parsed.isoDate;
         } else {
           // If the task does not strictly match the prefix, check its Azure recorded date (e.g. Planned Start Date)
           const recorded = extractWorkItemRecordedDate(workItem, this.timezone());

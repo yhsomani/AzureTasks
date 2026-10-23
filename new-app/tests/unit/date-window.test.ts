@@ -49,7 +49,12 @@ describe('date-window: getNextThursdayIso', () => {
     expect(getNextThursdayIso('2026-10-08', 'FOLLOWING')).toBe('2026-10-15');
   });
 
-  it('from Friday returns the following Thursday', () => {
+  it('FOLLOWING mode advances 7 days on Friday', () => {
+    // 2026-10-09 is Friday. In FOLLOWING mode, it advances 7 days -> 2026-10-16
+    expect(getNextThursdayIso('2026-10-09', 'FOLLOWING')).toBe('2026-10-16');
+  });
+
+  it('from Friday returns the following Thursday in CURRENT mode', () => {
     // 2026-10-09 is Friday -> 2026-10-15
     expect(getNextThursdayIso('2026-10-09', 'CURRENT')).toBe('2026-10-15');
   });
