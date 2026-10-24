@@ -53,4 +53,24 @@ describe('Explorer selection and data integrity', () => {
     expect(text).toMatch(/No task data/);
     expect(text).not.toMatch(/completely up to date/);
   });
+  it('progressively requests individual members with bounded concurrency', async () => {
+    const { context } = contextWithNodes();
+    const result = await runInNewContext(String.raw`(async () => {
+      state.selectedExplorerKeys = new Set(['alice', 'bob']);
+      ensureConfig = async () => ({ people: [
+        { key: 'alice', name: 'Alice', enabled: true },
+        { key: 'bob', name: 'Bob', enabled: true },
+      ] });
+      renderExplorerUserPills = () => {};
+      const urls = [];
+      api.get = async (url) => { urls.push(url); throw new Error('service unavailable'); };
+      await refreshExplorer();
+      return urls;
+    })()`, context);
+    expect(result).toHaveLength(2);
+    expect(result.some(url => url.includes('users=alice'))).toBe(true);
+    expect(result.some(url => url.includes('users=bob'))).toBe(true);
+    expect(result.every(url => !url.includes('alice%2Cbob'))).toBe(true);
+  });
+
 });
