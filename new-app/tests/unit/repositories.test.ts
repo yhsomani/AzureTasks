@@ -253,6 +253,25 @@ describe('FileConfigRepository', () => {
     expect(config.people).toHaveLength(1);
   });
 
+  it('rejects duplicate person keys in a manually edited config', async () => {
+    const cfgPath = path.join(dir, 'people.json');
+    fs.writeFileSync(cfgPath, JSON.stringify({
+      people: [
+        { key: 'same', name: 'A', assignedTo: 'a@b.com' },
+        { key: 'same', name: 'B', assignedTo: 'b@b.com' },
+      ],
+    }));
+    await expect(new FileConfigRepository(cfgPath).load()).rejects.toThrow(/Duplicate person key/);
+  });
+
+  it('rejects an empty person key in a manually edited config', async () => {
+    const cfgPath = path.join(dir, 'people.json');
+    fs.writeFileSync(cfgPath, JSON.stringify({
+      people: [{ key: ' ', name: 'A', assignedTo: 'a@b.com' }],
+    }));
+    await expect(new FileConfigRepository(cfgPath).load()).rejects.toThrow(/non-empty key/);
+  });
+
   it('rejects duplicate identities', async () => {
     const cfgPath = path.join(dir, 'people.json');
     fs.writeFileSync(cfgPath, JSON.stringify({
