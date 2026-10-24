@@ -80,9 +80,19 @@ export class FileConfigRepository implements ConfigRepository {
         ? 'FOLLOWING' as const
         : 'CURRENT' as const;
 
-      // Validate duplicate identities
+      // Validate unique member keys and identities even for hand-edited files.
+      // The save API enforces this too, but an on-disk file may bypass it.
+      const seenKeys = new Set<string>();
       const seenIdentities = new Set<string>();
       for (const person of people) {
+        if (!person || typeof person.key !== 'string' || !person.key.trim()) {
+          throw new Error('Configuration Error: Every person must have a non-empty key.');
+        }
+        const key = person.key.trim();
+        if (seenKeys.has(key)) {
+          throw new Error(`Configuration Error: Duplicate person key "${key}". Keys must be unique.`);
+        }
+        seenKeys.add(key);
         if (!person.assignedTo) continue;
         const lower = person.assignedTo.trim().toLowerCase();
         if (seenIdentities.has(lower)) {
