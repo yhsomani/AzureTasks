@@ -1033,16 +1033,44 @@ function renderMyWorkContent(data, personKey) {
 }
 
 /* ------------------------------------------------------------ task explorer */
+function mergeExplorerSnapshots(snapshots) {
+  const first = snapshots[0];
+  const numeric = ['expectedCombinations', 'existingCombinations', 'missingCombinations',
+    'duplicateCombinations', 'recordedCompletedWorkTasks', 'unrecordedCompletedWorkTasks'];
+  const summary = { ...first.summary, stateCounts: { ...first.summary.stateCounts } };
+  for (const key of numeric) summary[key] = snapshots.reduce((sum, item) => sum + (item.summary[key] || 0), 0);
+  for (const key of Object.keys(summary.stateCounts)) {
+    summary.stateCounts[key] = snapshots.reduce((sum, item) => sum + (item.summary.stateCounts[key] || 0), 0);
+  }
+  for (const key of ['totalCompletedWork', 'totalRemainingWork']) {
+    summary[key] = snapshots.every(item => item.summary[key] !== null && item.summary[key] !== undefined)
+      ? snapshots.reduce((sum, item) => sum + item.summary[key], 0) : null;
+  }
+  summary.totalSelectedUsers = snapshots.reduce((sum, item) => sum + item.users.length, 0);
+  summary.overallCoveragePercent = summary.expectedCombinations
+    ? Math.round(summary.existingCombinations * 10000 / summary.expectedCombinations) / 100 : 0;
+  return {
+    dateRange: first.dateRange, dates: first.dates, summary,
+    users: snapshots.flatMap(item => item.users),
+    matrix: snapshots.flatMap(item => item.matrix),
+    detailedTasks: snapshots.flatMap(item => item.detailedTasks),
+    warnings: snapshots.flatMap(item => item.warnings || []),
+  };
+}
+
 async function refreshExplorer(options = {}) {
+  const requestVersion = ++state.explorerRequestVersion || (state.explorerRequestVersion = 1);
   const forceFresh = options.forceFresh === true;
   const cfg = await ensureConfig(forceFresh);
+  if (requestVersion !== state.explorerRequestVersion) return;
   renderExplorerUserPills(cfg);
-  if (state.selectedExplorerKeys.size === 0) {
+  const keys = [...state.selectedExplorerKeys];
+  const matrixWrap = $('#explorerMatrixWrap');
+  const stamp = $('#explorerLastRefresh');
+  if (!keys.length) {
     state.explorerData = null;
-    const matrix = $('#explorerMatrixWrap');
-    if (matrix) matrix.textContent = 'Select at least one team member to view task coverage.';
-    const timestamp = $('#explorerLastRefresh');
-    if (timestamp) timestamp.textContent = 'No members selected';
+    if (matrixWrap) matrixWrap.textContent = 'Select at least one team member to view task coverage.';
+    if (stamp) stamp.textContent = 'No members selected';
     renderExplorerList([]);
     renderExplorerKpis({
       totalSelectedUsers: 0, totalWorkingDates: 0, expectedCombinations: 0,
@@ -1055,58 +1083,71 @@ async function refreshExplorer(options = {}) {
   const preset = $('#explorerPreset')?.value || 'today_to_next_thursday';
   const start = $('#explorerStart')?.value;
   const end = $('#explorerEnd')?.value;
-
   let query = `preset=${encodeURIComponent(preset)}`;
   if (preset === 'custom' && start && end) {
     query = `startDate=${encodeURIComponent(start)}&endDate=${encodeURIComponent(end)}`;
   }
-
-  if (state.selectedExplorerKeys.size > 0) {
-    query += `&users=${encodeURIComponent([...state.selectedExplorerKeys].join(','))}`;
-  }
-
-  const matrixWrap = $('#explorerMatrixWrap');
-  if (matrixWrap && (!state.explorerData || forceFresh)) {
-    matrixWrap.innerHTML = `
-      <div style="padding:24px;">
-        <div class="skeleton-row skeleton" style="height:44px; margin-bottom:12px;"></div>
-        <div class="skeleton-row skeleton"></div>
-        <div class="skeleton-row skeleton"></div>
-        <div class="skeleton-row skeleton"></div>
-      </div>
-    `;
-  }
-
-  try {
-    const data = await api.get(`/explorer?${query}`, {
-      swr: !forceFresh,
-      forceFresh,
-      maxAgeMs: 30000,
-      abortKey: 'explorer-query',
-      onStale: (stale) => {
-        state.explorerData = stale;
-        renderExplorerKpis(stale.summary);
-        renderExplorerMatrix(stale);
-        renderExplorerList(stale.detailedTasks);
-      },
-    });
-    state.explorerData = data;
-
-    const lr = $('#explorerLastRefresh');
-    if (lr) lr.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
-
-    // Update preset dates in UI inputs
-    if (data.dateRange) {
-      if ($('#explorerStart')) $('#explorerStart').value = data.dateRange.startDate;
-      if ($('#explorerEnd')) $('#explorerEnd').value = data.dateRange.endDate;
+  const selected = new Set(keys);
+  const completed = new Map();
+  const failures = new Map();
+  const progress = () => {
+    if (requestVersion !== state.explorerRequestVersion) return;
+    const finished = completed.size + failures.size;
+    if (stamp) stamp.textContent = `Loaded ${finished} of ${keys.length} members${failures.size ? ` · ${failures.size} failed` : ''}`;
+    if (completed.size) {
+      const merged = mergeExplorerSnapshots(keys.filter(key => completed.has(key)).map(key => completed.get(key)));
+      state.explorerData = merged;
+      renderExplorerKpis(merged.summary);
+      renderExplorerMatrix(merged);
+      renderExplorerList(merged.detailedTasks);
+      if (matrixWrap && finished < keys.length) {
+        const pending = document.createElement('p');
+        pending.className = 'muted small';
+        pending.setAttribute('role', 'status');
+        pending.textContent = `Loading remaining members… ${finished}/${keys.length}`;
+        matrixWrap.prepend(pending);
+      }
+      if (completed.size === 1 && merged.dateRange) {
+        if ($('#explorerStart')) $('#explorerStart').value = merged.dateRange.startDate;
+        if ($('#explorerEnd')) $('#explorerEnd').value = merged.dateRange.endDate;
+      }
     }
+    if (finished === keys.length && failures.size && matrixWrap) {
+      const notice = document.createElement('p');
+      notice.className = 'muted';
+      notice.setAttribute('role', 'alert');
+      notice.textContent = `${failures.size} member(s) could not load. Displayed totals cover only loaded members. Retry with Refresh.`;
+      matrixWrap.prepend(notice);
+    }
+    if (finished === keys.length && !failures.size && stamp) stamp.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+  };
+  if (matrixWrap) matrixWrap.innerHTML = '<div role="status" class="muted" style="padding:24px;">Loading members… 0/' + keys.length + '</div>';
+  if (stamp) stamp.textContent = `Loading 0 of ${keys.length} members`;
+  state.explorerData = null;
 
-    renderExplorerKpis(data.summary);
-    renderExplorerMatrix(data);
-    renderExplorerList(data.detailedTasks);
-  } catch (err) {
-    if (err.name === 'AbortError') return;
-    if (matrixWrap) matrixWrap.innerHTML = `<p class="muted" style="color:var(--danger); padding:24px;">❌ Error: ${escapeHtml(err.message)}</p>`;
+  // Limit parallel Azure queries; render each completed member without waiting for the slowest.
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < keys.length && requestVersion === state.explorerRequestVersion) {
+      const key = keys[cursor++];
+      if (!selected.has(key)) continue;
+      try {
+        const data = await api.get(`/explorer?${query}&users=${encodeURIComponent(key)}`, {
+          swr: false, forceFresh, maxAgeMs: 30000,
+        });
+        if (requestVersion !== state.explorerRequestVersion) return;
+        completed.set(key, data);
+      } catch (err) {
+        if (requestVersion !== state.explorerRequestVersion) return;
+        failures.set(key, err);
+      }
+      progress();
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, keys.length) }, () => worker()));
+  if (requestVersion !== state.explorerRequestVersion) return;
+  if (!completed.size && matrixWrap) {
+    matrixWrap.textContent = `Unable to load selected members. ${[...failures.values()][0]?.message || 'Please retry.'}`;
   }
 }
 
