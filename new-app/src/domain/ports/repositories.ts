@@ -242,3 +242,49 @@ export interface LockInfo {
   acquiredAt: string;
   stale: boolean;
 }
+/**
+ * Auto-Closure Configuration Repository
+ * Manages auto-closure rules and configuration
+ */
+export interface AutoClosureConfigRepository {
+  load(): Promise<AutoClosureConfig>;
+  save(config: AutoClosureConfig): Promise<void>;
+  validate(config: AutoClosureConfig): Promise<AutoClosureValidationResult>;
+  getVersion(): Promise<number>;
+}
+
+/**
+ * Auto-Closure Audit Log Repository
+ * Records all auto-closure decisions
+ */
+export interface AutoClosureAuditLogRepository {
+  record(entry: AutoClosureAuditLog): Promise<void>;
+  getEntries(limit?: number, filters?: AutoClosureAuditFilter): Promise<AutoClosureAuditLog[]>;
+  getEntriesByTask(taskId: number): Promise<AutoClosureAuditLog[]>;
+  getEntriesByUser(userId: string, limit?: number): Promise<AutoClosureAuditLog[]>;
+  exportCsv(): Promise<string>;
+  exportJson(): Promise<string>;
+  cleanup(beforeDate: string): Promise<number>;  // Remove old entries, returns count deleted
+}
+
+export interface AutoClosureAuditFilter {
+  taskId?: number;
+  userId?: string;
+  status?: 'success' | 'failed' | 'rejected';
+  triggerSource?: 'scheduled' | 'manual' | 'api';
+  startDate?: string;
+  endDate?: string;
+}
+
+// Re-export auto-closure types from domain entities
+export type {
+  FilterType,
+  RuleType,
+  UserFilter,
+  TeamFilter,
+  RoleFilter,
+  AutoClosureRule,
+  AutoClosureConfig,
+  AutoClosureAuditLog,
+  AutoClosureValidationResult,
+} from '../entities/auto-closure-config.js';

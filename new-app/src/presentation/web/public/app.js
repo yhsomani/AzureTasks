@@ -20,6 +20,7 @@ const state = {
   journal: [],
   scheduler: null,
   charts: { effort: null, status: null },
+  overviewChartData: null,
   pendingPlan: null,
   dashboardPlan: null,
   pendingPlanSignature: null,
@@ -239,6 +240,59 @@ function trapModalFocus(e) {
   } else if (!e.shiftKey && document.activeElement === last) {
     e.preventDefault();
     first.focus();
+  }
+}
+ 
+function handleModalEscapeKey(e) {
+  if (e.key !== 'Escape') return;
+  const modal = document.querySelector('.modal-overlay.open');
+  if (!modal) return;
+  e.preventDefault();
+  hideModal(modal);
+}
+ 
+function validateForm(form) {
+  const errors = {};
+  const inputs = form.querySelectorAll('input[required], select[required], textarea[required]');
+   
+  inputs.forEach(input => {
+    const errorId = input.getAttribute('aria-describedby');
+    const errorEl = errorId ? document.getElementById(errorId) : null;
+     
+    if (!input.value.trim()) {
+      errors[input.id] = `This field is required`;
+      input.setAttribute('aria-invalid', 'true');
+      if (errorEl) {
+        errorEl.textContent = `This field is required`;
+        errorEl.style.display = 'block';
+      }
+    } else if (input.type === 'email' && !isValidEmail(input.value)) {
+      errors[input.id] = `Please enter a valid email address`;
+      input.setAttribute('aria-invalid', 'true');
+      if (errorEl) {
+        errorEl.textContent = `Please enter a valid email address`;
+        errorEl.style.display = 'block';
+      }
+    } else {
+      input.setAttribute('aria-invalid', 'false');
+      if (errorEl) {
+        errorEl.textContent = '';
+        errorEl.style.display = 'none';
+      }
+    }
+  });
+   
+  return Object.keys(errors).length === 0;
+}
+ 
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+ 
+function focusFirstInvalidInput(form) {
+  const invalidInput = form.querySelector('input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"]');
+  if (invalidInput) {
+    invalidInput.focus();
   }
 }
 
@@ -503,7 +557,7 @@ async function refreshDailyPrCounts(options = {}) {
     if (kpiVal) kpiVal.textContent = '—';
     if (lastUpdated) lastUpdated.textContent = 'Failed to load';
     if (container) {
-      container.innerHTML = `<p class="muted" style="color:var(--danger); padding:16px;">⚠️ Unable to load daily PR activity: ${escapeHtml(err.message)}</p>`;
+      container.innerHTML = `<p class="muted" style="color:var(--danger); padding:16px;">Unable to load daily PR activity: ${escapeHtml(err.message)}</p>`;
     }
   }
 
@@ -535,7 +589,7 @@ function renderDailyPrTracking(data) {
 
   const members = data.members || [];
   if (members.length === 0) {
-    container.innerHTML = '<p class="muted" style="padding:16px;">No configured team members.</p>';
+    container.innerHTML = '<p class="empty-state muted">No PR activity available. Add team members and map their GitHub accounts in Team.</p>';
     return;
   }
 
@@ -553,7 +607,7 @@ function renderDailyPrTracking(data) {
     const prCount = m.prCount || 0;
     const openList = m.openPrs || (m.pullRequests ? m.pullRequests.filter(p => p.state === 'open') : []);
     const mergedList = m.mergedPrs || (m.pullRequests ? m.pullRequests.filter(p => Boolean(p.mergedAt)) : []);
-    const badgeClass = prCount > 0 ? 'badge SUCCESS' : 'badge DUPLICATE';
+    const badgeClass = prCount > 0 ? 'badge SUCCESS' : 'badge default';
 
     // Helper to render a list of PR links
     const renderPrList = (prItems, emptyText) => {
@@ -593,7 +647,7 @@ function renderDailyPrTracking(data) {
 
     const mergedCellContent = el('div', {}, [
       mergedList.length > 0
-        ? el('div', { style: 'margin-bottom:4px;' }, el('span', { class: 'pill', style: 'background:rgba(138,43,226,0.15); color:#8a2be2; font-size:11px;' }, `${mergedList.length} Merged`))
+        ? el('div', { style: 'margin-bottom:4px;' }, el('span', { class: 'pill merged' }, `${mergedList.length} Merged`))
         : null,
       renderPrList(mergedList, '0 merged'),
     ]);
@@ -614,16 +668,16 @@ function renderDailyPrTracking(data) {
   // Footer summary row (Total)
   const tfoot = el('tfoot', {}, el('tr', { style: 'font-weight:700; background:var(--bg-elev-2);' }, [
     el('td', {}, 'Total PRs Created / Updated Today'),
-    el('td', { style: 'text-align:center;' }, el('span', { class: total > 0 ? 'badge SUCCESS' : 'badge DUPLICATE' }, String(total))),
+    el('td', { style: 'text-align:center;' }, el('span', { class: total > 0 ? 'badge SUCCESS' : 'badge default' }, String(total))),
     el('td', {}, el('span', { class: 'pill ok' }, `${totalOpen} Total Open`)),
-    el('td', {}, el('span', { class: 'pill', style: 'background:rgba(138,43,226,0.15); color:#8a2be2;' }, `${totalMerged} Total Merged`)),
+    el('td', {}, el('span', { class: 'pill merged' }, `${totalMerged} Total Merged`)),
   ]));
 
   table.append(tbody);
   table.append(tfoot);
 
   container.innerHTML = '';
-  container.append(table);
+  container.append(el('div', { class: 'table-wrap' }, table));
 }
 
 function renderPlanPreview(plan) {
@@ -655,7 +709,7 @@ function renderPlanPreview(plan) {
   }
 
   if (!plan.personPlans.length) {
-    container.innerHTML = '<p class="muted">No team members configured.</p>';
+    container.innerHTML = '<p class="empty-state muted">No members in this preview. Check enabled members in Team, then review the planning window.</p>';
   } else {
     container.prepend(el('p', { class: 'muted small', style: 'margin-bottom:8px' },
       `${totalPlanned} task(s) to create · Window ${plan.todayIso} → ${plan.nextThursdayIso}`));
@@ -667,7 +721,7 @@ function renderTimeline(entries) {
   if (!container) return;
   container.innerHTML = '';
   if (!entries?.length) {
-    container.innerHTML = '<p class="muted">No execution history yet.</p>';
+    container.innerHTML = '<p class="empty-state muted">No execution history yet. Reviewed task creation and repairs will appear here when recorded.</p>';
     return;
   }
   for (const e of entries) {
@@ -699,25 +753,47 @@ function generateInsights(data) {
   const insights = [];
   data.matrix.forEach(row => {
     if (row.stats.missingCount > 0) {
-      insights.push(`<li><span style="color:var(--warn); font-weight:600;">⚠️ Missing Tasks:</span> <strong>${escapeHtml(row.person.name)}</strong> has ${row.stats.missingCount} missing daily task(s) in this period.</li>`);
+      insights.push(`<li><span class="insight-label warn">Missing tasks:</span> <strong>${escapeHtml(row.person.name)}</strong> has ${row.stats.missingCount} missing daily task(s) in this period.</li>`);
     }
     if ((row.stats.stateCounts['Active'] || 0) > 3) {
-      insights.push(`<li><span style="color:var(--accent); font-weight:600;">ℹ️ High WIP:</span> <strong>${escapeHtml(row.person.name)}</strong> has ${row.stats.stateCounts['Active']} active tasks concurrently.</li>`);
+      insights.push(`<li><span class="insight-label info">High WIP:</span> <strong>${escapeHtml(row.person.name)}</strong> has ${row.stats.stateCounts['Active']} active tasks concurrently.</li>`);
     }
     if (row.stats.duplicateCount > 0) {
-      insights.push(`<li><span style="color:var(--danger); font-weight:600;">🛡️ Duplicates:</span> <strong>${escapeHtml(row.person.name)}</strong> has ${row.stats.duplicateCount} duplicate tasks requiring review.</li>`);
+      insights.push(`<li><span class="insight-label bad">Duplicates:</span> <strong>${escapeHtml(row.person.name)}</strong> has ${row.stats.duplicateCount} duplicate tasks requiring review.</li>`);
     }
   });
 
   if (insights.length === 0) {
     container.textContent = 'No missing-task or duplicate warnings in the loaded Azure work items. Work completion has not been verified.';
   } else {
-    container.innerHTML = `<ul style="margin:0; padding-left:18px; line-height:1.7;">${insights.slice(0, 5).join('')}</ul>`;
+    container.innerHTML = `<ul class="insight-list">${insights.slice(0, 5).join('')}</ul>`;
   }
 }
 
 function renderOverviewCharts(data) {
+  if (data) state.overviewChartData = data;
   if (typeof Chart === 'undefined' || !data) return;
+  const styles = getComputedStyle(document.documentElement);
+  const token = (name, fallback = styles.color) => styles.getPropertyValue(name).trim() || fallback;
+  const palette = {
+    accent: token('--accent'),
+    warn: token('--warn'),
+    ok: token('--ok'),
+    info: token('--info', token('--accent')),
+    muted: token('--muted'),
+    text: token('--text'),
+    border: token('--border'),
+    surface: token('--surface'),
+  };
+  const animation = typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches ? false : { duration: 350 };
+  const tooltip = {
+    backgroundColor: palette.surface,
+    titleColor: palette.text,
+    bodyColor: palette.text,
+    borderColor: palette.border,
+    borderWidth: 1,
+  };
 
   // 1. Status distribution donut
   const statusCanvas = $('#statusDistributionChart');
@@ -733,15 +809,17 @@ function renderOverviewCharts(data) {
         labels,
         datasets: [{
           data: values,
-          backgroundColor: ['#6366f1', '#f59e0b', '#22c55e', '#3b82f6', '#94a3b8'],
+          backgroundColor: [palette.accent, palette.warn, palette.ok, palette.info, palette.muted],
           borderWidth: 0,
         }],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation,
         plugins: {
-          legend: { position: 'bottom', labels: { color: '#93a4b8', font: { size: 12 } } },
+          legend: { position: 'bottom', labels: { color: palette.muted, font: { size: 12 }, usePointStyle: true } },
+          tooltip,
         },
       },
     });
@@ -780,17 +858,18 @@ function renderOverviewCharts(data) {
         datasets: [{
           label: 'Completed Work (hours)',
           data: values,
-          backgroundColor: '#0078d4',
-          borderRadius: 6,
+          backgroundColor: palette.accent,
+          borderRadius: 2,
         }],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
+        animation,
+        plugins: { legend: { display: false }, tooltip },
         scales: {
-          y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.06)' } },
-          x: { grid: { display: false } },
+          y: { beginAtZero: true, grid: { color: palette.border }, ticks: { color: palette.muted }, border: { color: palette.border } },
+          x: { grid: { display: false }, ticks: { color: palette.muted }, border: { color: palette.border } },
         },
       },
     });
@@ -847,7 +926,7 @@ async function loadBurndownMonth(options = {}) {
     renderBurndownTable(data);
   } catch (err) {
     if (err.name === 'AbortError') return;
-    container.innerHTML = `<p class="muted" style="color:var(--danger); padding:24px;">❌ Error: ${escapeHtml(err.message)}</p>`;
+    container.innerHTML = `<p class="muted" style="color:var(--danger); padding:24px;">Unable to load work tracking: ${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -1417,8 +1496,8 @@ function openDateInspectModal(cell, person) {
     mList.innerHTML = '';
     if (cell.status === 'MISSING') {
       mList.innerHTML = `
-        <div style="background:rgba(217,139,11,0.12); border:1px solid rgba(217,139,11,0.3); padding:10px 14px; border-radius:var(--radius-sm); font-size:13px; color:var(--warn);">
-          ⚡ Task is missing for <strong>${escapeHtml(person.name)}</strong> on ${cell.formattedDate}.
+        <div class="inspect-warning">
+          Task is missing for <strong>${escapeHtml(person.name)}</strong> on ${cell.formattedDate}.
           ${cell.isEligibleForCreation ? 'This date is within the current creation window and eligible to be created.' : 'This date is outside the rolling window.'}
         </div>
       `;
@@ -1433,7 +1512,7 @@ function openDateInspectModal(cell, person) {
             }
           } finally {
             createSingleBtn.disabled = false;
-            createSingleBtn.textContent = '⚡ Create Task for this Date';
+            createSingleBtn.textContent = 'Create Task for this Date';
           }
         };
       }
@@ -1697,7 +1776,7 @@ function renderPlanMatrix(plan) {
             }, `#${sourceId} ↗`),
             document.createTextNode(` (${planItem.sourceTask.parsedDate?.formattedTitleDate || ''})`),
           ])
-        : el('div', { class: 'small', style: 'color:var(--warn); margin-top:2px;' }, '⚠️ No source task'),
+        : el('div', { class: 'small', style: 'color:var(--warn); margin-top:2px;' }, 'No source task'),
     ]);
 
     if (hasPlanned) {
@@ -1708,7 +1787,7 @@ function renderPlanMatrix(plan) {
           e.stopPropagation();
           runForMember(memberKey, planItem.person.name);
         },
-      }, `⚡ Create for ${planItem.person.name.split(' ')[0]}`);
+      }, `Create for ${planItem.person.name.split(' ')[0]}`);
       nameCell.append(btnRunMember);
     }
     tr.append(nameCell);
@@ -1745,7 +1824,7 @@ function renderPlanMatrix(plan) {
         td.innerHTML = `<a href="${link}" target="_blank" class="cell-status cell-created" style="display:inline-block; text-decoration:none;" title="${escapeHtml(item.skipReason || 'Task exists')}">✓ #${matchId || 'Exist'} ↗</a>`;
       } else if (item.status === 'MULTIPLE_EXISTING_TASKS') {
         totalExisting++;
-        td.innerHTML = `<span class="cell-status cell-duplicate" title="${escapeHtml(item.skipReason || 'Multiple tasks')}">⚠️ Duplicate</span>`;
+        td.innerHTML = `<span class="cell-status cell-duplicate" title="${escapeHtml(item.skipReason || 'Multiple tasks')}">Duplicate</span>`;
       } else if (item.status === 'PLANNED') {
         totalToCreate++;
         const btn = el('button', {
@@ -1825,7 +1904,7 @@ function renderPlanResults(plan) {
         document.createTextNode(` · "${srcTitle}" · ${p.sourceTask.parsedDate?.formattedTitleDate}`),
       ]));
     } else {
-      block.append(el('p', { class: 'muted small', style: 'color:var(--warn);' }, '⚠️ No source task discovered.'));
+      block.append(el('p', { class: 'muted small', style: 'color:var(--warn);' }, 'No source task discovered.'));
     }
 
     if (p.statusMessage) {
@@ -1891,7 +1970,7 @@ function openConfirmationModal() {
       }
     }
     if (count === 0) {
-      list.innerHTML = '<li style="color:var(--ok);">All team members are up to date! Zero tasks needed.</li>';
+      list.innerHTML = '<li class="muted">No tasks need creation in this reviewed window. Existing work completion has not been verified.</li>';
     }
   } else {
     list.innerHTML = `<li>Evaluate and create pending tasks for: <strong>${keys.length ? keys.join(', ') : 'All enabled team members'}</strong></li>`;
@@ -2084,6 +2163,15 @@ function openAddPersonModal() {
 }
 
 async function savePersonFromModal() {
+  const form = $('#personModalForm');
+  
+  // Validate form
+  if (!validateForm(form)) {
+    focusFirstInvalidInput(form);
+    toast('Please fix the errors in the form', 'err');
+    return;
+  }
+  
   const key = $('#personKeyInput').value.trim();
   const name = $('#personNameInput').value.trim();
   const assignedTo = $('#personEmailInput').value.trim();
@@ -2095,14 +2183,16 @@ async function savePersonFromModal() {
   const githubRepositories = ($('#personReposInput')?.value || '').split(',').map(x => x.trim()).filter(Boolean);
   const githubBranches = ($('#personBranchesInput')?.value || '').split(',').map(x => x.trim()).filter(Boolean);
 
-  if (!key || !name || !assignedTo) {
-    toast('Key, Name, and Assigned To are required', 'err');
-    return;
-  }
-
   // Check duplicate key in local state
   if (state.people.some(p => p.key.toLowerCase() === key.toLowerCase())) {
+    const errorEl = document.getElementById('personKeyError');
+    if (errorEl) {
+      errorEl.textContent = `Member key "${key}" already exists. Please choose a unique key.`;
+      errorEl.style.display = 'block';
+    }
+    $('#personKeyInput').setAttribute('aria-invalid', 'true');
     toast(`Member key "${key}" already exists. Please choose a unique key.`, 'err');
+    $('#personKeyInput').focus();
     return;
   }
 
@@ -2165,8 +2255,31 @@ async function savePersonFromModal() {
 
 // Prevent Enter submission without inline event handlers. The browser shell
 // intentionally disallows inline scripts through Content-Security-Policy.
-$('#personModalForm')?.addEventListener('submit', e => e.preventDefault());
+const personForm = $('#personModalForm');
+if (personForm) {
+  personForm.addEventListener('submit', e => e.preventDefault());
+  personForm.addEventListener('input', e => {
+    if (e.target.hasAttribute('required')) {
+      const errorId = e.target.getAttribute('aria-describedby');
+      if (errorId) {
+        const errorEl = document.getElementById(errorId);
+        e.target.setAttribute('aria-invalid', 'false');
+        if (errorEl) {
+          errorEl.textContent = '';
+          errorEl.style.display = 'none';
+        }
+      }
+    }
+  });
+}
+
 $('#adHocForm')?.addEventListener('submit', e => e.preventDefault());
+
+// Add Escape key handler to close modals
+document.addEventListener('keydown', handleModalEscapeKey);
+
+// Add keyboard navigation for modals
+document.addEventListener('keydown', trapModalFocus);
 
 /* ---------------------------------------------------------------- audit log */
 async function refreshJournal() {
@@ -2241,7 +2354,7 @@ async function refreshScheduler() {
     if ($('#schedTimeDisplay')) $('#schedTimeDisplay').textContent = s.startTime || '09:30';
     if ($('#schedTz')) $('#schedTz').textContent = s.timezone || 'Asia/Kolkata';
     if ($('#schedNext')) $('#schedNext').textContent = s.nextRun ? new Date(s.nextRun).toLocaleString() : '—';
-    if ($('#schedAutoStartLabel')) $('#schedAutoStartLabel').textContent = s.autoStart ? '✅ Enabled' : '❌ Disabled';
+    if ($('#schedAutoStartLabel')) $('#schedAutoStartLabel').textContent = s.autoStart ? 'Enabled' : 'Disabled';
     
     if ($('#schedLast')) {
       if (s.lastRun) {
@@ -2439,7 +2552,7 @@ async function triggerEodClosure(dryRun = false) {
       if (dryRun && res.totalClosed > 0 && res.totalFailed === 0) {
         executeBtn.style.display = 'inline-block';
         executeBtn.disabled = false;
-        executeBtn.textContent = `⚡ Execute EOD Closure in Azure DevOps (${res.totalClosed} tasks)`;
+        executeBtn.textContent = `Execute EOD Closure in Azure DevOps (${res.totalClosed} tasks)`;
       } else {
         executeBtn.style.display = 'none';
       }
@@ -2698,14 +2811,28 @@ async function submitAdHocTask() {
 }
 
 /* ----------------------------------------------------------- console drawer */
+let drawerPreviousFocus = null;
+
 function openConsoleDrawer() {
   const drawer = $('#executionDrawer');
-  if (drawer) drawer.classList.add('open');
+  if (!drawer || drawer.classList.contains('open')) return;
+  drawerPreviousFocus = document.activeElement;
+  drawer.classList.add('open');
+  $('#consoleBtn')?.setAttribute('aria-expanded', 'true');
+  $('#btnCloseDrawer')?.focus();
+}
+
+function closeConsoleDrawer() {
+  $('#executionDrawer')?.classList.remove('open');
+  $('#consoleBtn')?.setAttribute('aria-expanded', 'false');
+  if (drawerPreviousFocus?.isConnected && !drawerPreviousFocus.disabled) drawerPreviousFocus.focus();
+  else $('#consoleBtn')?.focus();
+  drawerPreviousFocus = null;
 }
 
 function toggleConsoleDrawer() {
-  const drawer = $('#executionDrawer');
-  if (drawer) drawer.classList.toggle('open');
+  if ($('#executionDrawer')?.classList.contains('open')) closeConsoleDrawer();
+  else openConsoleDrawer();
 }
 
 const logBuffer = {
@@ -2837,7 +2964,7 @@ function wire() {
   });
 
   $('#consoleBtn')?.addEventListener('click', toggleConsoleDrawer);
-  $('#btnCloseDrawer')?.addEventListener('click', () => $('#executionDrawer')?.classList.remove('open'));
+  $('#btnCloseDrawer')?.addEventListener('click', closeConsoleDrawer);
 
   // Live Logs controls
   $('#logLevelFilter')?.addEventListener('change', (e) => {
@@ -2867,8 +2994,10 @@ function wire() {
   // Theme toggle
   $('#themeToggle')?.addEventListener('click', () => {
     const root = document.documentElement;
-    const isDark = root.getAttribute('data-theme') === 'dark';
+    const isDark = root.getAttribute('data-theme') !== 'light';
     root.setAttribute('data-theme', isDark ? 'light' : 'dark');
+    syncThemeToggle();
+    if (state.overviewChartData) renderOverviewCharts(state.overviewChartData);
     try { 
       localStorage.setItem('theme', isDark ? 'light' : 'dark'); 
     } catch {
@@ -2937,6 +3066,8 @@ function wire() {
     $('#planListWrap').style.display = 'none';
     $('#btnTogglePlanMatrix').classList.add('active-tab-btn');
     $('#btnTogglePlanList').classList.remove('active-tab-btn');
+    $('#btnTogglePlanMatrix').setAttribute('aria-pressed', 'true');
+    $('#btnTogglePlanList').setAttribute('aria-pressed', 'false');
   });
 
   $('#btnTogglePlanList')?.addEventListener('click', () => {
@@ -2944,6 +3075,8 @@ function wire() {
     $('#planListWrap').style.display = 'block';
     $('#btnTogglePlanList').classList.add('active-tab-btn');
     $('#btnTogglePlanMatrix').classList.remove('active-tab-btn');
+    $('#btnTogglePlanList').setAttribute('aria-pressed', 'true');
+    $('#btnTogglePlanMatrix').setAttribute('aria-pressed', 'false');
   });
 
   // Burndown controls
@@ -2990,14 +3123,18 @@ function wire() {
   $('#btnToggleMatrixView')?.addEventListener('click', () => {
     $('#explorerMatrixWrap').style.display = 'block';
     $('#explorerListWrap').style.display = 'none';
-    $('#btnToggleMatrixView').style.fontWeight = '600';
-    $('#btnToggleListView').style.fontWeight = 'normal';
+    $('#btnToggleMatrixView').classList.add('active-tab-btn');
+    $('#btnToggleListView').classList.remove('active-tab-btn');
+    $('#btnToggleMatrixView').setAttribute('aria-pressed', 'true');
+    $('#btnToggleListView').setAttribute('aria-pressed', 'false');
   });
   $('#btnToggleListView')?.addEventListener('click', () => {
     $('#explorerMatrixWrap').style.display = 'none';
     $('#explorerListWrap').style.display = 'block';
-    $('#btnToggleListView').style.fontWeight = '600';
-    $('#btnToggleMatrixView').style.fontWeight = 'normal';
+    $('#btnToggleListView').classList.add('active-tab-btn');
+    $('#btnToggleMatrixView').classList.remove('active-tab-btn');
+    $('#btnToggleListView').setAttribute('aria-pressed', 'true');
+    $('#btnToggleMatrixView').setAttribute('aria-pressed', 'false');
   });
   $('#explorerListSearch')?.addEventListener('input', () => {
     renderExplorerList(state.explorerData?.detailedTasks || []);
@@ -3029,7 +3166,7 @@ function wire() {
       }
       const openDrawer = document.querySelector('.drawer.open');
       if (openDrawer) {
-        openDrawer.classList.remove('open');
+        closeConsoleDrawer();
         e.preventDefault();
         return;
       }
@@ -3100,7 +3237,7 @@ function wire() {
     } catch (err) {
       toast(err.message, 'err');
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = '🔧 Repair Relationships'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Repair Relationships'; }
     }
   }
 
@@ -3167,6 +3304,13 @@ function applyViewerMode() {
 }
 
 /* ---------------------------------------------------------------- bootstrap */
+function syncThemeToggle() {
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const toggle = $('#themeToggle');
+  toggle?.setAttribute('aria-label', isDark ? 'Switch to light theme' : 'Switch to dark theme');
+  toggle?.setAttribute('aria-pressed', String(isDark));
+}
+
 async function bootstrap() {
   try {
     const saved = localStorage.getItem('theme');
@@ -3175,6 +3319,7 @@ async function bootstrap() {
     // localStorage may be unavailable (private browsing); use default theme
   }
 
+  syncThemeToggle();
   wire();
   connectLogStream();
   try {

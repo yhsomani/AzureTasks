@@ -13,6 +13,8 @@ import cors from 'cors';
 import { createApiRouter, ApiDependencies } from './routes.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { unsafeRequestOriginGuard } from './request-origin.js';
+import { generalLimiter, strictLimiter, authLimiter, bulkOperationsLimiter } from './rate-limiter.js';
+import { validateEnvironmentSecrets, validateGitIgnore, ensureEnvExample } from './env-validation.js';
 
 /**
  * HTTP Basic auth over a single shared secret. The browser supplies the login
@@ -62,6 +64,12 @@ export class AppServer {
   constructor(private deps: ApiDependencies, private port: number = 3000) {
     this.app = express();
     this.server = http.createServer(this.app);
+    
+    // Validate environment security before configuring
+    ensureEnvExample();
+    validateGitIgnore();
+    validateEnvironmentSecrets();
+    
     this.configure();
   }
 
@@ -78,6 +86,12 @@ export class AppServer {
       );
       next();
     });
+
+    // Rate limiting middleware (applied before authentication)
+    // This protects all endpoints from abuse
+    this.app.use(generalLimiter);
+    this.app.use(strictLimiter);
+    this.app.use(bulkOperationsLimiter);
 
     const allowedOrigin = process.env.CORS_ORIGIN?.trim();
     // The SPA is same-origin by default; do not advertise wildcard cross-origin
@@ -99,6 +113,10 @@ export class AppServer {
       }
       logger.registerSecret(token);
       if (viewerToken) logger.registerSecret(viewerToken);
+      
+      // Apply auth limiter to authentication attempts
+      this.app.use(authLimiter);
+      
       this.app.use(basicAuth(user, token, viewerUser, viewerToken));
       logger.info(viewerToken ? 'HTTP authentication enabled (operator + read-only viewer).' : 'HTTP authentication enabled (operator).');
     } else if (process.env.API_VIEWER_TOKEN?.trim()) {

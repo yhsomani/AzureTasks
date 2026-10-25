@@ -5,7 +5,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as crypto from 'node:crypto';
+import { AtomicFileWriter } from '../persistence/atomic-file-writer.js';
+
 import { parse as parseDotenv } from 'dotenv';
 import { ConfigRepository, AppConfig, PersonConfig } from '../../domain/ports/repositories.js';
 
@@ -154,20 +155,7 @@ export class FileConfigRepository implements ConfigRepository {
    * This protects against partial writes, not concurrent multi-host writers.
    */
   private writeAtomically(filename: string, content: string): void {
-    const temp = path.join(path.dirname(filename), `.${path.basename(filename)}.${crypto.randomUUID()}.tmp`);
-    let fd: number | undefined;
-    try {
-      fd = fs.openSync(temp, 'wx', 0o600);
-      fs.writeFileSync(fd, content, 'utf-8');
-      fs.fsyncSync(fd);
-      fs.closeSync(fd);
-      fd = undefined;
-      fs.renameSync(temp, filename);
-    } catch (err) {
-      if (fd !== undefined) fs.closeSync(fd);
-      try { fs.unlinkSync(temp); } catch { /* no temporary file to clean */ }
-      throw err;
-    }
+    AtomicFileWriter.writeText(filename, content, { mode: 0o600 });
   }
 
   private saveConfigObject(data: Record<string, any>): void {

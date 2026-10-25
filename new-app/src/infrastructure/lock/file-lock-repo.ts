@@ -7,6 +7,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { AtomicFileWriter } from '../persistence/atomic-file-writer.js';
 import { randomUUID } from 'node:crypto';
 import { LockRepository, LockInfo } from '../../domain/ports/repositories.js';
 
@@ -122,11 +123,8 @@ export class FileLockRepository implements LockRepository {
         return false;
       }
 
-      // Write candidate lock to staging file in the same directory (guaranteed same filesystem)
-      fs.writeFileSync(stagingPath, JSON.stringify(info, null, 2), { encoding: 'utf-8' });
-
-      // Atomically replace this.lockPath. this.lockPath is never vacated on disk!
-      fs.renameSync(stagingPath, this.lockPath);
+      // Write candidate lock atomically using AtomicFileWriter
+      AtomicFileWriter.writeJson(this.lockPath, info, { tempSuffix: `${process.pid}.${randomUUID()}` });
       this.ownerToken = token;
       return true;
     } catch {

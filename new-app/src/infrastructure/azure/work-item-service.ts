@@ -29,6 +29,7 @@ interface WorkItemBatchResult {
 }
 
 export class AzureWorkItemService implements WorkItemRepository {
+  private readonly workItemCache: Map<number, WorkItem> = new Map();
   constructor(private readonly client: AzureDevOpsClient, private readonly timezone: () => string = () => 'UTC') {}
 
   private requireCompleteBatch(batch: WorkItemBatchResult, ids: number[], purpose: string): WorkItem[] {
@@ -571,9 +572,14 @@ export class AzureWorkItemService implements WorkItemRepository {
   }
 
   async getWorkItem(id: number): Promise<WorkItem> {
-    return this.client.get<WorkItem>(
+    if (this.workItemCache.has(id)) {
+      return this.workItemCache.get(id)!;
+    }
+    const item = await this.client.get<WorkItem>(
       `/_apis/wit/workitems/${id}?$expand=relations&api-version=7.0`
     );
+    this.workItemCache.set(id, item);
+    return item;
   }
 
   async createWorkItemWithReconciliation(
@@ -622,37 +628,62 @@ export class AzureWorkItemService implements WorkItemRepository {
       return { copiedCount: 0, failedCount: 0, totalRelations: 0 };
     }
 
-    let copiedCount = 0;
-    let failedCount = 0;
+    // Batch all relation additions into a single PATCH request for better performance
+    const patchOps = copyable.map(relation => ({
+      op: 'add',
+      path: '/relations/-',
+      value: {
+        rel: relation.rel,
+        url: relation.url,
+        // Azure read-backs include computed attributes (e.g. name,
+        // isLocked). Do not POST these as though they were writable.
+        ...(relation.attributes?.comment
+          ? { attributes: { comment: relation.attributes.comment } }
+          : {}),
+      },
+    }));
 
-    for (const relation of copyable) {
-      try {
-        const relBody = {
-          op: 'add',
-          path: '/relations/-',
-          value: {
-            rel: relation.rel,
-            url: relation.url,
-            // Azure read-backs include computed attributes (e.g. name,
-            // isLocked). Do not POST these as though they were writable.
-            ...(relation.attributes?.comment
-              ? { attributes: { comment: relation.attributes.comment } }
-              : {}),
-          },
-        };
+    try {
+      await this.client.patch(
+        `/_apis/wit/workitems/${targetId}?api-version=7.0`,
+        patchOps,
+        { headers: { 'Content-Type': 'application/json-patch+json' } }
+      );
+      return { copiedCount: copyable.length, failedCount: 0, totalRelations: copyable.length };
+    } catch (error) {
+      // Log error but attempt individual fallback for partial success
+      logger.warn(`Batch relation copy failed for work item ${targetId}: ${error instanceof Error ? error.message : String(error)}`);
+      
+      // Fallback: try individual copies to get partial success
+      let copiedCount = 0;
+      let failedCount = 0;
 
-        await this.client.patch(
-          `/_apis/wit/workitems/${targetId}?api-version=7.0`,
-          [relBody],
-          { headers: { 'Content-Type': 'application/json-patch+json' } }
-        );
-        copiedCount++;
-      } catch {
-        failedCount++;
+      for (const relation of copyable) {
+        try {
+          const relBody = {
+            op: 'add',
+            path: '/relations/-',
+            value: {
+              rel: relation.rel,
+              url: relation.url,
+              ...(relation.attributes?.comment
+                ? { attributes: { comment: relation.attributes.comment } }
+                : {}),
+            },
+          };
+
+          await this.client.patch(
+            `/_apis/wit/workitems/${targetId}?api-version=7.0`,
+            [relBody],
+            { headers: { 'Content-Type': 'application/json-patch+json' } }
+          );
+          copiedCount++;
+        } catch {
+          failedCount++;
+        }
       }
+      return { copiedCount, failedCount, totalRelations: copyable.length };
     }
-
-    return { copiedCount, failedCount, totalRelations: copyable.length };
   }
 
   private async findExistingByTitleAndAssignee(

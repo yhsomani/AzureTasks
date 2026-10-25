@@ -16,3 +16,7 @@ export * from './services/github-service.js';
 
 // Ports (interfaces)
 export * from './ports/repositories.js';
+
+// Auto-Closure Configuration
+export * from './entities/auto-closure-config.js';
+export { AutoClosureService } from './services/auto-closure-service.js';

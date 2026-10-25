@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Azure DevOps 3in1 Task Creator — automated multi-person daily task creation and work intelligence studio" />
-  <title>Azure DevOps 3in1 Task Automation Studio</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230078d4'/%3E%3Cpath d='M9 16l4 4 10-10' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <meta name="description" content="3in1 Mission Control — inspect Azure DevOps work, review task plans, and control team automation." />
+  <title>3in1 Mission Control · Azure DevOps</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23080f1b'/%3E%3Cg fill='none' stroke='%2366e3ed' stroke-width='1.7'%3E%3Cpath d='M5 10h8V5h14v14h-8v8H5z'/%3E%3Cpath d='M10 16l5 5L25 11'/%3E%3C/g%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
 </head>
@@ -14,44 +14,46 @@
 
   <div class="app">
     <aside class="sidebar" id="sidebar">
+      <p class="mission-rail-caption">WORK OPERATIONS / 3IN1</p>
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 32 32" width="28" height="28"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M9 16l4 4 10-10" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div class="brand-mark mission-brand-icon" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 10h8V5h14v14h-8v8H5z"/><path d="M10 16l5 5L25 11"/></svg>
         </div>
         <div class="brand-text">
-          <strong>3in1 Task Studio</strong>
-          <span>Azure DevOps automation</span>
+          <strong>Mission control</strong>
+          <span>3in1 · Azure DevOps</span>
         </div>
       </div>
 
       <nav class="nav" aria-label="Primary navigation">
         <div class="nav-group">
           <span class="nav-group-label">Overview</span>
-          <button type="button" class="nav-item active" data-view="dashboard"><span class="ico" aria-hidden="true">◫</span><span>Dashboard</span></button>
-          <button type="button" class="nav-item" data-view="mywork"><span class="ico" aria-hidden="true">◉</span><span>My work</span></button>
+          <button type="button" class="nav-item active" data-view="dashboard"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span>Dashboard</span></button>
+          <button type="button" class="nav-item" data-view="mywork"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0116 0v2"/></svg></span><span>My work</span></button>
         </div>
         <div class="nav-group">
           <span class="nav-group-label">Explore work</span>
-          <button type="button" class="nav-item" data-view="explorer"><span class="ico" aria-hidden="true">▦</span><span>Task explorer</span></button>
-          <button type="button" class="nav-item" data-view="burndown"><span class="ico" aria-hidden="true">◷</span><span>Daily burndown</span></button>
+          <button type="button" class="nav-item" data-view="explorer"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="6"/><path d="M15 15l6 6M7 10h6M10 7v6"/></svg></span><span>Task explorer</span></button>
+          <button type="button" class="nav-item" data-view="burndown"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3v18h18M6 6l5 4 4 6h6"/></svg></span><span>Daily burndown</span></button>
         </div>
         <div class="nav-group">
           <span class="nav-group-label">Create & automate</span>
-          <button type="button" class="nav-item" data-view="planner"><span class="ico" aria-hidden="true">▣</span><span>Plan & create</span></button>
-          <button type="button" class="nav-item" data-view="scheduler"><span class="ico" aria-hidden="true">◴</span><span>Scheduler</span></button>
+          <button type="button" class="nav-item" data-view="planner"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M8 3v4M16 3v4M4 11h16M9 16h6M12 13v6"/></svg></span><span>Plan & create</span></button>
+          <button type="button" class="nav-item" data-view="scheduler"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 3"/></svg></span><span>Scheduler</span></button>
         </div>
         <div class="nav-group">
           <span class="nav-group-label">Manage</span>
-          <button type="button" class="nav-item" data-view="people"><span class="ico" aria-hidden="true">♙</span><span>Team</span></button>
-          <button type="button" class="nav-item" data-view="settings"><span class="ico" aria-hidden="true">⚙</span><span>Settings</span></button>
+          <button type="button" class="nav-item" data-view="people"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="8" r="3"/><path d="M2 21v-3a7 7 0 0114 0v3M16 5a3 3 0 010 6M19 15a5 5 0 013 4v2"/></svg></span><span>Team</span></button>
+          <button type="button" class="nav-item" data-view="settings"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg></span><span>Settings</span></button>
         </div>
         <div class="nav-group">
           <span class="nav-group-label">Monitor</span>
-          <button type="button" class="nav-item" data-view="journal"><span class="ico" aria-hidden="true">▤</span><span>Audit log</span></button>
-          <button type="button" class="nav-item" data-view="logs"><span class="ico" aria-hidden="true">≡</span><span>Live logs</span></button>
+          <button type="button" class="nav-item" data-view="journal"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3h12v18H6zM9 8h6M9 12h6M9 16h4"/></svg></span><span>Audit log</span></button>
+          <button type="button" class="nav-item" data-view="logs"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 9l3 3-3 3M12 15h6"/></svg></span><span>Live logs</span></button>
         </div>
       </nav>
 
+      <div class="rail-context"><span class="section-kicker">Operating principle</span><p>Inspect the work.<br />Review the change.<br />Execute with confidence.</p></div>
       <div class="sidebar-footer">
         <div class="conn" id="connBadge" role="status">
           <span class="dot" id="connDot"></span>
@@ -68,136 +70,141 @@
       <header class="topbar">
         <button type="button" class="icon-btn menu-btn" id="menuBtn" aria-controls="sidebar" aria-expanded="false" aria-label="Open navigation">☰</button>
         <div class="page-identity">
-          <p class="breadcrumb" id="viewBreadcrumb">Overview / Dashboard</p>
+          <div class="mission-topline"><span class="section-kicker">WORKSPACE</span><p class="breadcrumb" id="viewBreadcrumb">Overview / Dashboard</p></div>
           <h1 id="viewTitle" tabindex="-1">Dashboard</h1>
           <p class="subtitle" id="viewSubtitle">Track daily contributions, monitor team workloads, and automate tasks</p>
         </div>
         <div class="topbar-actions">
           <span class="pill" id="orgProjectTag" style="display:flex; align-items:center; gap:6px;">—</span>
-          <button class="btn ghost small" id="consoleBtn" title="Toggle Live Console Drawer">💻 Console</button>
+          <button class="btn ghost small" id="consoleBtn" title="Toggle Live Console Drawer" aria-controls="executionDrawer" aria-expanded="false">Console</button>
           <button class="btn ghost small" id="refreshBtn">Refresh</button>
-          <button class="btn ghost small" id="closeTodayTasksBtn" title="Manually trigger end-of-day task closure flow">🌙 Close today's tasks</button>
+          <button class="btn ghost small" id="closeTodayTasksBtn" title="Manually trigger end-of-day task closure flow">Close today's tasks</button>
           <button class="btn primary small" id="quickRunBtn">Review plan</button>
         </div>
       </header>
 
       <!-- 1. DASHBOARD VIEW -->
       <section class="view active" id="view-dashboard">
-        <div class="journey-guide" aria-label="Start here">
-          <div class="journey-copy"><strong>Start with a clear task plan</strong><span>Configure your team, inspect coverage, preview changes, and review results.</span></div>
-          <div class="journey-steps">
-            <button type="button" data-view-link="people">1 · Team</button>
-            <button type="button" data-view-link="explorer">2 · Inspect</button>
-            <button type="button" data-view-link="planner">3 · Preview & create</button>
-            <button type="button" data-view-link="journal">4 · Review</button>
+        <div class="mission-briefing">
+          <div class="briefing-copy">
+            <p class="briefing-eyebrow">01 / OPERATIONAL BRIEFING</p>
+            <h2>A clear picture.<br />A deliberate next move.</h2>
+            <p>Check your connection, resolve coverage gaps, and review the plan before changing remote work items.</p>
+            <div class="briefing-actions"><button type="button" class="btn primary" data-view-link="planner">Review task plan <span aria-hidden="true">↗</span></button><button type="button" class="btn ghost" data-view-link="explorer">Inspect coverage</button></div>
           </div>
+          <div class="briefing-visual" aria-hidden="true"><svg viewBox="0 0 240 180" fill="none" stroke="currentColor" stroke-width="1"><circle cx="120" cy="90" r="66"/><circle cx="120" cy="90" r="44"/><path d="M120 9v162M39 90h162M73 43l94 94M73 137l94-94"/><path d="M90 90l20 20 45-45" stroke-width="3"/><circle cx="120" cy="90" r="78" stroke-dasharray="3 9"/></svg><span>INSPECT / REVIEW / EXECUTE</span></div>
         </div>
-        <article class="card" style="margin-bottom: 16px;">
-          <header class="card-head"><h2>💡 Smart Insights</h2><span class="pill ok" id="insightsCountBadge">Live Azure data</span></header>
-          <div id="insightsContainer" style="color: var(--text-muted); font-size: 13.5px;"><p>Loading insights...</p></div>
-        </article>
-
-        <div class="grid cols-4">
+        <div class="grid cols-4 mission-metrics">
           <article class="card kpi"><span class="kpi-label">Connection</span><span class="kpi-value" id="kpiConn">—</span><span class="kpi-hint" id="kpiConnHint">Azure DevOps</span></article>
           <article class="card kpi"><span class="kpi-label">Team members</span><span class="kpi-value" id="kpiPeople">—</span><span class="kpi-hint" id="kpiPeopleHint">Configured team roster</span></article>
-          <article class="card kpi"><span class="kpi-label">Rolling Window</span><span class="kpi-value small" id="kpiWindowRange">—</span><span class="kpi-hint" id="kpiMode">Today → Next Thursday</span></article>
+          <article class="card kpi"><span class="kpi-label">Planning timezone</span><span class="kpi-value small" id="kpiWindowRange">—</span><span class="kpi-hint" id="kpiMode">Schedule mode loads with configuration</span></article>
           <article class="card kpi"><span class="kpi-label">PRs Created Today</span><span class="kpi-value" id="kpiPrsToday">—</span><span class="kpi-hint" id="kpiPrsHint">Live GitHub activity</span></article>
         </div>
-
-        <!-- Daily PR Tracking by Team Member Card -->
-        <article class="card" id="dashboardPrTrackingCard" style="margin-bottom: 18px;">
+        <div class="dashboard-layout">
+          <div class="dashboard-primary">
+            <article class="card">
+              <header class="card-head"><div><p class="section-kicker">ATTENTION QUEUE</p><h2>Smart Insights</h2></div><span class="pill" id="insightsCountBadge">Coverage signals</span></header>
+              <div id="insightsContainer"><p class="muted">Loading insights…</p></div>
+            </article>
+            <article class="card">
+              <header class="card-head"><div><p class="section-kicker">NEXT REVIEWED ACTION</p><h2>Today's plan</h2></div><button class="btn small ghost" data-view-link="planner">Open planner</button></header>
+              <div id="dashboardPlan" class="plan-preview"><p class="muted">Loading plan…</p></div>
+              <div class="action-dock"><p class="muted small">Preview first. Creation requires your confirmation.</p><button class="btn small ghost" id="dashboardCloseTodayBtn" title="Close tasks scheduled for today">Close today's tasks</button></div>
+            </article>
+          </div>
+          <div class="dashboard-secondary">
+            <div class="journey-guide" aria-label="Start here">
+              <div class="journey-copy"><strong>Your operating sequence</strong><span>Set up once. Review every change.</span></div>
+              <div class="journey-steps"><button type="button" data-view-link="people">1 · Team</button><button type="button" data-view-link="explorer">2 · Inspect</button><button type="button" data-view-link="planner">3 · Preview &amp; create</button><button type="button" data-view-link="journal">4 · Review</button></div>
+            </div>
+            <article class="card"><header class="card-head"><div><p class="section-kicker">EXECUTION HISTORY</p><h2>Recent activity</h2></div><button class="btn small ghost" data-view-link="journal">View all</button></header><div id="dashboardJournal" class="timeline"><p class="muted">No entries yet.</p></div></article>
+          </div>
+        </div>
+        <div class="workspace-intro"><div><p class="section-kicker">SUPPORTING INTELLIGENCE</p><h2>Delivery signals</h2></div><p class="muted small">Recorded effort, work-item states, and pull request activity.</p></div>
+        <div class="chart-grid">
+          <article class="card">
+            <header class="card-head"><h2>Daily effort trend</h2></header>
+            <div class="chart-box"><canvas id="effortTrendChart" role="img" aria-label="Daily effort trend">Daily effort trend chart. Consult the task explorer for detailed work-item data.</canvas></div>
+          </article>
+          <article class="card">
+            <header class="card-head"><h2>Task status distribution</h2></header>
+            <div class="chart-box"><canvas id="statusDistributionChart" role="img" aria-label="Task status distribution">Task status distribution chart. Consult the task explorer for detailed work-item data.</canvas></div>
+          </article>
+        </div>
+        <article class="card" id="dashboardPrTrackingCard">
           <header class="card-head">
             <div>
-              <h2>🐙 Daily PR Tracking by Team Member</h2>
+              <p class="section-kicker">TEAM DELIVERY</p><h2>Daily PR tracking by team member</h2>
               <p class="muted small">Pull requests created or updated today (12:00 AM to current time in configured timezone) categorized by Open and Merged</p>
             </div>
             <div class="row gap" style="margin: 0; align-items: center;">
               <span class="muted small" id="dailyPrLastUpdated">Updating...</span>
-              <button type="button" class="btn ghost small" id="refreshDailyPrBtn">🔄 Refresh PRs</button>
+              <button type="button" class="btn ghost small" id="refreshDailyPrBtn">Refresh PRs</button>
             </div>
           </header>
-          <div id="dailyPrContainer" class="table-wrap">
+          <div id="dailyPrContainer" class="table-wrap" tabindex="0" role="region" aria-label="Daily pull request activity, scroll horizontally for all columns">
             <p class="muted" style="padding: 16px;">Loading daily pull request counts…</p>
           </div>
         </article>
 
-        <div class="chart-grid">
-          <article class="card">
-            <header class="card-head"><h2>📈 Daily Effort Trend</h2></header>
-            <div class="chart-box"><canvas id="effortTrendChart" role="img" aria-label="Daily effort trend">Daily effort trend chart. Consult the task explorer for detailed work-item data.</canvas></div>
-          </article>
-          <article class="card">
-            <header class="card-head"><h2>📊 Task Status Distribution</h2></header>
-            <div class="chart-box"><canvas id="statusDistributionChart" role="img" aria-label="Task status distribution">Task status distribution chart. Consult the task explorer for detailed work-item data.</canvas></div>
-          </article>
-        </div>
-
-        <div class="grid cols-2">
-          <article class="card">
-            <header class="card-head">
-              <h2>Today's plan</h2>
-              <div class="row gap" style="margin:0;">
-                <button class="btn small ghost" id="dashboardCloseTodayBtn" title="Close tasks scheduled for today">🌙 Close today's tasks</button>
-                <button class="btn small ghost" data-view-link="planner">Open planner</button>
-              </div>
-            </header>
-            <div id="dashboardPlan" class="plan-preview"><p class="muted">Loading plan…</p></div>
-          </article>
-          <article class="card">
-            <header class="card-head"><h2>Recent activity</h2><button class="btn small ghost" data-view-link="journal">View all</button></header>
-            <div id="dashboardJournal" class="timeline"><p class="muted">No entries yet.</p></div>
-          </article>
-        </div>
       </section>
 
       <!-- 2. DAILY BURNDOWN VIEW -->
       <section class="view" id="view-burndown">
-        <article class="card">
+        <div class="workspace-intro"><div><p class="section-kicker">EFFORT OBSERVATORY / 02</p><h2>The month, in perspective.</h2></div><p class="muted">Inspect daily allocations and recorded completion without changing tasks.</p></div>
+        <article class="card operation-panel">
           <header class="card-head">
             <div>
-              <h2>📅 Daily Work &amp; Burndown Matrix</h2>
+              <h2>Daily work &amp; burndown matrix</h2>
               <p class="muted small">Monthly work tracking, completed hours, and daily effort allocation</p>
             </div>
             <div class="row gap" style="margin: 0;">
-              <input type="month" id="burndownMonthSelector" style="width: auto;" />
+              <label class="field"><span>Reporting month</span><input type="month" id="burndownMonthSelector" /></label>
               <button class="btn primary small" id="loadBurndownBtn">Load Month</button>
             </div>
           </header>
-          <div id="burndownMatrixContainer">
+          <div id="burndownMatrixContainer" class="matrix-container" tabindex="0" role="region" aria-label="Monthly effort matrix, scroll horizontally for all dates">
             <p class="muted">Select a month and click "Load Month" to inspect burndown.</p>
           </div>
         </article>
+        <div class="mission-footer"><span>READ-ONLY ANALYSIS</span><p>Missing work-hour records are not the same as zero hours. Select a date or member to inspect available detail.</p></div>
       </section>
 
       <!-- 3. MY WORK VIEW -->
       <section class="view" id="view-mywork">
-        <article class="card">
+        <div class="workspace-layout">
+        <aside class="workspace-controls card">
+          <p class="section-kicker">PERSONAL WORKSPACE / 03</p><h2>Focus on one person.</h2><p class="muted">Choose a team member to review assignments, completion, and linked work items.</p>
+          <label class="field" for="myWorkPersonSelect"><span>Team member</span><select id="myWorkPersonSelect"></select></label>
+          <button class="btn ghost" id="myWorkRefreshBtn">Refresh personal work</button>
+          <div class="mission-footer"><span>INSPECT, THEN ACT</span><p>Need to fill a gap? Review the task plan before creating work.</p><button type="button" class="btn ghost small" data-view-link="planner">Open planner</button></div>
+        </aside>
+        <article class="card workspace-content">
           <header class="card-head">
             <div>
-              <h2>👨‍💻 My Work Dashboard</h2>
+              <p class="section-kicker">ASSIGNMENTS &amp; PROGRESS</p><h2>My work dashboard</h2>
               <p class="muted small">Personalized task assignment, completion status, and quick links</p>
-            </div>
-            <div class="row gap" style="margin: 0;">
-              <select id="myWorkPersonSelect" style="width: auto;"></select>
-              <button class="btn ghost small" id="myWorkRefreshBtn">Refresh</button>
             </div>
           </header>
           <div id="myWorkContainer"><p class="muted">Loading personal tasks...</p></div>
         </article>
+        </div>
       </section>
 
       <!-- 4. TASK EXPLORER VIEW -->
       <section class="view" id="view-explorer">
-        <article class="card" style="margin-bottom: 16px;">
+        <div class="workspace-intro"><div><p class="section-kicker">COVERAGE INTELLIGENCE / 04</p><h2>Find the gaps before they become work.</h2></div><p class="muted">Set your scope. Inspect coverage. Review any missing tasks before creation.</p></div>
+        <div class="workspace-layout">
+        <article class="card workspace-controls">
           <header class="card-head">
-            <h2>🔍 Intelligent Date-Range Task Explorer</h2>
+            <h2>Inspection scope</h2>
             <div class="row gap" style="margin: 0;">
               <span id="explorerLastRefresh" class="pill">Last updated: -</span>
-              <button id="exploreRefreshBtn" class="btn small ghost">🔄 Refresh</button>
+              <button id="exploreRefreshBtn" class="btn small ghost">Refresh</button>
             </div>
           </header>
 
-          <div class="grid cols-4" style="margin-bottom: 14px;">
+          <div class="scope-fields">
             <label class="field" style="margin: 0;">
               <span>Date Range Preset</span>
               <select id="explorerPreset">
@@ -222,19 +229,19 @@
               <input type="date" id="explorerEnd" />
             </label>
             <div style="display:flex; align-items:flex-end; gap:8px;">
-              <button class="btn primary" id="explorerApplyBtn" style="flex:1;">⚡ Apply Filters</button>
-              <button class="btn ghost" id="explorerResetBtn" title="Reset to window">↺</button>
+              <button class="btn primary" id="explorerApplyBtn" style="flex:1;">Apply filters</button>
+              <button class="btn ghost" id="explorerResetBtn" title="Reset to window" aria-label="Reset to creation window">↺</button>
             </div>
           </div>
 
           <div style="padding-top: 12px; border-top: 1px solid var(--border);">
             <div class="row" style="justify-content: space-between; flex-wrap: wrap; margin-bottom: 8px;">
               <div style="display:flex; align-items:center; gap:8px;">
-                <strong style="font-size: 13px;">👥 Team Members Filter:</strong>
+                <strong style="font-size: 13px;">Team members</strong>
                 <span id="explorerPillsTag" class="pill ok">All selected</span>
               </div>
               <div style="display:flex; gap:6px;">
-                <input type="text" id="explorerMemberSearch" placeholder="Search members..." style="padding: 4px 8px; font-size: 12px; width: 150px;" />
+                <input type="text" id="explorerMemberSearch" placeholder="Search members..." aria-label="Search team members" />
                 <button class="btn ghost small" id="explorerSelectAllBtn">Select All</button>
                 <button class="btn ghost small" id="explorerDeselectAllBtn">Deselect All</button>
               </div>
@@ -242,7 +249,7 @@
             <div id="explorerUserPills" class="row wrap" style="gap:6px; margin:0;"></div>
           </div>
         </article>
-
+        <div class="workspace-content">
         <!-- KPI SUMMARY BAR -->
         <div class="grid cols-4" style="grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); margin-bottom: 16px;">
           <article class="card kpi"><span class="kpi-label">Selected Users</span><span class="kpi-value" id="kpiExpUsers">—</span><span class="kpi-hint">team members</span></article>
@@ -264,24 +271,24 @@
         <article class="card">
           <header class="card-head">
             <div class="row gap" style="margin: 0;">
-              <button class="btn ghost small" id="btnToggleMatrixView" style="font-weight:600;">📊 Coverage Matrix</button>
-              <button class="btn ghost small" id="btnToggleListView">📋 Detailed Task List</button>
+              <button class="btn ghost small active-tab-btn" id="btnToggleMatrixView" style="font-weight:600;" aria-pressed="true">Coverage matrix</button>
+              <button class="btn ghost small" id="btnToggleListView" aria-pressed="false">Detailed task list</button>
             </div>
             <div class="row gap" style="margin: 0;">
-              <button class="btn primary small" id="explorerCreateMissingBtn">🚀 Create Missing Tasks</button>
+              <button class="btn primary small" id="explorerCreateMissingBtn">Review missing tasks</button>
             </div>
           </header>
 
-          <div id="explorerMatrixWrap" class="matrix-container">
+          <div id="explorerMatrixWrap" class="matrix-container" tabindex="0" role="region" aria-label="Task coverage matrix, scroll horizontally for all dates">
             <p class="muted" style="padding: 24px;">Loading coverage matrix…</p>
           </div>
 
           <div id="explorerListWrap" style="display: none;">
             <div class="row" style="justify-content: space-between; margin-bottom: 12px;">
-              <input type="text" id="explorerListSearch" placeholder="🔍 Search by Title, Task ID, or Assignee..." style="max-width: 340px;" />
+              <input type="text" id="explorerListSearch" placeholder="Search title, task ID, or assignee..." aria-label="Search detailed task list" />
               <span id="explorerListCount" class="muted small">Showing 0 items</span>
             </div>
-            <div class="table-wrap">
+            <div class="table-wrap" tabindex="0" role="region" aria-label="Detailed tasks, scroll horizontally for all columns">
               <table class="table" id="explorerListTable">
                 <thead>
                   <tr>
@@ -293,27 +300,32 @@
             </div>
           </div>
         </article>
+        <div class="mission-footer"><span>COVERAGE, NOT ASSUMPTIONS</span><p>Missing tasks and duplicate flags describe the selected date range and team. Review the scope before taking action.</p></div>
+        </div>
+        </div>
       </section>
 
       <!-- 5. PLANNER VIEW -->
       <section class="view" id="view-planner">
+        <div class="workspace-intro"><div><p class="section-kicker">CREATION WORKSPACE / 05</p><h2>Build the plan. Then make the call.</h2></div><p class="muted">A deliberate sequence from team selection to confirmed creation.</p></div>
         <div class="workflow-note" role="note"><strong>Preview before creating.</strong> Choose team members and a date window, review what will change, then confirm creation. No remote work items are changed by a preview.</div>
         <!-- Configuration & Controls -->
-        <article class="card" style="margin-bottom: 16px;">
+        <div class="workspace-layout">
+        <article class="card workspace-controls">
           <header class="card-head">
             <div>
-              <h2>⚡ Task Planner &amp; Assignment Studio</h2>
+              <p class="step-label">01 / DEFINE THE SCOPE</p><h2>Task planner</h2>
               <p class="muted small">Plan, preview, and safely execute rolling daily task creation with concurrency guards and duplicate prevention</p>
             </div>
             <div class="row gap" style="margin: 0;">
-              <button class="btn primary small" id="openAdHocModalBtn">➕ Create Ad-Hoc Task</button>
-              <button class="btn ghost small" id="plannerCloseTodayBtn" title="Close tasks scheduled for today">🌙 Close Today's Tasks</button>
+              <button class="btn ghost small" id="openAdHocModalBtn">Create ad-hoc task</button>
+              <button class="btn ghost small" id="plannerCloseTodayBtn" title="Close tasks scheduled for today">Close today's tasks</button>
               <button class="btn ghost small" id="btnSimulateWindow" title="Preview the next creation window without writing tasks">Preview Next Week</button>
               <button class="btn ghost small" id="btnResetPlannerWindow" title="Reset to today">↺ Reset to Today</button>
             </div>
           </header>
 
-          <div class="grid cols-3" style="margin-bottom: 14px;">
+          <div class="scope-fields">
             <label class="field" style="margin: 0;">
               <span>Planning Reference Date</span>
               <input type="date" id="asOf" />
@@ -325,16 +337,12 @@
                 <option value="FOLLOWING">Following week (Advances 7 days on Friday)</option>
               </select>
             </label>
-            <div style="display:flex; align-items:flex-end; gap:8px;">
-              <button class="btn ghost" id="planBtn" style="flex:1;">Preview tasks</button>
-              <button class="btn primary" id="executeBtn" style="flex:1;" disabled>Review &amp; confirm</button>
-            </div>
           </div>
 
           <div style="padding-top: 12px; border-top: 1px solid var(--border);">
             <div class="row" style="justify-content: space-between; flex-wrap: wrap; margin-bottom: 8px;">
               <div style="display:flex; align-items:center; gap:8px;">
-                <strong style="font-size: 13px;">👥 Target Team Members:</strong>
+                <strong style="font-size: 13px;">Target team members</strong>
                 <span id="plannerMembersTag" class="pill ok">All enabled selected</span>
               </div>
               <div style="display:flex; gap:6px;">
@@ -344,8 +352,9 @@
             </div>
             <div class="row wrap gap" id="personPicker" style="gap:8px;"></div>
           </div>
+          <div class="action-dock"><p class="step-label">02 / GENERATE A READ-ONLY PREVIEW</p><button class="btn primary" id="planBtn">Preview tasks</button><p class="muted small">Changing the scope requires a fresh preview.</p></div>
         </article>
-
+        <div class="workspace-content">
         <!-- KPI SUMMARY BAR -->
         <div class="grid cols-4" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin-bottom: 16px;">
           <article class="card kpi"><span class="kpi-label">Rolling Window</span><span class="kpi-value small" id="kpiPlanWindow">—</span><span class="kpi-hint">Today → Stop Day</span></article>
@@ -356,47 +365,55 @@
 
         <!-- MATRIX & DETAIL TABS -->
         <article class="card">
+          <div class="operation-head"><p class="step-label">03 / INSPECT THE PROPOSED CHANGE</p><h2>Window review</h2></div>
           <header class="card-head">
             <div class="row gap" style="margin: 0;">
-              <button class="btn ghost small active-tab-btn" id="btnTogglePlanMatrix" style="font-weight:600;">📊 Window Assignment Matrix</button>
-              <button class="btn ghost small" id="btnTogglePlanList">📋 Pending Tasks List</button>
+              <button class="btn ghost small active-tab-btn" id="btnTogglePlanMatrix" style="font-weight:600;" aria-pressed="true">Window assignment matrix</button>
+              <button class="btn ghost small" id="btnTogglePlanList" aria-pressed="false">Pending tasks list</button>
             </div>
             <div class="row gap" style="margin: 0;">
               <span class="pill" id="plannerAutoRefreshStatus">Ready</span>
             </div>
           </header>
 
-          <div id="planMatrixWrap" class="matrix-container">
-            <p class="muted" style="padding: 24px;">Click "Preview Plan" to inspect the creation window matrix.</p>
+          <div id="planMatrixWrap" class="matrix-container" tabindex="0" role="region" aria-label="Proposed assignment matrix, scroll horizontally for all dates">
+            <p class="muted" style="padding: 24px;">Select your team and dates, then choose "Preview tasks" to inspect the creation window.</p>
           </div>
 
           <div id="planListWrap" style="display: none; padding-top: 8px;">
             <div id="planResults" class="plan-preview"></div>
           </div>
+          <div class="action-dock"><div><p class="step-label">04 / CONFIRM REMOTE CREATION</p><p class="muted small">Review the proposed tasks above. Confirmation is required before Azure DevOps changes.</p></div><button class="btn primary" id="executeBtn" disabled>Review &amp; confirm</button></div>
         </article>
+        </div>
+        </div>
       </section>
 
       <!-- 6. TEAM MANAGEMENT VIEW -->
       <section class="view" id="view-people">
-        <article class="card">
+        <div class="workspace-layout">
+        <aside class="workspace-controls card"><p class="section-kicker">TEAM CONFIGURATION / 06</p><h2>The people behind the plan.</h2><p class="muted">Maintain the identities and source-task mappings used for daily creation.</p><div class="mission-footer"><span>CONFIGURATION ONLY</span><p>Save roster changes explicitly. Saving a team never creates remote work items.</p><button type="button" class="btn ghost small" data-view-link="planner">Review the team plan</button></div></aside>
+        <article class="card workspace-content">
           <header class="card-head">
             <div>
-              <h2>Team members (people.json)</h2>
+              <p class="section-kicker">ROSTER EDITOR</p><h2>Team members (people.json)</h2>
               <p class="muted small">Configured identities for multi-person daily task automation</p>
             </div>
-            <button class="btn primary small" id="addPersonBtn">➕ Add member</button>
+            <button class="btn primary small" id="addPersonBtn">Add member</button>
           </header>
           <p class="muted small" style="margin-bottom:14px;">Edit the roster below. Changes are only applied when you select <strong>Save team</strong>; task creation is never triggered by saving team details.</p>
           <div id="peopleList" class="people-list"></div>
-          <div class="team-save-bar">
+          <div class="team-save-bar action-dock">
             <p id="teamSaveStatus" role="status" aria-live="polite">Loading team configuration…</p>
             <button class="btn primary" id="savePeopleBtn" disabled>Save team</button>
           </div>
         </article>
+        </div>
       </section>
 
       <!-- 7. AUDIT LOG (JOURNAL) VIEW -->
       <section class="view" id="view-journal">
+        <div class="workspace-intro"><div><p class="section-kicker">EXECUTION LEDGER / 07</p><h2>Every operation leaves a trail.</h2></div><p class="muted">Inspect recorded outcomes before repairing incomplete relationships.</p></div>
         <article class="card">
           <header class="card-head">
             <div>
@@ -404,24 +421,28 @@
               <p class="muted small">Review recorded operations, results, and any incomplete relation copies. Verify important updates in Azure DevOps.</p>
             </div>
             <div class="row gap" style="margin:0;">
-              <button class="btn small ghost" id="journalRepairBtn">🔧 Repair Relations</button>
               <button class="btn small ghost" id="exportCsv">Export CSV</button>
               <button class="btn small ghost" id="exportJson">Export JSON</button>
             </div>
           </header>
           <p id="journalResultStatus" class="muted small" role="status" aria-live="polite">Loading audit history…</p>
           <div id="journalStats" class="stat-chips"></div>
-          <div class="table-wrap">
+          <div class="table-wrap" tabindex="0" role="region" aria-label="Audit history, scroll horizontally for all fields">
             <table class="table" id="journalTable">
               <thead><tr><th>Time</th><th>Person</th><th>Date</th><th>Title</th><th>Item</th><th>Fields</th><th>Relations</th><th>Verified</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
+          <div class="action-dock"><div><p class="section-kicker">RECOVERY ACTION</p><p class="muted small">Repairing relationships changes remote work items. Review incomplete results first.</p></div><button class="btn small ghost" id="journalRepairBtn">Repair relations</button></div>
         </article>
       </section>
 
       <!-- 8. SCHEDULER VIEW -->
       <section class="view" id="view-scheduler">
+        <div class="workspace-intro"><div><p class="section-kicker">AUTOMATION CONTROL / 08</p><h2>Two workflows. Explicit control.</h2></div><p class="muted">Creation and end-of-day closure are separate remote operations.</p></div>
+        <div class="automation-grid">
+        <div class="operation-panel">
+        <div class="operation-head"><span class="panel-index">01</span><div><p class="section-kicker">CREATE UPCOMING WORK</p><h2>Daily task creation</h2></div></div>
         <div class="workflow-note" role="note" id="schedulerSafetyNotice">
           <strong>Remote task changes.</strong> Running or enabling the scheduler can create remote Azure DevOps work items. Review team assignments, timezone, and planned dates before enabling unattended creation.
         </div>
@@ -432,7 +453,7 @@
               <p class="muted small" style="margin:4px 0 0 0;">Persistent background daemon for unattended daily 3in1 task creation across server reboots.</p>
             </div>
             <div class="row gap" style="margin:0; align-items:center;">
-              <button class="btn primary small" id="schedRunNowBtn">⚡ Run Scheduler Now</button>
+              <button class="btn primary small" id="schedRunNowBtn">Run scheduler now</button>
               <label class="switch">
                 <input type="checkbox" id="schedToggle" />
                 <span class="slider"></span>
@@ -441,7 +462,7 @@
             </div>
           </header>
 
-          <div class="grid cols-4" style="margin-top: 16px;">
+          <div class="grid cols-2" style="margin-top: 16px;">
             <div class="mini"><span>Status</span><strong id="schedStatusPill" style="color:var(--text);">Stopped</strong></div>
             <div class="mini"><span>Scheduled Time</span><strong id="schedTimeDisplay">09:30</strong></div>
             <div class="mini"><span>Timezone</span><strong id="schedTz">Asia/Kolkata</strong></div>
@@ -472,32 +493,34 @@
                 <input type="checkbox" id="schedAutoStartCheck" />
                 <span>Auto-resume scheduler on server restart</span>
               </label>
-              <button class="btn primary" id="schedSaveConfigBtn">💾 Save Schedule Settings</button>
+              <button class="btn primary" id="schedSaveConfigBtn">Save schedule settings</button>
             </div>
           </div>
           <p class="muted small" style="margin-top:12px;">
-            ℹ️ The scheduler evaluates working weekdays (Mon-Fri) and creates upcoming tasks up to the Thursday stop day. Execution is guarded by file lock concurrency protection and recorded in the audit journal.
+            The scheduler evaluates working weekdays (Mon-Fri) and creates upcoming tasks up to the Thursday stop day. Execution is guarded by file lock concurrency protection and recorded in the audit journal.
           </p>
         </article>
-
-        <div class="workflow-note" role="note" id="eodSafetyNotice" style="margin-top:18px;">
+        </div>
+        <div class="operation-panel">
+        <div class="operation-head"><span class="panel-index">02</span><div><p class="section-kicker">CLOSE COMPLETED WORK</p><h2>End-of-day closure</h2></div></div>
+        <div class="workflow-note" role="note" id="eodSafetyNotice">
           <strong>Closure is separate from task creation.</strong> EOD closure changes task states and work hours in Azure DevOps. Use a read-only preview first; leave automatic closure off unless explicitly approved.
         </div>
 
         <!-- EOD AUTO-CLOSE CARD -->
-        <article class="card" style="margin-top: 16px;">
+        <article class="card">
           <header class="card-head">
             <div>
-              <h2 style="margin:0;">🌙 End-of-Day Task Auto-Closure (6:15 PM – 6:45 PM)</h2>
-              <p class="muted small" style="margin:4px 0 0 0;">Automatically marks today's tasks as Closed with 8h completed, 0h remaining, matched start dates, and PR descriptions.</p>
+              <h2>Closure controls</h2>
+              <p class="muted small">Review state changes, completed hours, remaining hours, and deliverable evidence in a fresh preview before closing today's tasks.</p>
             </div>
             <div class="row gap" style="margin:0; align-items:center;">
-              <button class="btn ghost small" id="eodPreviewBtn">🔍 Preview EOD Closure (Dry Run)</button>
+              <button class="btn ghost small" id="eodPreviewBtn">Preview EOD closure (dry run)</button>
               <button class="btn primary small" id="eodRunNowBtn">Review EOD closure</button>
             </div>
           </header>
 
-          <div class="grid cols-4" style="margin-top: 16px;">
+          <div class="grid cols-2" style="margin-top: 16px;">
             <div class="mini"><span>Auto-Close Status</span><strong id="eodStatusPill">Checking…</strong></div>
             <div class="mini"><span>Window</span><strong id="eodWindowDisplay">18:15 – 18:45</strong></div>
             <div class="mini"><span>Next Auto-Close</span><strong id="eodNextDisplay" style="color:var(--brand-glow);">—</strong></div>
@@ -518,7 +541,7 @@
                 <input type="checkbox" id="eodEnableCheck" />
                 <span>Enable automatic EOD task closure</span>
               </label>
-              <button class="btn primary" id="eodSaveConfigBtn">💾 Save EOD Settings</button>
+              <button class="btn primary" id="eodSaveConfigBtn">Save EOD settings</button>
             </div>
           </div>
           <div id="eodResultsWrap" style="margin-top: 16px; display: none;">
@@ -526,17 +549,20 @@
             <div id="eodResultsList" class="plan-preview"></div>
           </div>
         </article>
+        </div>
+        </div>
       </section>
 
       <!-- 9. LOGS VIEW -->
       <section class="view" id="view-logs">
-        <article class="card">
+        <div class="workspace-intro"><div><p class="section-kicker">OPERATIONAL STREAM / 09</p><h2>Follow the execution.</h2></div><button type="button" class="btn ghost" data-view-link="journal">Open item-level audit</button></div>
+        <article class="card operation-panel">
           <header class="card-head"><h2>Live logs</h2><span class="pill" id="logStatus" role="status" aria-live="polite">Connecting…</span></header>
           <p class="muted small">Operational events only. For item-level execution history, open the Audit log.</p>
-          <div class="logs-toolbar" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
+          <div class="logs-toolbar action-dock">
             <div style="display:flex; gap:6px; align-items:center;">
-              <span class="muted small" style="font-weight:600;">Level:</span>
-              <select id="logLevelFilter" class="input" style="padding:4px 8px; font-size:12px; height:28px;">
+              <label class="muted small" for="logLevelFilter">Level</label>
+              <select id="logLevelFilter" class="input">
                 <option value="ALL">ALL</option>
                 <option value="INFO">INFO</option>
                 <option value="WARN">WARN</option>
@@ -544,16 +570,20 @@
               </select>
             </div>
             <div style="display:flex; gap:6px; align-items:center; flex:1; min-width:180px;">
-              <input type="text" id="logSearchInput" placeholder="Filter logs..." class="input" style="padding:4px 8px; font-size:12px; height:28px; width:100%;" />
+              <input type="text" id="logSearchInput" placeholder="Filter operational messages..." aria-label="Filter logs" class="input" />
             </div>
-            <button class="btn ghost small" id="btnClearLogs" style="height:28px; font-size:12px;">Clear</button>
+            <button class="btn ghost small" id="btnClearLogs">Clear displayed logs</button>
           </div>
           <pre class="logs" id="logStream" tabindex="0" aria-label="Recent operational logs"></pre>
         </article>
+        <div class="mission-footer"><span>DISPLAY ONLY</span><p>Filtering or clearing this stream does not remove audit records. Do not paste tokens or sensitive configuration into operational messages.</p></div>
       </section>
 
       <!-- 10. SETTINGS VIEW -->
       <section class="view" id="view-settings">
+        <div class="workspace-intro"><div><p class="section-kicker">WORKSPACE CONFIGURATION / 10</p><h2>Establish a trusted connection.</h2></div><p class="muted">Workspace settings, access credentials, and maintenance in one controlled space.</p></div>
+        <div class="workspace-layout">
+        <aside class="workspace-controls">
         <div class="settings-setup" id="settingsSetupGuide" role="note">
           <div>
             <strong>Connect your workspace safely</strong>
@@ -565,8 +595,11 @@
           <strong>Credentials are sensitive configuration</strong>
           <p>Never paste credentials into logs, screenshots, or a repository. Restrict access to the server's environment and configuration files. Use HTTPS and rotate any exposed token. Masked display does not mean secrets are encrypted at rest.</p>
         </div>
+        <div class="mission-footer"><span>SETUP SEQUENCE</span><p>Workspace → credentials → test access → review team → preview plan.</p></div>
+        </aside>
+        <div class="workspace-content">
         <article class="card">
-          <header class="card-head"><h2>Connection settings</h2></header>
+          <header class="card-head"><div><p class="step-label">01 / WORKSPACE</p><h2>Connection settings</h2></div></header>
           <div class="grid cols-2">
             <label class="field"><span>Organization</span><input type="text" id="setOrg" placeholder="BFLDevOpsOrg" /></label>
             <label class="field"><span>Project</span><input type="text" id="setProject" placeholder="3in1_Agile_Projects" /></label>
@@ -576,13 +609,13 @@
             <label class="field" for="setStart"><span>Workday start time (HH:mm)</span><input type="text" id="setStart" placeholder="09:30" inputmode="numeric" aria-describedby="settingsStartHelp" /><small class="field-help" id="settingsStartHelp">24-hour time in the configured timezone.</small></label>
           </div>
           <div class="row end" style="gap:8px;">
-            <button class="btn ghost" id="testConnBtn">🔌 Test Connection</button>
+            <button class="btn ghost" id="testConnBtn">Test connection</button>
             <button class="btn primary" id="saveSettingsBtn">Save settings</button>
           </div>
         </article>
 
         <article class="card">
-          <header class="card-head"><h2>Personal Access Token</h2></header>
+          <header class="card-head"><div><p class="step-label">02 / AZURE DEVOPS ACCESS</p><h2>Personal Access Token</h2></div></header>
           <label class="field" for="setPat">Azure DevOps PAT</label>
           <div class="settings-credential-row">
             <input type="password" id="setPat" placeholder="Enter a newly issued PAT" autocomplete="off" aria-label="Azure DevOps personal access token" />
@@ -594,14 +627,14 @@
 
         <!-- GITHUB INTEGRATION CARD -->
         <article class="card">
-          <header class="card-head"><h2>GitHub Integration &amp; EMU Settings</h2></header>
+          <header class="card-head"><div><p class="step-label">03 / DELIVERY EVIDENCE</p><h2>GitHub Integration &amp; EMU Settings</h2></div></header>
           <div class="grid cols-3">
             <label class="field" for="setGhToken"><span>GitHub access token</span><input type="password" id="setGhToken" placeholder="Enter GitHub token" autocomplete="off" aria-describedby="githubTokenHelp" /><small class="field-help" id="githubTokenHelp">Optional. Production defaults to externally managed credentials; the save field is unavailable in external mode. Rotate previously exposed tokens and grant read-only repository access.</small></label>
             <label class="field"><span>GitHub Organization</span><input type="text" id="setGhOrg" placeholder="e.g. BFLDevOpsOrg" /></label>
             <label class="field"><span>Enterprise Suffix</span><input type="text" id="setGhSuffix" placeholder="_bflghec" value="_bflghec" /></label>
           </div>
           <div class="row end" style="gap:8px;">
-            <button class="btn ghost" id="testGhBtn">🐙 Test User Resolution &amp; PRs</button>
+            <button class="btn ghost" id="testGhBtn">Test user resolution &amp; PRs</button>
             <button class="btn primary" id="saveGhSettingsBtn">Save GitHub Settings</button>
           </div>
           <p class="muted small" style="margin-top:6px;">Required to read private PRs for task descriptions. EMU suffix automatically derives GitHub logins from corporate emails (e.g. yash.somani@... &rarr; yash-somani_bflghec).</p>
@@ -609,12 +642,14 @@
         </article>
 
         <article class="card">
-          <header class="card-head"><h2>Maintenance &amp; Utilities</h2></header>
+          <header class="card-head"><div><p class="step-label">04 / REMOTE RECOVERY</p><h2>Maintenance &amp; Utilities</h2></div></header>
           <div class="row gap">
-            <button class="btn ghost" id="btnRepairAll">🔧 Repair Relationships</button>
+            <button class="btn ghost" id="btnRepairAll">Repair relationships</button>
           </div>
           <p class="muted small">Re-copies missing parent/related links for tasks created with partial relation status.</p>
         </article>
+        </div>
+        </div>
       </section>
     </main>
   </div>
@@ -623,18 +658,18 @@
   <div id="executionDrawer" class="drawer" aria-label="Console Drawer">
     <div class="drawer-header" style="flex-wrap:wrap; gap:8px;">
       <div style="display:flex; align-items:center; gap:8px;">
-        <strong>⚡ Execution Console</strong>
-        <span class="pill ok" id="drawerStatusPill">Live</span>
+        <strong>Execution console</strong>
+        <span class="pill" id="drawerStatusPill">Operational events</span>
       </div>
       <div style="display:flex; align-items:center; gap:6px;">
-        <select id="drawerLevelFilter" class="input" style="padding:2px 6px; font-size:11px; height:24px;">
+        <select id="drawerLevelFilter" class="input" aria-label="Console log level">
           <option value="ALL">ALL</option>
           <option value="INFO">INFO</option>
           <option value="WARN">WARN</option>
           <option value="ERROR">ERROR</option>
         </select>
-        <button class="btn ghost small" id="btnClearDrawerLogs" style="height:24px; padding:2px 8px; font-size:11px;">Clear</button>
-        <button class="icon-btn" id="btnCloseDrawer" style="width:28px; height:28px;">✕</button>
+        <button class="btn ghost small" id="btnClearDrawerLogs">Clear</button>
+        <button class="icon-btn" id="btnCloseDrawer" aria-label="Close execution console">✕</button>
       </div>
     </div>
     <div id="drawerBody" class="drawer-body">
@@ -692,12 +727,12 @@
         <p style="margin-bottom:12px;">You are about to create the following work items:</p>
         <ul id="confirmTaskList" style="padding-left:20px; line-height:1.7; font-size:13.5px; color:var(--text);"></ul>
         <div style="background:rgba(217,139,11,0.12); border:1px solid rgba(217,139,11,0.3); padding:10px 14px; border-radius:var(--radius-sm); margin-top:14px; font-size:12.5px; color:var(--warn);">
-          ⚠️ Work items will be created with Work Item Type <strong>3in1 Task</strong> (State <strong>New</strong>, Start Time <strong>09:30 AM</strong> in configured timezone). Each task links to its respective parent User Story and preserves existing dependencies.
+          Remote change: work items will be created using the configured work item type, start time, and timezone. Review the task list and workspace settings. Each task links to its respective parent User Story and preserves existing dependencies.
         </div>
       </div>
       <div class="modal-footer">
         <button class="btn ghost" id="btnCancelConfirmModal">Cancel</button>
-        <button class="btn primary" id="btnConfirmExecute">🚀 Confirm &amp; Create Tasks</button>
+        <button class="btn primary" id="btnConfirmExecute">Confirm &amp; create tasks</button>
       </div>
     </div>
   </div>
@@ -712,9 +747,12 @@
       <div class="modal-body">
         <form id="personModalForm">
           <input type="hidden" id="editPersonIndex" />
-          <label class="field"><span>Key (Unique identifier) *</span><input type="text" id="personKeyInput" placeholder="Unique member key" required /></label>
-          <label class="field"><span>Display Name *</span><input type="text" id="personNameInput" placeholder="Member full name" required /></label>
-          <label class="field"><span>Assigned Identity (Email / UPN) *</span><input type="email" id="personEmailInput" placeholder="Member email / UPN" required /></label>
+          <label class="field"><span class="required">Key (Unique identifier)</span><input type="text" id="personKeyInput" placeholder="Unique member key" required aria-required="true" aria-describedby="personKeyError" /></label>
+          <small class="field-error" id="personKeyError" style="display:none;"></small>
+          <label class="field"><span class="required">Display Name</span><input type="text" id="personNameInput" placeholder="Member full name" required aria-required="true" aria-describedby="personNameError" /></label>
+          <small class="field-error" id="personNameError" style="display:none;"></small>
+          <label class="field"><span class="required">Assigned Identity (Email / UPN)</span><input type="email" id="personEmailInput" placeholder="Member email / UPN" required aria-required="true" aria-describedby="personEmailError" /></label>
+          <small class="field-error" id="personEmailError" style="display:none;"></small>
           <label class="field"><span>POD / Team</span><input type="text" id="personPodInput" placeholder="POD or team name" /></label>
           <label class="field"><span>Role</span><input type="text" id="personRoleInput" placeholder="Role title" /></label>
           <label class="field">
@@ -762,13 +800,15 @@
         <form id="adHocForm">
           <div class="grid cols-2">
             <label class="field">
-              <span>Assignee *</span>
-              <select id="adHocPersonSelect" required></select>
+              <span class="required">Assignee</span>
+              <select id="adHocPersonSelect" required aria-required="true" aria-describedby="adHocPersonSelectError"></select>
             </label>
+            <small class="field-error" id="adHocPersonSelectError" style="display:none;"></small>
             <label class="field">
-              <span>Target Date *</span>
-              <input type="date" id="adHocTargetDate" required />
+              <span class="required">Target Date</span>
+              <input type="date" id="adHocTargetDate" required aria-required="true" aria-describedby="adHocTargetDateError" />
             </label>
+            <small class="field-error" id="adHocTargetDateError" style="display:none;"></small>
           </div>
 
           <label class="field">
@@ -805,7 +845,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn ghost" id="btnCancelAdHocModal">Cancel</button>
-        <button class="btn primary" id="btnSubmitAdHocTask">🚀 Create Task Now</button>
+        <button class="btn primary" id="btnSubmitAdHocTask">Create task in Azure DevOps</button>
       </div>
     </div>
   </div>
@@ -836,11 +876,11 @@
           </table>
         </div>
         <div style="background:rgba(0,120,212,0.1); border:1px solid rgba(0,120,212,0.3); padding:10px 14px; border-radius:var(--radius-sm); margin-top:14px; font-size:12.5px; color:var(--text);">
-          ℹ️ Planned Start and Actual Start dates are matched. Remaining Work is updated to 0h and Completed Work is set to recorded hours or original estimate (default 8h). The generated task description contains clickable PR links and statuses to avoid rule validation errors.
+          Remote change: Planned Start and Actual Start dates are matched. Remaining Work is updated to 0h and Completed Work is set to recorded hours or original estimate (default 8h). Review the proposed hours and evidence before confirming. Generated task descriptions contain clickable PR links and statuses.
         </div>
       </div>
       <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
-        <button class="btn primary" id="btnExecuteEodConfirmed" style="display:none;">⚡ Execute EOD Closure in Azure DevOps</button>
+        <button class="btn primary" id="btnExecuteEodConfirmed" style="display:none;">Confirm closure in Azure DevOps</button>
         <button class="btn ghost" id="btnCloseEodModalBtn">Close</button>
       </div>
     </div>

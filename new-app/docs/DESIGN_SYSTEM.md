@@ -14,7 +14,27 @@ build step.
 3. **Accessible by default.** Skip link, semantic landmarks, `aria-live` for
    toasts/logs, visible focus rings, keyboard-operable controls, and a
    `prefers-reduced-motion` path.
-4. **Responsive.** Collapsible sidebar ≤ 860 px; fluid grids.
+4. **Responsive.** Collapsible sidebar at 860 px; workspaces collapse at
+   1000 px. Dense data scrolls inside its own region, never across the page.
+
+## Mission-control visual language
+
+The interface uses navy instrument panels, cyan action accents, fine borders,
+monospaced telemetry labels, and restrained static orbital graphics. It avoids
+simulated live data, decorative animation, and ambiguous science-fiction jargon.
+Light mode uses the same hierarchy with white panels and a darker teal accent.
+
+The dashboard is an operational briefing, not an equal-weight card wall:
+connection and roster metrics lead into exceptions and the next reviewed plan;
+effort charts and pull-request activity are supporting intelligence. Explorer
+and Planner separate configuration from results. Scheduler separates task
+creation from end-of-day closure. Action docks remain in normal document flow
+so they cannot cover mobile tables or confirmation controls.
+
+The redesign was developed through a visual-architecture and interaction-agent
+exchange, challenging write safety, narrow-screen table density, truthful state
+labels, and focus restoration. Existing destinations and mutation safeguards
+remain the navigation and behavior contract.
 
 ## Tokens (CSS custom properties)
 
@@ -27,9 +47,16 @@ build step.
 | `--border` `--border-strong` | Dividers + inputs |
 | `--radius` `--radius-sm` `--shadow` | Shape + depth |
 | `--font` `--mono` `--transition` | Typography + motion |
+| `--on-accent` `--on-danger` | Readable text on filled action buttons |
+| `--violet` `--info` `--muted` | Supporting data and canvas chart palette |
+| `--focus-ring` `--grid-line` | Keyboard focus and quiet workspace grid |
 
 Light and dark themes are swapped via `[data-theme]`; the choice persists in
 `localStorage`. Dark is the default.
+
+Canvas charts resolve the active CSS tokens and repaint from the already loaded
+data when the theme changes. Chart animation respects reduced-motion settings.
+Status text, pressed states, and borders communicate meaning in addition to color.
 
 ## Components
 
@@ -53,13 +80,21 @@ Light and dark themes are swapped via `[data-theme]`; the choice persists in
 | Logs | `.logs`, `.l-<level>` | Logs |
 | Toast | `.toast-stack`, `.toast.ok/.err/.warn` | Notifications |
 | Spinner | `.spinner` | In-flight actions |
+| Operational briefing | `.mission-briefing`, `.briefing-copy` | Dashboard |
+| Priority columns | `.dashboard-layout`, `.dashboard-primary`, `.dashboard-secondary` | Dashboard |
+| Configuration workspace | `.workspace-layout`, `.workspace-controls`, `.workspace-content` | My Work, Explorer, Planner, Team, Settings |
+| Stacked scope fields | `.scope-fields` | Explorer, Planner |
+| Operation bay | `.automation-grid`, `.operation-panel` | Scheduler |
+| In-flow actions | `.action-dock` | Forms and reviewed operations |
+| Instrument label | `.section-kicker`, `.panel-index` | Workspace hierarchy |
+| Empty state | `.empty-state` | Generated plans, history and PR activity |
 
 ## Status → colour mapping
 
 | Status | Colour |
 |---|---|
 | `CREATED`, `SUCCESS` | green (`.ok`) |
-| `PLANNED`, `READY` | accent blue |
+| `PLANNED`, `READY` | accent cyan (teal in light mode) |
 | `WEEKEND_SKIP`, `DUPLICATE_*`, `NO_TASKS_NEEDED` | muted |
 | `FUTURE_TASK_WARN`, `MULTIPLE_EXISTING_TASKS` | amber |
 | `FAILED`, `PARTIAL` | red |
@@ -82,6 +117,6 @@ Light and dark themes are swapped via `[data-theme]`; the choice persists in
 
 The maintained navigation groups are **Overview**, **Explore work**, **Create & automate**, **Manage**, and **Monitor**. Active navigation must expose `aria-current="page"` and the current breadcrumb; use `switchView(view)` for internal navigation instead of directly manipulating classes. Buttons that jump between destinations use `data-view-link`.
 
-The mobile sidebar exposes `aria-expanded`, a dismissible backdrop, Escape dismissal, and page-heading focus on navigation. `.nav-group`, `.journey-guide`, `.workflow-note`, and `.matrix-cell-action` are the shared styles. Dialogs trap Tab/Shift+Tab focus; the initiator regains focus on close. Mutation entry points must not skip a scoped preview.
+The mobile sidebar exposes `aria-expanded`, a dismissible backdrop, Escape dismissal, and page-heading focus on navigation. Closed mobile navigation and console drawers are visually hidden and excluded from keyboard focus. `.nav-group`, `.journey-guide`, `.workflow-note`, and `.matrix-cell-action` are the shared styles. Dialogs trap Tab/Shift+Tab focus; the initiator regains focus on close. The console drawer also restores its opening control's focus. Mutation entry points must not skip a scoped preview.
 
 See [UX redesign audit and acceptance matrix](UX_REDESIGN.md) for the complete navigation map, severity ranking, and verification limits.

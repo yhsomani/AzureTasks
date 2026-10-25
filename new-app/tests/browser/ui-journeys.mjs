@@ -9,17 +9,35 @@ const port = 3189;
 const origin = 'http://127.0.0.1:' + port;
 const auth = { username: 'admin', password: 'ci-ui-e2e' };
 const member = { key: 'sample', name: 'Sample Developer', assignedTo: 'sample@example.invalid', enabled: true, role: 'Developer' };
-const date = { dateIso: '2026-10-16', formattedDate: '16 Oct', dayOfWeek: 'Friday', isWeekend: false };
+const dates = Array.from({ length: 14 }, (_, index) => {
+  const date = new Date(Date.UTC(2026, 9, 12 + index));
+  return {
+    dateIso: date.toISOString().slice(0, 10),
+    formattedDate: `${date.getUTCDate()} Oct`,
+    dayOfWeek: date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' }),
+    isWeekend: date.getUTCDay() === 0 || date.getUTCDay() === 6,
+  };
+});
 const summary = {
-  totalSelectedUsers: 1, totalWorkingDates: 1, expectedCombinations: 1,
-  existingCombinations: 0, missingCombinations: 1, duplicateCombinations: 0,
+  totalSelectedUsers: 1, totalWorkingDates: 10, expectedCombinations: 10,
+  existingCombinations: 0, missingCombinations: 10, duplicateCombinations: 0,
   overallCoveragePercent: 0, stateCounts: { New: 0, Active: 0, Closed: 0, Resolved: 0 },
+  totalCompletedWork: null, totalRemainingWork: null,
+};
+const explorer = {
+  users: [member], dates, detailedTasks: [], warnings: [], summary,
+  dateRange: { startDate: '2026-10-12', endDate: '2026-10-25' },
+  matrix: [{
+    person: member,
+    stats: { createdCount: 0, totalWorkingDays: 10, coveragePercent: 0, missingCount: 10, duplicateCount: 0, totalCompletedWork: null, unrecordedCompletedWorkTasks: 0, stateCounts: summary.stateCounts },
+    cells: Object.fromEntries(dates.map(date => [date.dateIso, { ...date, status: date.isWeekend ? 'WEEKEND' : 'MISSING', tasks: [], isEligibleForCreation: false }])),
+  }],
 };
 const fixtures = {
   '/api/status': { connected: false, organization: 'ExampleOrg', project: 'ExampleProject' },
   '/api/config': { organization: 'ExampleOrg', project: 'ExampleProject', timezone: 'Asia/Kolkata', thursdayMode: 'CURRENT', people: [member] },
   '/api/scheduler': { running: false, autoCloseEnabled: false, autoStart: false, timezone: 'Asia/Kolkata', startTime: '09:30' },
-  '/api/explorer': { dates: [date], matrix: [], detailedTasks: [], summary, dateRange: { startDate: '2026-10-16', endDate: '2026-10-16' } },
+  '/api/explorer': explorer,
   '/api/journal': { entries: [], totalEntries: 0, incompleteEntriesCount: 0 },
 };
 const plan = {
@@ -103,7 +121,20 @@ try {
     assert.equal(await page.locator('#view-' + view).evaluate(node => node.classList.contains('active')), true, 'visible view: ' + view);
     assert.equal(await page.locator('.nav-item[data-view="' + view + '"]').getAttribute('aria-current'), 'page', 'current page: ' + view);
     assert.equal(new URL(page.url()).hash, '#' + view, 'hash route: ' + view);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'no page-wide overflow: ' + view);
   }
+
+  await page.locator('#themeToggle').click();
+  assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
+  assert.equal(await page.locator('#themeToggle').getAttribute('aria-label'), 'Switch to dark theme');
+  await page.locator('#themeToggle').click();
+  assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+
+  await page.locator('#consoleBtn').click();
+  await page.locator('#executionDrawer.open').waitFor();
+  assert.equal(await page.locator('#btnCloseDrawer').evaluate(node => node === document.activeElement), true);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#consoleBtn').evaluate(node => node === document.activeElement), true);
 
   // Verify real keyboard operability, input labeling, and token visibility without
   // entering any credentials or sending a settings mutation.
@@ -175,7 +206,7 @@ try {
 
   // Exercise the additional release-gate viewport widths without creating
   // remote Azure work items. The 390px mobile case above checks navigation.
-  for (const width of [375, 768]) {
+  for (const width of [375, 768, 1024]) {
     const responsive = await browser.newContext({
       viewport: { width, height: 850 }, httpCredentials: auth,
     });
@@ -188,6 +219,17 @@ try {
     assert.equal(await screen.locator('.skip-link').count(), 1, 'skip-navigation landmark at ' + width + 'px');
     const viewportWidth = await screen.evaluate(() => window.innerWidth);
     assert.equal(viewportWidth, width, 'responsive viewport width');
+    for (const view of views) {
+      if (width <= 860) await screen.locator('#menuBtn').click();
+      await screen.locator('.nav-item[data-view="' + view + '"]').click();
+      assert.ok(await screen.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `no page-wide overflow: ${view} at ${width}px`);
+      if (view === 'explorer') {
+        await screen.locator('#explorerMatrixWrap .matrix-table').waitFor();
+        assert.ok(await screen.locator('#explorerMatrixWrap').evaluate(node => node.scrollWidth > node.clientWidth), `dense matrix scrolls locally at ${width}px`);
+      }
+    }
+    if (width <= 860) await screen.locator('#menuBtn').click();
+    await screen.locator('.nav-item[data-view="dashboard"]').click();
     await screen.screenshot({ path: `artifacts/ui-dashboard-${width}px.png`, fullPage: true });
     await responsive.close();
   }

@@ -6,33 +6,28 @@
 import * as readline from 'node:readline/promises';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { WorkItemRepository, JournalRepository, LockRepository, AppConfig } from '../../domain/ports/repositories.js';
-import { Person, matchesPerson } from '../../domain/entities/person.js';
+import { Person } from '../../domain/entities/person.js';
 import { 
   DiscoveredTask, 
-  WorkItem, 
   CreatedTask,
   parseTitleDate,
   validateSourceTaskOwnership,
   matchesTaskSeries,
   extractTitlePrefix,
-  filterCopyableRelations,
-  WorkItemRelation,
+  formatTitleDate,
 } from '../../domain/entities/task.js';
 import { 
   TaskDiscoveryService, 
-  DuplicateDetector, 
   FieldCopyService, 
   RelationCopyService,
-  DatePlanningService,
-  TaskExecutionService,
-  TaskExecutionContext
 } from '../../domain/services/task-services.js';
 import { 
   PlannedDate,
   validateNotPastDate,
-  formatTitleDate,
-  zonedTimeToUtcIso,
 } from '../../domain/value-objects/date-window.js';
+import { TaskPlanBuilder, PersonExecutionPlan } from './task-plan-builder.js';
+import { TaskExecutor } from './task-executor.js';
+import { TaskResultAggregator, PersonExecutionResult, CreateTasksOutput } from './task-result-aggregator.js';
 
 export interface CreateTasksInput {
   personKeys?: string[];      // Specific people to process (empty = all)
@@ -63,41 +58,6 @@ export interface CreateAdHocTaskOutput {
   error?: string;
 }
 
-export interface PersonExecutionPlan {
-  person: Person;
-  sourceTask: DiscoveredTask | null;
-  status: 'READY' | 'SOURCE_NOT_FOUND' | 'FUTURE_TASK_WARN' | 'NO_TASKS_NEEDED';
-  statusMessage?: string;
-  effectiveStartDate: string;
-  nextThursday: string;
-  plannedDates: PlannedDate[];
-}
-
-export interface PersonExecutionResult {
-  person: Person;
-  sourceTaskId?: number;
-  sourceTaskDate?: string;
-  status: 'SUCCESS' | 'PARTIAL' | 'SOURCE_FAILED' | 'FAILED' | 'SKIPPED';
-  createdTasks: CreatedTask[];
-  duplicateSkips: PlannedDate[];
-  weekendSkips: PlannedDate[];
-  failedTasks: PlannedDate[];
-  relationsProcessed: number;
-  relationsFailed: number;
-  auditWarnings?: string[];
-}
-
-export interface CreateTasksOutput {
-  peopleProcessedCount: number;
-  totalCreatedCount: number;
-  totalDuplicateCount: number;
-  totalWeekendSkipCount: number;
-  totalSourceFailureCount: number;
-  totalTaskFailureCount: number;
-  totalRelationFailureCount: number;
-  personResults: PersonExecutionResult[];
-}
-
 export interface ProgressEvent {
   type: 'progress' | 'task_created' | 'task_failed' | 'done';
   message: string;
@@ -107,11 +67,11 @@ export interface ProgressEvent {
 
 export class CreateTasksUseCase {
   private readonly discovery: TaskDiscoveryService;
-  private readonly duplicateDetector: DuplicateDetector;
+  private readonly planBuilder: TaskPlanBuilder;
+  private readonly executor: TaskExecutor;
+  private readonly resultAggregator: TaskResultAggregator;
   private readonly fieldCopy: FieldCopyService;
   private readonly relationCopy: RelationCopyService;
-  private readonly datePlanning: DatePlanningService;
-  private readonly execution: TaskExecutionService;
 
   constructor(
     private readonly workItemRepo: WorkItemRepository,
@@ -120,53 +80,16 @@ export class CreateTasksUseCase {
     private readonly config: AppConfig
   ) {
     this.discovery = new TaskDiscoveryService(workItemRepo);
-    this.duplicateDetector = new DuplicateDetector();
     this.fieldCopy = new FieldCopyService();
     this.relationCopy = new RelationCopyService(workItemRepo);
-    this.datePlanning = new DatePlanningService();
-    this.execution = new TaskExecutionService(workItemRepo, this.fieldCopy, this.relationCopy);
+    this.planBuilder = new TaskPlanBuilder(this.discovery, config);
+    this.executor = new TaskExecutor(workItemRepo, config);
+    this.resultAggregator = new TaskResultAggregator();
   }
 
   /**
-   * A successful PATCH is not independent verification. Read back the Azure
-   * work item and check identity, type, state, planned start, and copied links.
-   * Unknown/missing fields or incomplete relations must remain unverified.
+   * Execute main task creation workflow
    */
-  private async verifyCreatedTask(
-    id: number,
-    title: string,
-    person: Person,
-    relationFailures: number,
-    targetIsoDate: string,
-    sourceRelations: WorkItemRelation[] = []
-  ): Promise<boolean> {
-    if (relationFailures > 0) return false;
-    try {
-      const actual = await this.workItemRepo.getWorkItem(id);
-      const expectedStart = zonedTimeToUtcIso(
-        targetIsoDate, this.config.startTime, this.config.timezone
-      );
-      const actualStart = Date.parse(String(actual.fields['Microsoft.VSTS.Scheduling.StartDate'] || ''));
-      const startMatches = Number.isFinite(actualStart) &&
-        Math.abs(actualStart - Date.parse(expectedStart)) <= 1000;
-      const actualRelations = new Set(
-        (actual.relations ?? []).map(relation => `${relation.rel}:::${relation.url}`)
-      );
-      const linksMatch = filterCopyableRelations(sourceRelations).every(relation =>
-        actualRelations.has(`${relation.rel}:::${relation.url}`)
-      );
-      return actual.id === id &&
-        String(actual.fields['System.Title'] || '') === title &&
-        matchesPerson(actual.fields['System.AssignedTo'], person) &&
-        String(actual.fields['System.WorkItemType'] || '') === this.config.workItemType &&
-        String(actual.fields['System.State'] || '').toLowerCase() === this.config.defaultState.toLowerCase() &&
-        startMatches && linksMatch;
-    } catch (error) {
-      logger.warn(`Azure DevOps read-back unavailable for created work item #${id}: ${error instanceof Error ? error.message : String(error)}`);
-      return false;
-    }
-  }
-
   async execute(input: CreateTasksInput, onProgress?: (event: ProgressEvent) => void): Promise<CreateTasksOutput> {
     const runId = `run-${Date.now()}`;
     
@@ -179,7 +102,7 @@ export class CreateTasksUseCase {
 
     try {
       // Load people
-      const people = this.selectPeople(input);
+      const people = this.planBuilder.selectPeople(input.personKeys, input.all);
       if (people.length === 0) {
         throw new Error('No people selected for task creation');
       }
@@ -191,16 +114,16 @@ export class CreateTasksUseCase {
       await this.workItemRepo.validateWorkItemType(this.config.project, this.config.workItemType);
 
       // Determine dates
-      const actualTodayIso = this.datePlanning.getTodayIso(this.config.timezone);
+      const datePlanning = this.planBuilder.getDatePlanningService();
+      const actualTodayIso = datePlanning.getTodayIso(this.config.timezone);
       const configuredTodayIso = input.asOf || actualTodayIso;
       
       // Validate not past date
       validateNotPastDate(configuredTodayIso, actualTodayIso);
       
       const todayIso = configuredTodayIso;
-      // Effective window mode: request override wins over persisted config.
       const thursdayMode = input.thursdayMode ?? this.config.thursdayMode;
-      const nextThursdayIso = this.datePlanning.getNextThursdayIso(todayIso, thursdayMode, this.config.stopDayOfWeek);
+      const nextThursdayIso = datePlanning.getNextThursdayIso(todayIso, thursdayMode, this.config.stopDayOfWeek);
 
       onProgress?.({ type: 'progress', message: 'Discovering source tasks...', timestamp: new Date().toISOString() });
 
@@ -210,22 +133,22 @@ export class CreateTasksUseCase {
         this.config.workItemType,
         this.config.titlePrefix,
         people,
-        undefined, // sourceTaskIdOverride handled per-person
+        undefined,
         this.config.defaultSourceTaskId
       );
 
       // Build execution plans
-      const plans = await this.buildPlans(people, discoveredTasks, todayIso, thursdayMode);
+      const plans = await this.planBuilder.buildPlans(people, discoveredTasks, todayIso, thursdayMode);
 
       // Get existing tasks for duplicate detection
-      await this.populateDuplicateMaps(people, todayIso, nextThursdayIso);
+      await this.planBuilder.populateDuplicateMaps(people, todayIso, nextThursdayIso);
 
       // Recalculate plans with duplicate info
-      const finalPlans = this.recalculatePlans(plans, todayIso, thursdayMode);
+      const finalPlans = this.planBuilder.recalculatePlans(plans, todayIso, thursdayMode);
 
       // Dry run - just return plans
       if (input.dryRun) {
-        return this.buildOutput(finalPlans, new Map());
+        return this.resultAggregator.buildOutput(finalPlans, new Map());
       }
 
       // Check if anything to do
@@ -236,16 +159,16 @@ export class CreateTasksUseCase {
 
       if (totalToCreate === 0) {
         onProgress?.({ type: 'progress', message: 'No new tasks required to create.', timestamp: new Date().toISOString() });
-        return this.buildOutput(finalPlans, new Map());
+        return this.resultAggregator.buildOutput(finalPlans, new Map());
       }
 
       // Print plan and get confirmation
       if (!input.yes) {
-        this.printPlan(finalPlans, totalToCreate);
+        console.log(this.resultAggregator.formatPlan(finalPlans, totalToCreate, this.config.startTime, this.config.timezone));
         const confirmed = await this.promptConfirm('Proceed with creation?');
         if (!confirmed) {
           onProgress?.({ type: 'progress', message: 'Execution cancelled by user.', timestamp: new Date().toISOString() });
-          return this.buildOutput(finalPlans, new Map());
+          return this.resultAggregator.buildOutput(finalPlans, new Map());
         }
       }
 
@@ -257,12 +180,11 @@ export class CreateTasksUseCase {
 
       const resultsMap = await this.executePlans(
         finalPlans, 
-        discoveredTasks, 
         runId,
         onProgress
       );
 
-      const output = this.buildOutput(finalPlans, resultsMap);
+      const output = this.resultAggregator.buildOutput(finalPlans, resultsMap);
       
       onProgress?.({ 
         type: 'done', 
@@ -280,7 +202,7 @@ export class CreateTasksUseCase {
   }
 
   /**
-   * Execute an ad-hoc single task creation for a specific person, date, or custom parameters.
+   * Execute an ad-hoc single task creation
    */
   async executeAdHocTask(input: CreateAdHocTaskInput): Promise<CreateAdHocTaskOutput> {
     if (!input.personKey || !input.targetIsoDate) {
@@ -291,7 +213,9 @@ export class CreateTasksUseCase {
       Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== input.targetIsoDate) {
       throw new Error('targetIsoDate must be a valid YYYY-MM-DD date.');
     }
-    validateNotPastDate(input.targetIsoDate, this.datePlanning.getTodayIso(this.config.timezone));
+    
+    const datePlanning = this.planBuilder.getDatePlanningService();
+    validateNotPastDate(input.targetIsoDate, datePlanning.getTodayIso(this.config.timezone));
     if (this.config.skipWeekends && [0, 6].includes(date.getUTCDay())) {
       throw new Error('Weekend task creation is disabled in project settings.');
     }
@@ -377,7 +301,7 @@ export class CreateTasksUseCase {
       };
 
       // Custom fields overrides on cloned source task
-      const clonedSourceItem: WorkItem = JSON.parse(JSON.stringify(sourceTask.workItem));
+      const clonedSourceItem = JSON.parse(JSON.stringify(sourceTask.workItem));
       if (input.originalEstimate !== undefined) {
         clonedSourceItem.fields['Microsoft.VSTS.Scheduling.OriginalEstimate'] = input.originalEstimate;
         clonedSourceItem.fields['Microsoft.VSTS.Scheduling.RemainingWork'] = input.originalEstimate;
@@ -389,27 +313,14 @@ export class CreateTasksUseCase {
         clonedSourceItem.fields['System.Description'] = input.description;
       }
 
-      const execContext: TaskExecutionContext = {
-        project: this.config.project,
-        workItemType: this.config.workItemType,
-        titlePrefix: this.config.titlePrefix,
-        startTime: this.config.startTime,
-        timezone: this.config.timezone,
-        copyEstimates: this.config.copyEstimates,
-        resetActualWork: this.config.resetActualWork,
-        defaultState: this.config.defaultState,
-      };
-
-      const { task, relationResult } = await this.execution.executeTask(
-        execContext,
+      const { task, relationResult } = await this.executor.createWorkItems(
         { ...sourceTask, workItem: clonedSourceItem },
         plannedDate,
         person
       );
 
-      // A successful Azure write must never be relabeled as a creation failure
-      // because local journaling or the verification read-back failed.
-      const verified = await this.verifyCreatedTask(
+      // Verify creation
+      const verified = await this.executor.verifyCreatedTask(
         task.id, fullTitle, person, relationResult.failedCount, input.targetIsoDate,
         sourceTask.workItem.relations
       );
@@ -441,167 +352,16 @@ export class CreateTasksUseCase {
     }
   }
 
-  private selectPeople(input: CreateTasksInput): Person[] {
-    const allPeople = this.config.people
-      .filter(p => p.enabled !== false)
-      .map(p => new Person(p));
-
-    if (input.all || (!input.personKeys && !input.all)) {
-      return allPeople;
-    }
-
-    if (input.personKeys && input.personKeys.length > 0) {
-      const selected = allPeople.filter(p => input.personKeys!.includes(p.key));
-      if (selected.length !== input.personKeys.length) {
-        const found = selected.map(p => p.key);
-        const missing = input.personKeys.filter(k => !found.includes(k));
-        throw new Error(`People not found: ${missing.join(', ')}`);
-      }
-      return selected;
-    }
-
-    return [];
-  }
-
-  private async buildPlans(
-    people: Person[],
-    discoveredTasks: Map<string, DiscoveredTask>,
-    todayIso: string,
-    thursdayMode: 'CURRENT' | 'FOLLOWING'
-  ): Promise<PersonExecutionPlan[]> {
-    const nextThursdayIso = this.datePlanning.getNextThursdayIso(todayIso, thursdayMode, this.config.stopDayOfWeek);
-    const plans: PersonExecutionPlan[] = [];
-
-    for (const person of people) {
-      const discovered = discoveredTasks.get(person.key);
-      
-      if (!discovered) {
-        plans.push({
-          person,
-          sourceTask: null,
-          status: 'SOURCE_NOT_FOUND',
-          statusMessage: `No valid source task found for ${person.name}.`,
-          effectiveStartDate: todayIso,
-          nextThursday: nextThursdayIso,
-          plannedDates: [],
-        });
-        continue;
-      }
-
-      const personPrefix = person.titlePrefix || extractTitlePrefix(discovered.workItem.fields['System.Title'] || '') || this.config.titlePrefix;
-      const plan = this.datePlanning.planForPerson(
-        person,
-        discovered,
-        todayIso,
-        personPrefix,
-        thursdayMode,
-        this.config.skipWeekends,
-        this.config.stopDayOfWeek,
-        this.duplicateDetector
-      );
-
-      const toCreate = plan.plannedDates.filter(d => d.status === 'PLANNED');
-      let status: PersonExecutionPlan['status'] = toCreate.length > 0 ? 'READY' : 'NO_TASKS_NEEDED';
-      let statusMsg = plan.warningMessage;
-
-      if (toCreate.length === 0 && !statusMsg) {
-        statusMsg = `All working dates up to date (latest task: ${discovered.parsedDate.formattedTitleDate}).`;
-      }
-
-      if (discovered.parsedDate.isoDate > nextThursdayIso && toCreate.length === 0) {
-        status = 'FUTURE_TASK_WARN';
-        statusMsg = `Latest task date (${discovered.parsedDate.isoDate}) is ahead of creation window ending on Thursday (${nextThursdayIso}).`;
-      }
-
-      plans.push({
-        person,
-        sourceTask: discovered,
-        status,
-        statusMessage: statusMsg,
-        effectiveStartDate: plan.effectiveStartDate,
-        nextThursday: plan.nextThursday,
-        plannedDates: plan.plannedDates,
-      });
-    }
-
-    return plans;
-  }
-
-  private async populateDuplicateMaps(
-    people: Person[],
-    startDate: string,
-    endDate: string
-  ): Promise<void> {
-    for (const person of people) {
-      const personPrefix = person.titlePrefix || this.config.titlePrefix;
-      const existingMap = await this.discovery.getExistingTasksMap(
-        this.config.project,
-        this.config.workItemType,
-        personPrefix,
-        person,
-        startDate,
-        endDate
-      );
-      this.duplicateDetector.setPersonDateMap(person.key, existingMap);
-    }
-  }
-
-  private recalculatePlans(plans: PersonExecutionPlan[], todayIso: string, thursdayMode: 'CURRENT' | 'FOLLOWING'): PersonExecutionPlan[] {
-    return plans.map(plan => {
-      if (!plan.sourceTask) return plan;
-      
-      const personPrefix = plan.person.titlePrefix || extractTitlePrefix(plan.sourceTask.workItem.fields['System.Title'] || '') || this.config.titlePrefix;
-      const newPlan = this.datePlanning.planForPerson(
-        plan.person,
-        plan.sourceTask,
-        todayIso,
-        personPrefix,
-        thursdayMode,
-        this.config.skipWeekends,
-        this.config.stopDayOfWeek,
-        this.duplicateDetector
-      );
-      
-      const toCreate = newPlan.plannedDates.filter(d => d.status === 'PLANNED');
-      let status: PersonExecutionPlan['status'] = toCreate.length > 0 ? 'READY' : 'NO_TASKS_NEEDED';
-      let statusMsg = newPlan.warningMessage;
-
-      if (toCreate.length === 0 && !statusMsg) {
-        statusMsg = `All working dates up to date (latest task: ${plan.sourceTask.parsedDate.formattedTitleDate}).`;
-      }
-
-      if (plan.sourceTask.parsedDate.isoDate > plan.nextThursday && toCreate.length === 0) {
-        status = 'FUTURE_TASK_WARN';
-        statusMsg = `Latest task date (${plan.sourceTask.parsedDate.isoDate}) is ahead of creation window ending on Thursday (${plan.nextThursday}).`;
-      }
-
-      return {
-        ...plan,
-        status,
-        statusMessage: statusMsg,
-        plannedDates: newPlan.plannedDates,
-        effectiveStartDate: newPlan.effectiveStartDate,
-      };
-    });
-  }
-
+  /**
+   * Execute all planned tasks
+   */
   private async executePlans(
     plans: PersonExecutionPlan[],
-    discoveredTasks: Map<string, DiscoveredTask>,
     runId: string,
     onProgress?: (event: ProgressEvent) => void
   ): Promise<Map<string, PersonExecutionResult>> {
     const resultsMap = new Map<string, PersonExecutionResult>();
-    const execContext: TaskExecutionContext = {
-      project: this.config.project,
-      workItemType: this.config.workItemType,
-      titlePrefix: this.config.titlePrefix,
-      startTime: this.config.startTime,
-      timezone: this.config.timezone,
-      copyEstimates: this.config.copyEstimates,
-      resetActualWork: this.config.resetActualWork,
-      defaultState: this.config.defaultState,
-    };
+    const duplicateDetector = this.planBuilder.getDuplicateDetector();
 
     for (const plan of plans) {
       const { person, sourceTask } = plan;
@@ -633,9 +393,9 @@ export class CreateTasksUseCase {
       let relsFailed = 0;
 
       for (const item of toCreate) {
-        // Double-check duplicate prevention before creation to guarantee no duplicate is created
-        if (this.duplicateDetector.isDuplicate(person, item.isoDate)) {
-          const existing = this.duplicateDetector.getExistingTask(person, item.isoDate);
+        // Double-check duplicate prevention before creation
+        if (duplicateDetector.isDuplicate(person, item.isoDate)) {
+          const existing = duplicateDetector.getExistingTask(person, item.isoDate);
           item.status = 'DUPLICATE_ALREADY_EXISTS';
           item.skipReason = existing?.count && existing.count > 1
             ? `${existing.count} tasks already exist for this date`
@@ -646,12 +406,7 @@ export class CreateTasksUseCase {
         onProgress?.({ type: 'progress', message: `Creating task for ${person.name} on ${item.formattedTitleDate}...`, timestamp: new Date().toISOString() });
 
         try {
-          const { task, relationResult } = await this.execution.executeTask(
-            execContext,
-            sourceTask,
-            item,
-            person
-          );
+          const { task, relationResult } = await this.executor.createWorkItems(sourceTask, item, person);
 
           item.createdWorkItemId = task.id;
           item.status = 'CREATED';
@@ -666,7 +421,7 @@ export class CreateTasksUseCase {
             timestamp: new Date().toISOString(),
           });
 
-          const verified = await this.verifyCreatedTask(
+          const verified = await this.executor.verifyCreatedTask(
             task.id, item.fullTitle, person, relationResult.failedCount, item.isoDate,
             sourceTask.workItem.relations
           );
@@ -753,93 +508,7 @@ export class CreateTasksUseCase {
     return resultsMap;
   }
 
-  private buildOutput(
-    plans: PersonExecutionPlan[],
-    resultsMap: Map<string, PersonExecutionResult>
-  ): CreateTasksOutput {
-    let totalCreated = 0;
-    let totalDuplicates = 0;
-    let totalWeekends = 0;
-    let totalSourceFailures = 0;
-    let totalTaskFailures = 0;
-    let totalRelationFailures = 0;
-
-    const personResults: PersonExecutionResult[] = [];
-
-    for (const plan of plans) {
-      const res = resultsMap.get(plan.person.key);
-
-      if (plan.status === 'SOURCE_NOT_FOUND') {
-        totalSourceFailures++;
-      }
-
-      const dupCount = plan.plannedDates.filter(d => 
-        ['DUPLICATE', 'DUPLICATE_ALREADY_EXISTS', 'MULTIPLE_EXISTING_TASKS'].includes(d.status)
-      ).length;
-      const wCount = plan.plannedDates.filter(d => d.status === 'WEEKEND_SKIP').length;
-      totalDuplicates += dupCount;
-      totalWeekends += wCount;
-
-      if (res) {
-        totalCreated += res.createdTasks.length;
-        totalTaskFailures += res.failedTasks.length;
-        totalRelationFailures += res.relationsFailed;
-        personResults.push(res);
-      } else {
-        personResults.push({
-          person: plan.person,
-          sourceTaskId: plan.sourceTask?.workItem.id,
-          sourceTaskDate: plan.sourceTask?.parsedDate.formattedTitleDate,
-          status: plan.status === 'SOURCE_NOT_FOUND' ? 'SOURCE_FAILED' : 'SKIPPED',
-          createdTasks: [],
-          duplicateSkips: plan.plannedDates.filter(d => 
-            ['DUPLICATE', 'DUPLICATE_ALREADY_EXISTS', 'MULTIPLE_EXISTING_TASKS'].includes(d.status)
-          ),
-          weekendSkips: plan.plannedDates.filter(d => d.status === 'WEEKEND_SKIP'),
-          failedTasks: [],
-          relationsProcessed: 0,
-          relationsFailed: 0,
-        });
-      }
-    }
-
-    return {
-      peopleProcessedCount: plans.length,
-      totalCreatedCount: totalCreated,
-      totalDuplicateCount: totalDuplicates,
-      totalWeekendSkipCount: totalWeekends,
-      totalSourceFailureCount: totalSourceFailures,
-      totalTaskFailureCount: totalTaskFailures,
-      totalRelationFailureCount: totalRelationFailures,
-      personResults,
-    };
-  }
-
-  private printPlan(plans: PersonExecutionPlan[], totalToCreate: number): void {
-    console.log('\n========================================');
-    console.log('TASK CREATION PLAN');
-    console.log('========================================');
-    console.log(`People: ${plans.length}`);
-    console.log(`Tasks to create: ${totalToCreate}\n`);
-
-    for (const plan of plans) {
-      const createList = plan.plannedDates.filter(d => d.status === 'PLANNED');
-      if (createList.length > 0) {
-        console.log(`${plan.person.name} (${plan.person.assignedTo}):`);
-        for (const item of createList) {
-          console.log(`  - ${item.fullTitle} (${this.config.startTime} ${this.config.timezone})`);
-        }
-      } else {
-        console.log(`${plan.person.name}: 0 tasks (${plan.statusMessage || 'All dates up to date'})`);
-      }
-    }
-    console.log('========================================\n');
-  }
-
   private async promptConfirm(message: string): Promise<boolean> {
-    // Automation (API/daemon) always passes yes:true, so this only runs for an
-    // interactive CLI `run` without --yes. Refuse rather than silently proceed
-    // when there is no TTY to read from.
     if (!process.stdin.isTTY) {
       console.log('No interactive terminal detected. Re-run with --yes to confirm non-interactively.');
       return false;

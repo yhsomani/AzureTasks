@@ -6,6 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'node:crypto';
+import { AtomicFileWriter } from '../persistence/atomic-file-writer.js';
 import { JournalRepository, JournalEntry } from '../../domain/ports/repositories.js';
 
 const MAX_JOURNAL_SIZE = 10 * 1024 * 1024; // 10MB
@@ -14,6 +15,10 @@ const MAX_ENTRIES = 10000;
 export class FileJournalRepository implements JournalRepository {
   private readonly journalPath: string;
   private readonly archiveDir: string;
+  private readonly writeBuffer: JournalEntry[] = [];
+  private flushTimer: NodeJS.Timeout | null = null;
+  private readonly FLUSH_INTERVAL_MS = 100;
+  private isFlushing = false;
 
   constructor(journalPath?: string) {
     this.journalPath = journalPath 
@@ -23,18 +28,45 @@ export class FileJournalRepository implements JournalRepository {
   }
 
   async record(entry: JournalEntry): Promise<void> {
-    // Ensure archive directory exists
-    if (!fs.existsSync(this.archiveDir)) {
-      fs.mkdirSync(this.archiveDir, { recursive: true });
+    // Add entry to write buffer
+    this.writeBuffer.push(entry);
+    
+    // Schedule flush if not already scheduled
+    if (!this.flushTimer) {
+      this.flushTimer = setTimeout(() => this.flushBuffer(), this.FLUSH_INTERVAL_MS);
     }
+  }
 
-    // Validate the existing audit trail BEFORE any write or rotation. Never
-    // silently replace corrupt evidence with an empty journal.
-    const existing = this.readEntriesFrom(this.journalPath);
-    await this.rotateIfNeeded(existing.length >= MAX_ENTRIES);
-    const entries = this.readEntriesFrom(this.journalPath);
-    entries.push(entry);
-    this.writeEntriesAtomically(entries);
+  private async flushBuffer(): Promise<void> {
+    // Prevent concurrent flushes
+    if (this.isFlushing) return;
+    this.isFlushing = true;
+    
+    try {
+      this.flushTimer = null;
+      
+      if (this.writeBuffer.length === 0) return;
+      
+      // Ensure archive directory exists
+      if (!fs.existsSync(this.archiveDir)) {
+        fs.mkdirSync(this.archiveDir, { recursive: true });
+      }
+
+      // Batch all buffered entries for atomic write
+      const entriesToWrite = [...this.writeBuffer];
+      this.writeBuffer.length = 0;
+      
+      // Validate the existing audit trail BEFORE any write or rotation. Never
+      // silently replace corrupt evidence with an empty journal.
+      const existing = this.readEntriesFrom(this.journalPath);
+      await this.rotateIfNeeded(existing.length + entriesToWrite.length >= MAX_ENTRIES);
+      
+      const entries = this.readEntriesFrom(this.journalPath);
+      entries.push(...entriesToWrite);
+      this.writeEntriesAtomically(entries);
+    } finally {
+      this.isFlushing = false;
+    }
   }
 
   private readEntriesFrom(filename: string): JournalEntry[] {
@@ -156,21 +188,7 @@ export class FileJournalRepository implements JournalRepository {
   }
 
   private writeEntriesAtomically(entries: JournalEntry[], filename = this.journalPath): void {
-    fs.mkdirSync(path.dirname(filename), { recursive: true });
-    const tmpPath = `${filename}.${randomUUID()}.tmp`;
-    let fd: number | undefined;
-    try {
-      fd = fs.openSync(tmpPath, 'wx', 0o600);
-      fs.writeFileSync(fd, JSON.stringify(entries, null, 2), 'utf8');
-      fs.fsyncSync(fd);
-      fs.closeSync(fd);
-      fd = undefined;
-      fs.renameSync(tmpPath, filename);
-    } catch (error) {
-      if (fd !== undefined) fs.closeSync(fd);
-      try { fs.unlinkSync(tmpPath); } catch { /* no temp file remains */ }
-      throw error;
-    }
+    AtomicFileWriter.writeJson(filename, entries, { ensureDir: true }, 2);
   }
 
   private async rotateIfNeeded(force = false): Promise<void> {
@@ -188,4 +206,18 @@ export class FileJournalRepository implements JournalRepository {
     // Do not automatically prune audit evidence. Operators must configure
     // retention/backup policies and remove historical archives explicitly.
   }
+
+  async close(): Promise<void> {
+    // Clear any pending flush timer
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    
+    // Perform one final flush to ensure no data loss
+    if (this.writeBuffer.length > 0) {
+      await this.flushBuffer();
+    }
+  }
+
 }

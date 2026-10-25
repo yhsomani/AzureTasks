@@ -19,6 +19,8 @@ import { RepairRelationsUseCase } from './application/use-cases/repair-relations
 import { ExploreTasksUseCase, ExploreTasksInput, ExploreTasksOutput } from './application/use-cases/explore-tasks.js';
 import { CloseDailyTasksUseCase, CloseDailyTasksInput, CloseDailyTasksOutput } from './application/use-cases/close-daily-tasks.js';
 import { GitHubClient } from './infrastructure/github/github-client.js';
+import { FileAutoClosureConfigRepository } from "./infrastructure/config/file-auto-closure-config-repo.js";
+import { FileAutoClosureAuditRepository } from "./infrastructure/journal/file-auto-closure-audit-repo.js";
 import { DatePlanningService } from './domain/index.js';
 import { AppConfig } from './domain/ports/repositories.js';
 import { logger } from './infrastructure/logging/logger.js';
@@ -36,6 +38,8 @@ export interface App {
   githubClient: GitHubClient;
   journal: FileJournalRepository;
   scheduler: NodeSchedulerRepository;
+  autoClosureConfig: FileAutoClosureConfigRepository;
+  autoClosureAudit: FileAutoClosureAuditRepository;
 }
 
 /**
@@ -78,6 +82,8 @@ export async function buildApp(
   const journalRepo = new FileJournalRepository();
   const lockRepo = new FileLockRepository();
   const schedulerRepo = new NodeSchedulerRepository(config, configRepo);
+  const autoClosureConfigRepo = new FileAutoClosureConfigRepository();
+  const autoClosureAuditRepo = new FileAutoClosureAuditRepository();
   const datePlanning = new DatePlanningService();
 
   const githubClient = new GitHubClient({
@@ -100,7 +106,9 @@ export async function buildApp(
     githubClient,
     configRepo,
     journalRepo,
-    lockRepo
+    lockRepo,
+    autoClosureConfigRepo,
+    autoClosureAuditRepo
   );
 
   // Wire scheduler to run task creation
@@ -142,6 +150,8 @@ export async function buildApp(
     githubClient,
     journal: journalRepo,
     scheduler: schedulerRepo,
+    autoClosureConfig: autoClosureConfigRepo,
+    autoClosureAudit: autoClosureAuditRepo,
   };
 }
 
