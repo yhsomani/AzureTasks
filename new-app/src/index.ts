@@ -210,7 +210,6 @@ async function main(): Promise<void> {
         personKeys: opts.personKeys,
         asOf: opts.asOf,
         dryRun: isDryRun,
-        bypassRules: false,
       });
 
       console.log('\n===================================================');

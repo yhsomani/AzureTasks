@@ -101,7 +101,7 @@ export interface CreateTasksOutput {
 export interface ProgressEvent {
   type: 'progress' | 'task_created' | 'task_failed' | 'done';
   message: string;
-  data?: any;
+  data?: unknown;
   timestamp: string;
 }
 

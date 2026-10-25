@@ -103,7 +103,7 @@ export class DuplicateDetector {
 export interface FieldPatchOperation {
   op: 'add' | 'replace' | 'remove';
   path: string;
-  value?: any;
+  value?: unknown;
 }
 
 export interface BuildFieldOpsInput {

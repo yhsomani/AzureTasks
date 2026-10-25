@@ -18,6 +18,7 @@ import {
   isUserStoryOrParentContainer,
   DatePlanningService,
 } from '../../domain/index.js';
+import type { FieldPatchOperation } from '../../domain/services/task-services.js';
 import { GitHubClient } from '../../infrastructure/github/github-client.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 
@@ -25,7 +26,7 @@ export interface CloseDailyTasksInput {
   personKeys?: string[];
   asOf?: string; // Optional target date override, format YYYY-MM-DD
   dryRun?: boolean;
-  bypassRules?: boolean; // Legacy option cannot override Azure workflow validation
+  // DEPRECATED: bypassRules cannot override Azure workflow validation and will be removed in v3.0
 }
 
 export interface ClosedTaskResult {
@@ -46,7 +47,7 @@ export interface ClosedTaskResult {
   isTodayPr: boolean;
   htmlDescription: string;
   summaryText: string;
-  patchOperations: any[];
+  patchOperations: FieldPatchOperation[];
   status: 'closed' | 'simulated' | 'already_closed' | 'failed';
   error?: string;
   auditWarning?: string;

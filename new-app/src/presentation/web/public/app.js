@@ -60,7 +60,9 @@ const api = {
     if (!forceFresh && swr && cached && typeof options.onStale === 'function') {
       try {
         options.onStale(cached.data);
-      } catch {}
+      } catch {
+        // Silently ignore errors from user-provided onStale callback to not block fetch
+      }
     }
 
     const fetchOpts = {};
@@ -210,7 +212,11 @@ function hideModal(target) {
   const modal = typeof target === 'string' ? $(target) : target;
   if (modal) modal.classList.remove('open');
   if (previousActiveElement && typeof previousActiveElement.focus === 'function') {
-    try { previousActiveElement.focus(); } catch {}
+    try { 
+      previousActiveElement.focus(); 
+    } catch {
+      // Element may have been removed from DOM; silently ignore focus failure
+    }
     previousActiveElement = null;
   }
 }
@@ -2863,7 +2869,11 @@ function wire() {
     const root = document.documentElement;
     const isDark = root.getAttribute('data-theme') === 'dark';
     root.setAttribute('data-theme', isDark ? 'light' : 'dark');
-    try { localStorage.setItem('theme', isDark ? 'light' : 'dark'); } catch {}
+    try { 
+      localStorage.setItem('theme', isDark ? 'light' : 'dark'); 
+    } catch {
+      // localStorage may be unavailable (private browsing, quota exceeded); theme still applied visually
+    }
   });
 
   // Planner controls
@@ -3161,7 +3171,9 @@ async function bootstrap() {
   try {
     const saved = localStorage.getItem('theme');
     if (saved) document.documentElement.setAttribute('data-theme', saved);
-  } catch {}
+  } catch {
+    // localStorage may be unavailable (private browsing); use default theme
+  }
 
   wire();
   connectLogStream();

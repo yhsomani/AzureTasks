@@ -37,7 +37,9 @@ export class AzureWorkItemService implements WorkItemRepository {
         batch.value.length !== expected.size ||
         new Set(batch.value.map(w => w?.id)).size !== expected.size ||
         batch.value.some(w => !w || !expected.has(w.id) || !w.fields)) {
-      throw new Error(`Azure DevOps returned incomplete or mismatched ${purpose} data. Refusing to infer missing tasks.`);
+      const received = Array.isArray(batch?.value) ? batch.value.length : 0;
+      const receivedIds = Array.isArray(batch?.value) ? batch.value.map(w => w?.id).filter(Boolean).join(', ') : 'none';
+      throw new Error(`Azure DevOps returned incomplete or mismatched ${purpose} data. Expected ${ids.length} items with IDs [${ids.join(', ')}], got ${received} items [${receivedIds}]. Refusing to infer missing tasks.`);
     }
     return batch.value;
   }

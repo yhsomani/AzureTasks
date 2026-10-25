@@ -16,6 +16,17 @@ import { JournalRepository, SchedulerRepository } from '../../domain/ports/repos
 import { logger } from '../../infrastructure/logging/logger.js';
 import { getTodayIso } from '../../domain/value-objects/date-window.js';
 
+/** Extract error message from unknown caught value. */
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message;
+  }
+  if (typeof err === 'string') {
+    return err;
+  }
+  return 'An unknown error occurred';
+}
+
 export interface ApiDependencies {
   createTasks: CreateTasksUseCase;
   planTasks: PlanTasksUseCase;
@@ -113,8 +124,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
     try {
       const data = await deps.getStatus.execute();
       res.json({ success: true, data });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -123,8 +134,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
     try {
       const data = await deps.config.getConfig();
       res.json({ success: true, data });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -132,8 +143,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
     try {
       const data = await deps.config.savePeople(req.body);
       res.json({ success: true, data });
-    } catch (err: any) {
-      res.status(400).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      res.status(400).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -143,8 +154,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
       const savedGhToken = typeof req.body?.githubToken === 'string' ? req.body.githubToken.trim() : '';
       if (savedGhToken) logger.registerSecret(savedGhToken);
       res.json({ success: true, data });
-    } catch (err: any) {
-      res.status(400).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      res.status(400).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -155,8 +166,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
       const savedPat = typeof req.body?.pat === 'string' ? req.body.pat.trim() : '';
       if (savedPat) logger.registerSecret(savedPat);
       res.json({ success: true, data });
-    } catch (err: any) {
-      res.status(400).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      res.status(400).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -171,8 +182,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
         thursdayMode,
       });
       res.json({ success: true, data });
-    } catch (err: any) {
-      res.status(400).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      res.status(400).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -194,9 +205,9 @@ export function createApiRouter(deps: ApiDependencies): Router {
         (event) => logger.info(event.message)
       );
       res.json({ success: true, data });
-    } catch (err: any) {
-      logger.error(`Task execution failed: ${err.message}`);
-      res.status(400).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      logger.error(`Task execution failed: ${getErrorMessage(err)}`);
+      res.status(400).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -243,9 +254,9 @@ export function createApiRouter(deps: ApiDependencies): Router {
       });
 
       res.json({ success: true, data: result });
-    } catch (err: any) {
-      logger.error(`Ad-hoc task creation failed: ${err.message}`);
-      res.status(400).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      logger.error(`Ad-hoc task creation failed: ${getErrorMessage(err)}`);
+      res.status(400).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -260,9 +271,9 @@ export function createApiRouter(deps: ApiDependencies): Router {
       logger.info('Repair API requested: re-copying missing relations...');
       const report = await deps.repairRelations.execute();
       res.json({ success: true, data: report });
-    } catch (err: any) {
-      logger.error(`Repair relations failed: ${err.message}`);
-      res.status(500).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      logger.error(`Repair relations failed: ${getErrorMessage(err)}`);
+      res.status(500).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -301,14 +312,12 @@ export function createApiRouter(deps: ApiDependencies): Router {
         personKeys: scope.personKeys,
         asOf,
         dryRun,
-        // Let the Azure project workflow validate the transition.
-        bypassRules: false,
       });
       res.json({ success: true, data: result });
-    } catch (err: any) {
-      logger.error(`EOD task closure failed: ${err.message}`);
-      const invalidScope = /^(Select member keys|personKeys must|Choose personKeys)/.test(String(err.message));
-      res.status(invalidScope ? 400 : 500).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      logger.error(`EOD task closure failed: ${getErrorMessage(err)}`);
+      const invalidScope = /^(Select member keys|personKeys must|Choose personKeys)/.test(String(getErrorMessage(err)));
+      res.status(invalidScope ? 400 : 500).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -330,11 +339,12 @@ export function createApiRouter(deps: ApiDependencies): Router {
         personKeys,
       });
       res.json({ success: true, data });
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Failed Azure reads are not invalid input. A 400 would mislead operators
       // into believing their selection was wrong rather than integration down.
-      const upstreamFailure = String(err?.message || '').includes('Azure DevOps task discovery failed');
-      res.status(upstreamFailure ? 502 : 400).json({ success: false, error: err.message });
+      const errorMsg = getErrorMessage(err);
+      const upstreamFailure = errorMsg.includes('Azure DevOps task discovery failed');
+      res.status(upstreamFailure ? 502 : 400).json({ success: false, error: errorMsg });
     }
   });
 
@@ -364,9 +374,9 @@ export function createApiRouter(deps: ApiDependencies): Router {
           result: data,
         },
       });
-    } catch (err: any) {
-      logger.error(`Explorer create-missing failed: ${err.message}`);
-      res.status(400).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      logger.error(`Explorer create-missing failed: ${getErrorMessage(err)}`);
+      res.status(400).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -380,11 +390,11 @@ export function createApiRouter(deps: ApiDependencies): Router {
         success: true,
         data: { totalEntries: entries.length, incompleteEntriesCount: unfinished.length, entries },
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Invalid client query limits are bad requests; journal corruption or I/O
       // failures remain server errors and must never be hidden.
-      const invalidLimit = err instanceof Error && err.message.startsWith('limit must be a positive integer');
-      res.status(invalidLimit ? 400 : 500).json({ success: false, error: err.message });
+      const invalidLimit = err instanceof Error && getErrorMessage(err).startsWith('limit must be a positive integer');
+      res.status(invalidLimit ? 400 : 500).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -402,8 +412,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
         res.setHeader('Content-Disposition', 'attachment; filename="task-journal.csv"');
         res.send(content);
       }
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -424,8 +434,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
       if (shouldEnable) await deps.scheduler.start(persist);
       else await deps.scheduler.stop(persist);
       res.json({ success: true, data: deps.scheduler.getStatus() });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -449,8 +459,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
         });
       }
       res.json({ success: true, data: deps.scheduler.getStatus() });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -466,8 +476,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
       } else {
         res.status(400).json({ success: false, error: 'Direct run trigger not supported' });
       }
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -482,8 +492,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
       } else {
         res.status(400).json({ success: false, error: 'Direct auto-close trigger not supported' });
       }
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -508,8 +518,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
         org: config.githubOrg,
       });
       res.json({ success: true, data: { email, username, deliverables } });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -531,8 +541,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
       });
 
       res.json({ success: true, data: result });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
@@ -541,8 +551,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
     try {
       const limit = parsePageLimit(req.query.limit, 300, 1000);
       res.json({ success: true, data: logger.getRecentLogs(limit) });
-    } catch (err: any) {
-      res.status(400).json({ success: false, error: err.message });
+    } catch (err: unknown) {
+      res.status(400).json({ success: false, error: getErrorMessage(err) });
     }
   });
 
