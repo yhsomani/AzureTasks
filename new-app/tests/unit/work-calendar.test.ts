@@ -16,7 +16,7 @@ describe('shared work calendar', () => {
   it('excludes the same holiday and leave dates from task planning', () => {
     const person = new Person({ key: 'alice', name: 'Alice', assignedTo: 'alice@example.invalid' });
     const plan = new DatePlanningService().planForPerson(person, {
-      key: 'alice', workItem: { id: 1, fields: {} },
+      key: 'alice', workItem: { id: 1, rev: 1, fields: {} },
       parsedDate: { isoDate: '2026-10-27', formattedTitleDate: 'Oct 27', year: 2026, isValid: true },
     }, '2026-10-28', 'Task |', 'CURRENT', true, 4, new DuplicateDetector(), calendar);
     expect(plan.plannedDates.filter(date => date.status === 'PLANNED')).toHaveLength(0);

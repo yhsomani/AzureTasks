@@ -339,6 +339,7 @@ const VIEW_META = {
   planner: ['Task Planner', 'Preview creation window and execute tasks with duplicate safeguards'],
   lifecycle: ['Task lifecycle', 'Current-workday activation and closure'],
   people: ['Team Management', 'Configured team members, roles, PODs, and source task overrides'],
+  calendar: ['Work Calendar', 'Project holidays, planned member leave, and working capacity'],
   journal: ['Audit Log', 'Recorded task changes, verification and relation recovery'],
   scheduler: ['Scheduler', 'Automated weekday task generation daemon'],
   logs: ['Live Logs', 'Real-time server logs and event stream'],
@@ -349,7 +350,7 @@ const VIEW_GROUPS = {
   dashboard: 'Overview', mywork: 'Overview',
   explorer: 'Explore work', burndown: 'Explore work',
   planner: 'Create & automate', scheduler: 'Create & automate', lifecycle: 'Create & automate',
-  people: 'Manage', settings: 'Manage',
+  people: 'Manage', calendar: 'Manage', settings: 'Manage',
   journal: 'Monitor', logs: 'Monitor',
 };
 
@@ -399,6 +400,7 @@ function switchView(view) {
     renderPlannerPeople().then(runPlanPreview).catch(err => toast(err.message, 'err'));
   }
   if (view === 'people') loadPeople();
+  if (view === 'calendar') loadCalendar();
   if (view === 'journal') refreshJournal();
   if (view === 'scheduler') refreshScheduler();
   if (view === 'settings') fillSettings();
@@ -2357,6 +2359,212 @@ async function refreshJournal() {
   }
 }
 
+/* ------------------------------------------------------------- work calendar (S09) */
+let calendarState = {
+  calendar: { version: 0, defaultHours: 8, memberHours: {}, exceptions: [] },
+  timezone: 'UTC',
+  members: [],
+  isDirty: false,
+};
+
+async function loadCalendar() {
+  const listEl = $('#calendarExceptionsList');
+  const statusEl = $('#calendarStatusText');
+  try {
+    if (statusEl) statusEl.textContent = 'Loading calendar configuration…';
+    const resp = await api.get('/calendar', { forceFresh: true });
+    if (resp) {
+      calendarState.calendar = resp.calendar || { version: 0, defaultHours: 8, memberHours: {}, exceptions: [] };
+      calendarState.timezone = resp.timezone || 'UTC';
+      calendarState.members = resp.members || [];
+      calendarState.isDirty = false;
+      renderCalendarView();
+    }
+  } catch (err) {
+    if (listEl) listEl.innerHTML = `<p class="muted" style="color:var(--danger); padding:16px;">Failed to load calendar: ${escapeHtml(err.message)}</p>`;
+    if (statusEl) statusEl.textContent = 'Failed to load calendar.';
+    toast(err.message, 'err');
+  }
+}
+
+function renderCalendarView() {
+  const tzEl = $('#calendarTimezone');
+  const defHoursEl = $('#calendarDefaultHours');
+  const countEl = $('#calendarExceptionCount');
+  const listEl = $('#calendarExceptionsList');
+  const statusEl = $('#calendarStatusText');
+  const saveBtn = $('#calendarSaveBtn');
+
+  if (tzEl) tzEl.textContent = calendarState.timezone;
+  if (defHoursEl) defHoursEl.textContent = `${calendarState.calendar.defaultHours || 8}h`;
+  const exceptions = calendarState.calendar.exceptions || [];
+  if (countEl) countEl.textContent = String(exceptions.length);
+  if (saveBtn) saveBtn.disabled = !calendarState.isDirty || state.viewerMode;
+
+  if (!listEl) return;
+  listEl.innerHTML = '';
+
+  if (exceptions.length === 0) {
+    listEl.innerHTML = '<p class="muted" style="padding:16px;">No calendar exceptions configured. All working days are calculated using default capacity.</p>';
+    if (statusEl) statusEl.textContent = 'Calendar loaded. No exceptions configured.';
+    return;
+  }
+
+  const table = el('table', { class: 'table' });
+  const thead = el('thead', {}, el('tr', {}, [
+    el('th', {}, 'Date range'),
+    el('th', {}, 'Type'),
+    el('th', {}, 'Scope / Member'),
+    el('th', {}, 'Capacity'),
+    el('th', {}, 'Note'),
+    el('th', {}, 'Actions'),
+  ]));
+
+  const tbody = el('tbody');
+  exceptions.forEach((exc, index) => {
+    const isSingle = exc.startDate === exc.endDate || !exc.endDate;
+    const dateRange = isSingle ? exc.startDate : `${exc.startDate} → ${exc.endDate}`;
+    const scopeLabel = exc.personKey ? (calendarState.members.find(m => m.key === exc.personKey)?.name || exc.personKey) : 'All members (Project-wide)';
+    const typeBadge = el('span', { class: `pill ${exc.type === 'holiday' ? 'warn' : 'info'}` }, exc.type || 'leave');
+    const capacityText = exc.type === 'holiday' ? '0h (Holiday)' : (exc.availableHours !== undefined ? `${exc.availableHours}h` : '0h (Full leave)');
+
+    const removeBtn = el('button', {
+      type: 'button',
+      class: 'btn small ghost danger',
+      'aria-label': `Remove exception for ${dateRange}`,
+    }, 'Remove');
+
+    removeBtn.addEventListener('click', () => {
+      calendarState.calendar.exceptions.splice(index, 1);
+      calendarState.isDirty = true;
+      renderCalendarView();
+    });
+
+    tbody.append(el('tr', {}, [
+      el('td', {}, dateRange),
+      el('td', {}, typeBadge),
+      el('td', {}, scopeLabel),
+      el('td', {}, capacityText),
+      el('td', { class: 'muted small' }, exc.reason || '—'),
+      el('td', {}, removeBtn),
+    ]));
+  });
+
+  table.append(thead, tbody);
+  listEl.append(table);
+  if (statusEl) statusEl.textContent = `Calendar loaded. ${exceptions.length} exception(s) configured.`;
+}
+
+async function saveCalendar() {
+  const saveBtn = $('#calendarSaveBtn');
+  const statusEl = $('#calendarStatusText');
+  try {
+    if (saveBtn) saveBtn.disabled = true;
+    if (statusEl) statusEl.textContent = 'Saving calendar…';
+    const resp = await api.post('/calendar', { calendar: calendarState.calendar });
+    if (resp?.calendar) {
+      calendarState.calendar = resp.calendar;
+      calendarState.isDirty = false;
+      renderCalendarView();
+      toast('Calendar saved successfully.', 'ok');
+    }
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `Error saving calendar: ${err.message}`;
+    toast(err.message, 'err');
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
+function openAddExceptionModal() {
+  const dialog = el('dialog', { class: 'modal', id: 'addExceptionModal' });
+  const form = el('form', { method: 'dialog', class: 'modal-body' });
+
+  form.innerHTML = `
+    <header class="modal-header">
+      <h3>Add Calendar Exception</h3>
+      <button type="button" class="btn small ghost close-modal-btn" aria-label="Close dialog">✕</button>
+    </header>
+    <div class="modal-content" style="display:flex; flex-direction:column; gap:12px; margin-top:12px;">
+      <label class="field">
+        <span>Exception Type</span>
+        <select id="newExcType">
+          <option value="holiday">Holiday (Project-wide, 0h)</option>
+          <option value="leave">Planned Leave (0h default)</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Team Member (Leave only)</span>
+        <select id="newExcMember">
+          <option value="">All members (Project-wide)</option>
+          ${calendarState.members.map(m => `<option value="${escapeHtml(m.key)}">${escapeHtml(m.name)}</option>`).join('')}
+        </select>
+      </label>
+      <div class="row gap">
+        <label class="field" style="flex:1;">
+          <span>Start Date</span>
+          <input type="date" id="newExcStart" required />
+        </label>
+        <label class="field" style="flex:1;">
+          <span>End Date (Optional)</span>
+          <input type="date" id="newExcEnd" />
+        </label>
+      </div>
+      <label class="field">
+        <span>Reason or Note (Optional)</span>
+        <input type="text" id="newExcReason" placeholder="e.g. Diwali Holiday, Vacation" maxlength="100" />
+      </label>
+    </div>
+    <footer class="modal-footer" style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
+      <button type="button" class="btn ghost close-modal-btn">Cancel</button>
+      <button type="submit" class="btn primary" id="saveNewExceptionBtn">Add Exception</button>
+    </footer>
+  `;
+
+  dialog.append(form);
+  document.body.append(dialog);
+  dialog.showModal();
+
+  const closeDialog = () => {
+    dialog.close();
+    dialog.remove();
+  };
+
+  form.querySelectorAll('.close-modal-btn').forEach(b => b.addEventListener('click', closeDialog));
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const type = $('#newExcType', form).value;
+    const member = $('#newExcMember', form).value;
+    const start = $('#newExcStart', form).value;
+    const end = $('#newExcEnd', form).value || start;
+    const reason = $('#newExcReason', form).value.trim();
+
+    if (!start) {
+      toast('Start date is required.', 'err');
+      return;
+    }
+    if (end < start) {
+      toast('End date cannot be earlier than start date.', 'err');
+      return;
+    }
+
+    const newException = {
+      type,
+      startDate: start,
+      endDate: end,
+      reason: reason || undefined,
+      ...(member ? { personKey: member } : {}),
+      availableHours: 0,
+    };
+
+    calendarState.calendar.exceptions.push(newException);
+    calendarState.isDirty = true;
+    closeDialog();
+    renderCalendarView();
+    toast('Exception added to draft. Click "Save calendar" to persist.', 'info');
+  });
+}
+
 /* ------------------------------------------------------- eod auto-close selector */
 
 /**
@@ -3617,6 +3825,11 @@ function wire() {
     toast('Refreshing daily PR counts from GitHub...', 'ok');
   });
 
+  // Calendar controls (S09)
+  $('#calendarAddExceptionBtn')?.addEventListener('click', openAddExceptionModal);
+  $('#refreshCalendarBtn')?.addEventListener('click', () => loadCalendar());
+  $('#calendarSaveBtn')?.addEventListener('click', saveCalendar);
+
   $('#togglePatEye')?.addEventListener('click', () => {
     const input = $('#setPat');
     if (!input) return;
@@ -3659,6 +3872,7 @@ function applyViewerMode() {
     '#schedSaveConfigBtn', '#schedRunNowBtn', '#eodSaveConfigBtn',
     '#btnExecuteEodConfirmed', '#btnExecuteActiveConfirmed', '#activeSaveConfigBtn', '#saveSettingsBtn', '#savePatBtn',
     '#saveGhSettingsBtn', '#journalRepairBtn', '#btnRepairAll',
+    '#calendarSaveBtn', '#calendarAddExceptionBtn',
   ].forEach(selector => {
     const button = $(selector);
     if (button) {

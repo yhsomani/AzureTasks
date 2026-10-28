@@ -1,0 +1,1 @@
+new-app/docs/PROJECT_MASTER_PLAN.md

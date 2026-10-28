@@ -45,6 +45,7 @@
         <div class="nav-group">
           <span class="nav-group-label">Manage</span>
           <button type="button" class="nav-item" data-view="people"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="8" r="3"/><path d="M2 21v-3a7 7 0 0114 0v3M16 5a3 3 0 010 6M19 15a5 5 0 013 4v2"/></svg></span><span>Team</span></button>
+          <button type="button" class="nav-item" data-view="calendar"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span><span>Calendar</span></button>
           <button type="button" class="nav-item" data-view="settings"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg></span><span>Settings</span></button>
         </div>
         <div class="nav-group">
@@ -434,6 +435,57 @@
           </div>
         </article>
         </div>
+      </section>
+
+      <!-- CALENDAR VIEW (S09) -->
+      <section class="view" id="view-calendar">
+        <div class="workspace-intro">
+          <div>
+            <h2>Work calendar &amp; availability</h2>
+            <p class="muted">Manage holidays, team leave, and scheduled working hours to align capacity across Explorer, Planner, and Automation.</p>
+          </div>
+          <div class="row gap">
+            <button type="button" class="btn ghost small" data-view-link="explorer">Inspect coverage</button>
+            <button type="button" class="btn primary small" id="calendarAddExceptionBtn">+ Add exception</button>
+          </div>
+        </div>
+
+        <div class="grid cols-3" style="gap:16px; margin-bottom:16px;">
+          <article class="card kpi">
+            <span class="kpi-label">Configured timezone</span>
+            <span class="kpi-value small" id="calendarTimezone">—</span>
+            <span class="kpi-hint">Effective operations clock</span>
+          </article>
+          <article class="card kpi">
+            <span class="kpi-label">Default capacity</span>
+            <span class="kpi-value" id="calendarDefaultHours">8h</span>
+            <span class="kpi-hint">Hours per working day</span>
+          </article>
+          <article class="card kpi">
+            <span class="kpi-label">Active exceptions</span>
+            <span class="kpi-value" id="calendarExceptionCount">0</span>
+            <span class="kpi-hint">Holidays and planned leaves</span>
+          </article>
+        </div>
+
+        <article class="card operation-panel">
+          <header class="card-head">
+            <div>
+              <h2>Exceptions and overrides</h2>
+              <p class="muted small">Full-day leave and holidays result in 0 expected tasks. Partial capacity adjusts planned availability.</p>
+            </div>
+            <div class="row gap" style="margin:0;">
+              <button class="btn small ghost" id="refreshCalendarBtn">Refresh</button>
+            </div>
+          </header>
+          <div id="calendarExceptionsList" class="calendar-exceptions-list" tabindex="0" role="region" aria-label="Configured calendar exceptions">
+            <p class="muted" style="padding:16px;">Loading calendar configuration…</p>
+          </div>
+          <div class="action-dock" style="margin-top:16px;">
+            <p id="calendarStatusText" role="status" aria-live="polite" class="muted small">Calendar loaded.</p>
+            <button type="button" class="btn primary" id="calendarSaveBtn" disabled>Save calendar</button>
+          </div>
+        </article>
       </section>
 
       <!-- 7. AUDIT LOG (JOURNAL) VIEW -->
