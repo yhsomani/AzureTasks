@@ -4,7 +4,7 @@
  */
 
 import { Router } from 'express';
-import { asyncHandler, readyHandler, mutationHandler } from './async-handler.js';
+import { asyncHandler, readyHandler } from './async-handler.js';
 import { CreateTasksUseCase } from '../../application/use-cases/create-tasks.js';
 import { PlanTasksUseCase } from '../../application/use-cases/plan-tasks.js';
 import { GetSystemStatusUseCase } from '../../application/use-cases/get-status.js';
@@ -17,6 +17,7 @@ import { GitHubClient } from '../../infrastructure/github/github-client.js';
 import { JournalRepository, SchedulerRepository } from '../../domain/ports/repositories.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { getTodayIso } from '../../domain/value-objects/date-window.js';
+import { ReadCoordinator } from './read-coordinator.js';
 
 /** Extract error message from unknown caught value. */
 function getErrorMessage(err: unknown): string {
@@ -88,6 +89,14 @@ function parsePageLimit(value: unknown, fallback: number, max: number): number {
 
 export function createApiRouter(deps: ApiDependencies): Router {
   const router = Router();
+  const reads = new ReadCoordinator();
+  router.use((req, res, next) => {
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.path !== '/tasks/plan') {
+      reads.invalidate();
+      res.once('finish', () => reads.invalidate());
+    }
+    next();
+  });
 
   // Auth role is set by the server after Basic credential verification, never
   // accepted from a browser-provided header. Client uses it to hide mutations.
@@ -117,7 +126,9 @@ export function createApiRouter(deps: ApiDependencies): Router {
 
   // Status
   router.get('/status', asyncHandler(async (_req, res) => {
-    const data = await deps.getStatus.execute();
+    const started = performance.now();
+    const data = await reads.run(`status:${String((_req as typeof _req & { authRole?: string }).authRole || 'operator')}`, () => deps.getStatus.execute());
+    res.setHeader('Server-Timing', `status;dur=${(performance.now() - started).toFixed(1)}`);
           res.json({ success: true, data });
   }));
 
@@ -125,6 +136,26 @@ export function createApiRouter(deps: ApiDependencies): Router {
   router.get('/config', asyncHandler(async (_req, res) => {
     const data = await deps.config.getConfig();
           res.json({ success: true, data });
+  }));
+
+  router.get('/calendar', asyncHandler(async (_req, res) => {
+    const config = await deps.config.getConfig();
+    res.json({ success: true, data: {
+      calendar: config.calendar ?? { version: 0, defaultHours: 8, memberHours: {}, exceptions: [] },
+      timezone: config.timezone,
+      members: config.people.map(person => ({ key: person.key, name: person.name, enabled: person.enabled !== false })),
+    } });
+  }));
+
+  router.post('/calendar', asyncHandler(async (req, res) => {
+    try {
+      const result = await deps.config.saveSettings({ calendar: req.body?.calendar });
+      if (!req.body?.calendar) return res.status(400).json({ success: false, error: 'Calendar is required.' });
+      res.json({ success: true, data: { calendar: result.config.calendar } });
+    } catch (error) {
+      const message = getErrorMessage(error);
+      res.status(message.startsWith('Calendar changed.') ? 409 : 400).json({ success: false, error: message });
+    }
   }));
 
   router.post('/config/people', asyncHandler(async (req, res) => {
@@ -307,19 +338,24 @@ export function createApiRouter(deps: ApiDependencies): Router {
 
   // Explorer
   router.get('/explorer', asyncHandler(async (req, res) => {
+    const started = performance.now();
     const preset = typeof req.query.preset === 'string' ? req.query.preset : undefined;
           const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : undefined;
           const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : undefined;
           const asOf = typeof req.query.asOf === 'string' ? req.query.asOf : undefined;
           const usersParam = typeof req.query.users === 'string' ? req.query.users : undefined;
           const personKeys = usersParam ? usersParam.split(',').map(s => s.trim()).filter(Boolean) : undefined;
-          const data = await deps.exploreTasks.execute({
+          const scope = {
             preset,
             startDate,
             endDate,
             asOf,
             personKeys,
-          });
+          };
+          const role = (req as typeof req & { authRole?: string }).authRole || 'operator';
+          const data = await reads.run(`explorer:${role}:${JSON.stringify(scope)}`, () => deps.exploreTasks.execute(scope));
+          res.setHeader('Server-Timing', `coverage;dur=${(performance.now() - started).toFixed(1)}`);
+          res.setHeader('Cache-Control', 'private, no-store');
           res.json({ success: true, data });
   }));
 

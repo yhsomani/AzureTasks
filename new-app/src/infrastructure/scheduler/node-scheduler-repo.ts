@@ -57,7 +57,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       autoClose: false,
       autoCloseStartTime: '18:15',
       autoCloseEndTime: '18:45',
-      autoActive: true,
+      autoActive: false,
       autoActiveTime: '17:30',
     },
     private readonly configRepo?: ConfigRepository
@@ -71,7 +71,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       autoCloseStartTime: config.autoCloseStartTime || '18:15',
       autoCloseEndTime: config.autoCloseEndTime || '18:45',
       lastAutoClose: config.lastAutoClose,
-      autoActiveEnabled: config.autoActive !== false,
+      autoActiveEnabled: config.autoActive === true,
       autoActiveTime: config.autoActiveTime || '17:30',
       lastAutoActive: config.lastAutoActive,
     };
@@ -106,7 +106,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
   }
 
   private get autoActiveEnabled(): boolean {
-    return this.autoActiveEnabledOverride ?? (this.config.autoActive !== false);
+    return this.autoActiveEnabledOverride ?? (this.config.autoActive === true);
   }
 
   private get autoActiveTime(): string {

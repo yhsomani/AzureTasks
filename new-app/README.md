@@ -38,6 +38,8 @@ The server reads `AZURE_DEVOPS_PAT` and optional `GITHUB_TOKEN` from the environ
 
 ## Documentation and navigation
 
+Start implementation from the [Project Master Plan](docs/PROJECT_MASTER_PLAN.md), the authority for target product behavior, architecture, UI, safety requirements and delivery sequence. Existing operational descriptions below are not proof of target compliance; the plan records assessment-time gaps and release blockers.
+
 See [Documentation index](docs/README.md) and [release acceptance ledger](docs/RELEASE_VERIFICATION.md) first. Historical documents may describe superseded behavior.
 See [Product vision and scope](docs/PRODUCT_DIRECTION.md), [Security and mutation safety](docs/SECURITY.md), [UI redesign audit and user journeys](docs/UX_REDESIGN.md), [Feature inventory](docs/FEATURE_INVENTORY.md), [Architecture](docs/ARCHITECTURE.md), [Workflows](docs/WORKFLOWS.md), [Design system](docs/DESIGN_SYSTEM.md), and [Production readiness](docs/PRODUCTION_READINESS.md).
 

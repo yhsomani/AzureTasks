@@ -116,10 +116,10 @@ export function readyHandler(
   options: AsyncHandlerOptions = {}
 ): RequestHandler {
   return asyncHandler(
-    (req, res, next) => handler(req, res),
+    (req, res) => handler(req, res),
     {
       statusCode: 503,
-      errorResponseBuilder: (err) => ({
+      errorResponseBuilder: () => ({
         success: false,
         data: { status: 'unavailable', azureDevOpsConnected: false },
       }),
@@ -148,7 +148,7 @@ export function mutationHandler(
   options: AsyncHandlerOptions = {}
 ): RequestHandler {
   return asyncHandler(
-    (req, res, next) => handler(req, res),
+    (req, res) => handler(req, res),
     {
       statusCode: 500,
       errorResponseBuilder: (err) => ({

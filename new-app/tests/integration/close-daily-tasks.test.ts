@@ -145,11 +145,12 @@ describe('CloseDailyTasksUseCase', () => {
       mockGitHubClient as unknown as GitHubClient
     );
 
-    const output = await useCase.execute({
+    const legacyInput = {
       asOf: targetDate,
       personKeys: ['yash_somani'],
       bypassRules: true,
-    });
+    };
+    const output = await useCase.execute(legacyInput);
 
     expect(output.totalFound).toBe(1);
     expect(output.totalClosed).toBe(1);
@@ -173,7 +174,7 @@ describe('CloseDailyTasksUseCase', () => {
     // Verify atomic patch operations
     const opMap = new Map(ops.map((o: any) => [o.path, o.value]));
     expect(opMap.get('/fields/Microsoft.VSTS.Scheduling.RemainingWork')).toBe(0);
-    expect(opMap.get('/fields/Microsoft.VSTS.Scheduling.CompletedWork')).toBe(4);
+    expect(opMap.has('/fields/Microsoft.VSTS.Scheduling.CompletedWork')).toBe(false);
     expect(opMap.has('/fields/Custom.ActualStartdate')).toBe(false);
     expect(opMap.has('/fields/Custom.ActualEnddate')).toBe(false);
     expect(opMap.has('/fields/Microsoft.VSTS.Common.ClosedDate')).toBe(false);
@@ -181,7 +182,7 @@ describe('CloseDailyTasksUseCase', () => {
     expect(opMap.has('/fields/System.Reason')).toBe(false);
     expect(opMap.has('/fields/System.Description')).toBe(false);
     expect(opMap.get('/fields/System.History')).toContain('Remaining Work set to 0h');
-    expect(opMap.get('/fields/System.History')).toContain('Completed Work set to 4h');
+    expect(opMap.get('/fields/System.History')).toContain('Recorded completed work and actual dates preserved');
   });
 
   it('properly generates current-day deliverable description when individual user has no PRs today', async () => {
@@ -224,7 +225,7 @@ describe('CloseDailyTasksUseCase', () => {
     expect(ops.some((op: any) => op.path === '/fields/Custom.ActualEnddate')).toBe(false);
   });
 
-  it('sets remaining work to 0 and defaults completed work to 8h when unrecorded', async () => {
+  it('sets remaining work to 0 while preserving unknown completed hours', async () => {
     (mockWorkItemRepo.findCandidateTasks as any).mockResolvedValue([{
       id: 5022,
       fields: {
@@ -238,10 +239,10 @@ describe('CloseDailyTasksUseCase', () => {
       baseConfig, mockWorkItemRepo, datePlanning, mockGitHubClient as GitHubClient
     ).execute({ asOf: '2026-10-15', personKeys: ['yash_somani'] });
     expect(output.totalClosed).toBe(1);
-    expect(output.results[0].completedWork).toBe(8);
+    expect(output.results[0].completedWork).toBeNull();
     expect(output.results[0].remainingWork).toBe(0);
     const [, ops] = (mockWorkItemRepo.patchWorkItem as any).mock.calls[0];
-    expect(ops.find((op: any) => op.path === '/fields/System.History').value).toContain('Remaining Work set to 0h; Completed Work set to 8h');
+    expect(ops.find((op: any) => op.path === '/fields/System.History').value).toContain('Recorded completed work and actual dates preserved');
   });
 
   it('skips tasks that are already Closed without calling patch', async () => {
@@ -504,7 +505,6 @@ describe('CloseDailyTasksUseCase', () => {
     const paths = ops.map((op: any) => op.path);
     expect(paths).toEqual([
       '/fields/Microsoft.VSTS.Scheduling.RemainingWork',
-      '/fields/Microsoft.VSTS.Scheduling.CompletedWork',
       '/fields/System.History',
       '/fields/System.State',
     ]);

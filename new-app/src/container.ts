@@ -18,7 +18,7 @@ import { ConfigUseCases } from './application/use-cases/config.js';
 import { RepairRelationsUseCase } from './application/use-cases/repair-relations.js';
 import { ExploreTasksUseCase, ExploreTasksInput, ExploreTasksOutput } from './application/use-cases/explore-tasks.js';
 import { CloseDailyTasksUseCase, CloseDailyTasksInput, CloseDailyTasksOutput } from './application/use-cases/close-daily-tasks.js';
-import { ActivateDailyTasksUseCase, ActivateDailyTasksInput, ActivateDailyTasksOutput } from './application/use-cases/activate-daily-tasks.js';
+import { ActivateDailyTasksUseCase } from './application/use-cases/activate-daily-tasks.js';
 import { GitHubClient } from './infrastructure/github/github-client.js';
 import { FileAutoClosureConfigRepository } from "./infrastructure/config/file-auto-closure-config-repo.js";
 import { FileAutoClosureAuditRepository } from "./infrastructure/journal/file-auto-closure-audit-repo.js";

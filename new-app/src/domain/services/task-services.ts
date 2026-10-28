@@ -5,6 +5,7 @@
 
 import { WorkItemRepository } from '../ports/repositories.js';
 import { Person } from '../entities/person.js';
+import { workdayEligibility, type WorkCalendar } from './work-calendar.js';
 import { 
   WorkItem, 
   DiscoveredTask, 
@@ -332,11 +333,12 @@ export class DatePlanningService {
     thursdayMode: 'CURRENT' | 'FOLLOWING',
     skipWeekends: boolean,
     stopDayOfWeek: number,
-    duplicateDetector: DuplicateDetector
+    duplicateDetector: DuplicateDetector,
+    calendar?: WorkCalendar
   ): DatePlan {
     const existingTasksMap = duplicateDetector.getPersonDateMap(person);
     
-    return planCreationDates({
+    const plan = planCreationDates({
       todayIso,
       latestExistingTaskIso: sourceTask.parsedDate.isoDate,
       latestExistingTaskId: sourceTask.workItem.id,
@@ -346,6 +348,14 @@ export class DatePlanningService {
       skipWeekends,
       stopDayOfWeek,
     });
+    for (const date of plan.plannedDates) {
+      const eligibility = workdayEligibility(person.key, date.isoDate, skipWeekends, calendar);
+      if (date.status === 'PLANNED' && !eligibility.eligible) {
+        date.status = 'NO_TASKS_NEEDED';
+        date.skipReason = eligibility.reason;
+      }
+    }
+    return plan;
   }
 
   getTodayIso(timezone: string): string {

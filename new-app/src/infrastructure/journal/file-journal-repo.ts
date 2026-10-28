@@ -5,7 +5,6 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { randomUUID } from 'node:crypto';
 import { AtomicFileWriter } from '../persistence/atomic-file-writer.js';
 import { JournalRepository, JournalEntry } from '../../domain/ports/repositories.js';
 
@@ -16,9 +15,8 @@ export class FileJournalRepository implements JournalRepository {
   private readonly journalPath: string;
   private readonly archiveDir: string;
   private readonly writeBuffer: JournalEntry[] = [];
-  private flushTimer: NodeJS.Timeout | null = null;
-  private readonly FLUSH_INTERVAL_MS = 100;
-  private isFlushing = false;
+  private flushPromise: Promise<void> | null = null;
+  private storageFailure: unknown;
 
   constructor(journalPath?: string) {
     this.journalPath = journalPath 
@@ -28,45 +26,32 @@ export class FileJournalRepository implements JournalRepository {
   }
 
   async record(entry: JournalEntry): Promise<void> {
-    // Add entry to write buffer
+    if (this.storageFailure) throw this.storageFailure;
     this.writeBuffer.push(entry);
-    
-    // Schedule flush if not already scheduled
-    if (!this.flushTimer) {
-      this.flushTimer = setTimeout(() => this.flushBuffer(), this.FLUSH_INTERVAL_MS);
-    }
+    await this.flushBuffer();
   }
 
-  private async flushBuffer(): Promise<void> {
-    // Prevent concurrent flushes
-    if (this.isFlushing) return;
-    this.isFlushing = true;
-    
-    try {
-      this.flushTimer = null;
-      
-      if (this.writeBuffer.length === 0) return;
-      
-      // Ensure archive directory exists
-      if (!fs.existsSync(this.archiveDir)) {
-        fs.mkdirSync(this.archiveDir, { recursive: true });
+  private flushBuffer(): Promise<void> {
+    if (this.storageFailure) return Promise.reject(this.storageFailure);
+    if (this.flushPromise) return this.flushPromise;
+    this.flushPromise = Promise.resolve().then(async () => {
+      while (this.writeBuffer.length > 0) {
+        fs.mkdirSync(this.archiveDir, { recursive: true, mode: 0o700 });
+        const entriesToWrite = this.writeBuffer.slice();
+        const existing = this.readEntriesFrom(this.journalPath);
+        await this.rotateIfNeeded(existing.length + entriesToWrite.length >= MAX_ENTRIES);
+        const entries = this.readEntriesFrom(this.journalPath);
+        entries.push(...entriesToWrite);
+        this.writeEntriesAtomically(entries);
+        this.writeBuffer.splice(0, entriesToWrite.length);
       }
-
-      // Batch all buffered entries for atomic write
-      const entriesToWrite = [...this.writeBuffer];
-      this.writeBuffer.length = 0;
-      
-      // Validate the existing audit trail BEFORE any write or rotation. Never
-      // silently replace corrupt evidence with an empty journal.
-      const existing = this.readEntriesFrom(this.journalPath);
-      await this.rotateIfNeeded(existing.length + entriesToWrite.length >= MAX_ENTRIES);
-      
-      const entries = this.readEntriesFrom(this.journalPath);
-      entries.push(...entriesToWrite);
-      this.writeEntriesAtomically(entries);
-    } finally {
-      this.isFlushing = false;
-    }
+    }).catch(error => {
+      this.storageFailure = error;
+      throw error;
+    }).finally(() => {
+      this.flushPromise = null;
+    });
+    return this.flushPromise;
   }
 
   private readEntriesFrom(filename: string): JournalEntry[] {
@@ -90,7 +75,7 @@ export class FileJournalRepository implements JournalRepository {
   }
 
   async getEntries(limit?: number): Promise<JournalEntry[]> {
-    if (this.writeBuffer.length > 0) {
+    if (this.writeBuffer.length > 0 || this.flushPromise) {
       await this.flushBuffer();
     }
     // Newest segment first; never silently omit rotated history from
@@ -118,6 +103,7 @@ export class FileJournalRepository implements JournalRepository {
     note: string,
     verified = false
   ): Promise<boolean> {
+    await this.flushBuffer();
     const files = [this.journalPath, ...this.listArchiveFiles()];
     for (const filename of files) {
       const entries = this.readEntriesFrom(filename);
@@ -191,7 +177,7 @@ export class FileJournalRepository implements JournalRepository {
   }
 
   private writeEntriesAtomically(entries: JournalEntry[], filename = this.journalPath): void {
-    AtomicFileWriter.writeJson(filename, entries, { ensureDir: true }, 2);
+    AtomicFileWriter.writeJson(filename, entries, { ensureDir: true, mode: 0o600 }, 2);
   }
 
   private async rotateIfNeeded(force = false): Promise<void> {
@@ -211,16 +197,7 @@ export class FileJournalRepository implements JournalRepository {
   }
 
   async close(): Promise<void> {
-    // Clear any pending flush timer
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
-      this.flushTimer = null;
-    }
-    
-    // Perform one final flush to ensure no data loss
-    if (this.writeBuffer.length > 0) {
-      await this.flushBuffer();
-    }
+    await this.flushBuffer();
   }
 
 }

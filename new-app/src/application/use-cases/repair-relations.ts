@@ -138,7 +138,7 @@ export class RepairRelationsUseCase {
           ['System.LinkTypes.Hierarchy-Reverse']
         );
 
-        const readBack = await this.workItemRepo.getWorkItem(orphan.id);
+        const readBack = await this.workItemRepo.getWorkItem(orphan.id, { fresh: true });
         const verified = (readBack.relations ?? []).some(
           r => r.rel === 'System.LinkTypes.Hierarchy-Reverse' && r.url === parentRel.url
         );
@@ -193,7 +193,7 @@ export class RepairRelationsUseCase {
 
           const result = await this.relationCopy.repairRelations(source, target);
           const required = filterCopyableRelations(source.relations ?? []);
-          const readBack = await this.workItemRepo.getWorkItem(entry.createdWorkItemId);
+          const readBack = await this.workItemRepo.getWorkItem(entry.createdWorkItemId, { fresh: true });
           const actual = new Set((readBack.relations ?? []).map(r => `${r.rel}:::${r.url}`));
           const verified = readBack.id === target.id &&
             required.every(r => actual.has(`${r.rel}:::${r.url}`));

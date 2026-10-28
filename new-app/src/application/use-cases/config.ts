@@ -5,6 +5,7 @@
 
 import { ConfigRepository, AppConfig, PersonConfig } from '../../domain/ports/repositories.js';
 import { validatePerson } from '../../domain/entities/person.js';
+import { validateWorkCalendar, type WorkCalendar } from '../../domain/services/work-calendar.js';
 
 export interface SavePeopleInput {
   people: PersonConfig[];
@@ -24,6 +25,7 @@ export interface SaveSettingsInput {
   autoClose?: boolean;
   autoCloseStartTime?: string;
   autoCloseEndTime?: string;
+  calendar?: WorkCalendar;
 }
 
 export interface SavePatInput {
@@ -82,6 +84,12 @@ export class ConfigUseCases {
   }
 
   async saveSettings(input: SaveSettingsInput): Promise<{ message: string; config: AppConfig }> {
+    if (input.calendar !== undefined) {
+      const currentVersion = this.config.calendar?.version ?? 0;
+      const calendar = validateWorkCalendar(input.calendar, this.config.people.map(person => person.key));
+      if (calendar.version !== currentVersion) throw new Error('Calendar changed. Refresh before saving your draft.');
+      input = { ...input, calendar: { ...calendar, version: currentVersion + 1 } };
+    }
     if (input.timezone !== undefined) {
       try {
         new Intl.DateTimeFormat('en-US', { timeZone: input.timezone });
@@ -117,6 +125,7 @@ export class ConfigUseCases {
     if (input.autoClose !== undefined) this.config.autoClose = input.autoClose;
     if (input.autoCloseStartTime !== undefined) this.config.autoCloseStartTime = input.autoCloseStartTime;
     if (input.autoCloseEndTime !== undefined) this.config.autoCloseEndTime = input.autoCloseEndTime;
+    if (input.calendar !== undefined) this.config.calendar = input.calendar;
 
     return { message: 'Settings saved successfully.', config: await this.getConfig() };
   }

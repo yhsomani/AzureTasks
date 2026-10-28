@@ -169,6 +169,7 @@ async function main(): Promise<void> {
         config: app.configUseCases,
         repairRelations: app.repairRelations,
         closeDailyTasks: app.closeDailyTasks,
+        activateDailyTasks: app.activateDailyTasks,
         githubClient: app.githubClient,
         journal: app.journal,
         scheduler: app.scheduler,

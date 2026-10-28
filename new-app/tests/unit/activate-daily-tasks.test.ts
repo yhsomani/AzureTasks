@@ -62,7 +62,7 @@ describe('ActivateDailyTasksUseCase', () => {
     }),
   } as unknown as GitHubClient;
 
-  it('activates New task, updates description with PR deliverables, and sets state to Active', async () => {
+  it('activates New tasks while preserving descriptions and recorded work fields', async () => {
     const candidateTasks = [{
       id: 2001,
       fields: {
@@ -114,8 +114,8 @@ describe('ActivateDailyTasksUseCase', () => {
     expect(stateOp.value).toBe('Active');
 
     const descOp = ops.find((op: any) => op.path === '/fields/System.Description');
-    expect(descOp).toBeDefined();
-    expect(descOp.value).toContain('Task deliverables');
+    expect(descOp).toBeUndefined();
+    expect(ops.some((operation: { path: string }) => operation.path.includes('ActualStart'))).toBe(false);
   });
 
   it('does NOT re-change tasks that are already in Active state', async () => {
@@ -170,7 +170,6 @@ describe('ActivateDailyTasksUseCase', () => {
       },
     }];
 
-    const patchCalls: any[] = [];
     const mockRepo: WorkItemRepository = {
       validateProject: vi.fn(),
       validateWorkItemType: vi.fn(),
@@ -194,7 +193,7 @@ describe('ActivateDailyTasksUseCase', () => {
     expect(result.results[0].status).toBe('already_closed');
   });
 
-  it('recovers from TF401320 process rules during activation fallback', async () => {
+  it('reports tenant rule failure without fabricating actual dates or replaying writes', async () => {
     const candidateTasks = [{
       id: 2004,
       fields: {
@@ -235,10 +234,71 @@ describe('ActivateDailyTasksUseCase', () => {
     const useCase = new ActivateDailyTasksUseCase(baseConfig, mockRepo, mockDatePlanning, mockGitHubClient);
     const result = await useCase.execute({ asOf: '2026-10-15', dryRun: false });
 
+    expect(result.totalActivated).toBe(0);
+    expect(result.totalFailed).toBe(1);
+    expect(patchCalls).toHaveLength(1);
+    expect(patchCalls[0].ops.some((op: any) => op.path.includes('ActualStart'))).toBe(false);
+    expect(result.results[0].error).toContain('TF401320');
+  });
+
+  it('rejects matching display names when the authoritative account belongs to another person', async () => {
+    const repository = {
+      findCandidateTasks: vi.fn().mockResolvedValue([{
+        id: 7001,
+        fields: {
+          'System.Title': '3in1_PWA_MyAccount | 15 Oct',
+          'System.AssignedTo': { displayName: 'Alice Smith', uniqueName: 'different@example.com' },
+          'System.State': 'New', 'Custom.PlannedStartDate': '2026-10-15T04:00:00Z',
+        },
+      }]),
+      patchWorkItem: vi.fn(),
+    } as unknown as WorkItemRepository;
+    const useCase = new ActivateDailyTasksUseCase(baseConfig, repository, mockDatePlanning, mockGitHubClient);
+    const result = await useCase.execute({ asOf: '2026-10-15', dryRun: true });
+    expect(result.totalFound).toBe(0);
+    expect(repository.patchWorkItem).not.toHaveBeenCalled();
+  });
+
+  it('matches and activates candidate task strictly as per its Planned Start Date', async () => {
+    const candidateTasks = [{
+      id: 3001,
+      fields: {
+        'System.Id': 3001,
+        'System.Title': '3in1_PWA_MyAccount | Standup & Planning',
+        'System.AssignedTo': { displayName: 'Alice Smith', uniqueName: 'alice@example.com' },
+        'System.State': 'New',
+        'Custom.PlannedStartDate': '2026-10-15T04:00:00.000Z',
+      },
+    }];
+
+    const patchCalls: any[] = [];
+    const mockRepo: WorkItemRepository = {
+      validateProject: vi.fn(),
+      validateWorkItemType: vi.fn(),
+      findLatestTaskForPerson: vi.fn(),
+      discoverLatestTasksForPeople: vi.fn(),
+      getExistingTasksForPerson: vi.fn(),
+      findCandidateTasks: vi.fn().mockResolvedValue(candidateTasks),
+      getWorkItem: vi.fn().mockResolvedValue({
+        id: 3001,
+        fields: {
+          'System.State': 'Active',
+          'System.AssignedTo': { displayName: 'Alice Smith', uniqueName: 'alice@example.com' },
+        },
+      }),
+      createWorkItemWithReconciliation: vi.fn(),
+      copyRelations: vi.fn(),
+      patchWorkItem: vi.fn().mockImplementation(async (id, ops) => {
+        patchCalls.push({ id, ops });
+        return { id, rev: 2, fields: {} };
+      }),
+    };
+
+    const useCase = new ActivateDailyTasksUseCase(baseConfig, mockRepo, mockDatePlanning, mockGitHubClient);
+    const result = await useCase.execute({ asOf: '2026-10-15', dryRun: false });
+
     expect(result.totalActivated).toBe(1);
-    expect(result.totalFailed).toBe(0);
-    expect(patchCalls).toHaveLength(2);
-    const retryOps = patchCalls[1].ops;
-    expect(retryOps.some((op: any) => op.path === '/fields/Custom.ActualStartDate')).toBe(true);
+    expect(result.results[0].taskId).toBe(3001);
+    expect(result.results[0].status).toBe('activated');
   });
 });

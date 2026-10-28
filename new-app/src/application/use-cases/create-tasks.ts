@@ -7,6 +7,7 @@ import * as readline from 'node:readline/promises';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { WorkItemRepository, JournalRepository, LockRepository, AppConfig } from '../../domain/ports/repositories.js';
 import { Person } from '../../domain/entities/person.js';
+import { workdayEligibility } from '../../domain/services/work-calendar.js';
 import { 
   DiscoveredTask, 
   CreatedTask,
@@ -230,6 +231,8 @@ export class CreateTasksUseCase {
       throw new Error(`Person "${input.personKey}" is not an enabled configured team member.`);
     }
     const person = new Person(personConfig);
+    const eligibility = workdayEligibility(person.key, input.targetIsoDate, this.config.skipWeekends, this.config.calendar);
+    if (!eligibility.eligible) throw new Error(`Task creation excluded: ${eligibility.reason}.`);
 
     // Concurrency lock
     if (!this.lockRepo.acquire()) {

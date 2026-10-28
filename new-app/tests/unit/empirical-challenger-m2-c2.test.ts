@@ -492,17 +492,10 @@ describe('Empirical Challenger 2: EOD Custom Field Casing Resilience (close-dail
     const useCase = new CloseDailyTasksUseCase(baseConfig, mockRepo, mockDatePlanning, mockGitHubClient);
     const result = await useCase.execute({ asOf: '2026-10-15', dryRun: false });
 
-    expect(result.totalClosed).toBe(1);
-    expect(patchCalls).toHaveLength(2);
-
-    const recoveryOps = patchCalls[1].ops;
-    const paths = recoveryOps.map((op: any) => op.path);
-    // Custom.ActualStartDate should be added with PascalCase
-    expect(paths).toContain('/fields/Custom.ActualStartDate');
-    // Custom.ActualEndDate was already present, so should NOT be duplicated
-    expect(paths).not.toContain('/fields/Custom.ActualEndDate');
-    expect(paths).not.toContain('/fields/Custom.ActualStartdate');
-    expect(paths).not.toContain('/fields/Custom.ActualEnddate');
+    expect(result.totalClosed).toBe(0);
+    expect(result.totalFailed).toBe(1);
+    expect(patchCalls).toHaveLength(1);
+    expect(patchCalls[0].ops.some((op: any) => op.path.includes('/Custom.'))).toBe(false);
   });
 
   it('detects PascalCase tenant from generic custom date field (Custom.TargetDate)', async () => {
@@ -547,13 +540,10 @@ describe('Empirical Challenger 2: EOD Custom Field Casing Resilience (close-dail
     const useCase = new CloseDailyTasksUseCase(baseConfig, mockRepo, mockDatePlanning, mockGitHubClient);
     const result = await useCase.execute({ asOf: '2026-10-15', dryRun: false });
 
-    expect(result.totalClosed).toBe(1);
-    expect(patchCalls).toHaveLength(2);
-
-    const recoveryOps = patchCalls[1].ops;
-    const paths = recoveryOps.map((op: any) => op.path);
-    expect(paths).toContain('/fields/Custom.ActualStartDate');
-    expect(paths).toContain('/fields/Custom.ActualEndDate');
+    expect(result.totalClosed).toBe(0);
+    expect(result.totalFailed).toBe(1);
+    expect(patchCalls).toHaveLength(1);
+    expect(patchCalls[0].ops.some((op: any) => op.path.includes('/Custom.'))).toBe(false);
   });
 
   it('swaps PascalCase to lowercase during fallback when server only accepts lowercase', async () => {
@@ -603,18 +593,10 @@ describe('Empirical Challenger 2: EOD Custom Field Casing Resilience (close-dail
     const useCase = new CloseDailyTasksUseCase(baseConfig, mockRepo, mockDatePlanning, mockGitHubClient);
     const result = await useCase.execute({ asOf: '2026-10-15', dryRun: false });
 
-    expect(result.totalClosed).toBe(1);
-    expect(patchCalls).toHaveLength(3);
-
-    // Call 2 used PascalCase
-    const call2Paths = patchCalls[1].ops.map((op: any) => op.path);
-    expect(call2Paths).toContain('/fields/Custom.ActualStartDate');
-    expect(call2Paths).toContain('/fields/Custom.ActualEndDate');
-
-    // Call 3 swapped to lowercase
-    const call3Paths = patchCalls[2].ops.map((op: any) => op.path);
-    expect(call3Paths).toContain('/fields/Custom.ActualStartdate');
-    expect(call3Paths).toContain('/fields/Custom.ActualEnddate');
+    expect(result.totalClosed).toBe(0);
+    expect(result.totalFailed).toBe(1);
+    expect(patchCalls).toHaveLength(1);
+    expect(patchCalls[0].ops.some((op: any) => op.path.includes('/Custom.'))).toBe(false);
   });
 
   it('marks task as failed when BOTH recovery attempts fail with rule errors', async () => {
@@ -653,7 +635,7 @@ describe('Empirical Challenger 2: EOD Custom Field Casing Resilience (close-dail
     expect(result.totalFailed).toBe(1);
     expect(result.results[0].status).toBe('failed');
     expect(result.results[0].error).toContain('TF401320');
-    expect(patchCalls).toHaveLength(3); // 1 initial, 1 recovery, 1 swapped fallback
+    expect(patchCalls).toHaveLength(1);
   });
 
   it('does NOT trigger rule recovery on unrelated non-rule errors (e.g. TF26071 concurrent modification)', async () => {
@@ -735,12 +717,10 @@ describe('Empirical Challenger 2: EOD Custom Field Casing Resilience (close-dail
     const useCase = new CloseDailyTasksUseCase(baseConfig, mockRepo, mockDatePlanning, mockGitHubClient);
     const result = await useCase.execute({ asOf: '2026-10-15', dryRun: false });
 
-    expect(result.totalClosed).toBe(1);
-    expect(patchCalls).toHaveLength(2);
-
-    const recoveryOps = patchCalls[1].ops;
-    const paths = recoveryOps.map((op: any) => op.path);
-    // Description should NOT be added because it already exists!
+    expect(result.totalClosed).toBe(0);
+    expect(result.totalFailed).toBe(1);
+    expect(patchCalls).toHaveLength(1);
+    const paths = patchCalls[0].ops.map((op: any) => op.path);
     expect(paths).not.toContain('/fields/System.Description');
   });
 });

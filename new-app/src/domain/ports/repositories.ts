@@ -5,6 +5,7 @@
 
 import { WorkItem, DiscoveredTask, CreatedTask } from '../entities/task.js';
 import { Person, PersonConfig } from '../entities/person.js';
+import type { WorkCalendar } from '../services/work-calendar.js';
 import {
   FilterType,
   RuleType,
@@ -97,7 +98,7 @@ export interface WorkItemRepository {
   /**
    * Get a work item by ID
    */
-  getWorkItem(id: number): Promise<WorkItem>;
+  getWorkItem(id: number, options?: { fresh?: boolean }): Promise<WorkItem>;
 
   /**
    * Create work item with reconciliation (handles duplicate detection)
@@ -173,6 +174,7 @@ export interface AppConfig {
   githubOrg?: string;
   githubUserSuffix?: string;
   githubApiUrl?: string;
+  calendar?: WorkCalendar;
   people: PersonConfig[];
 }
 

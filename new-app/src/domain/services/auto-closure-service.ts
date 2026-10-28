@@ -7,9 +7,7 @@ import {
   AutoClosureConfig,
   AutoClosureRule,
   AutoClosureValidationResult,
-  FilterType,
 } from '../entities/auto-closure-config.js';
-import { Person } from '../entities/person.js';
 
 export interface ClosureDecision {
   shouldClose: boolean;

@@ -12,6 +12,7 @@ import {
   Person, 
   CreatedTask,
   parseWorkItemTaskDate,
+  extractWorkItemPlannedStartDate,
   extractWorkItemRecordedDate,
   matchesPerson,
   matchesTaskSeries,
@@ -29,7 +30,7 @@ interface WorkItemBatchResult {
 }
 
 export class AzureWorkItemService implements WorkItemRepository {
-  private readonly workItemCache: Map<number, WorkItem> = new Map();
+  private readonly workItemCache = new Map<number, { item: WorkItem; timestamp: number }>();
   constructor(private readonly client: AzureDevOpsClient, private readonly timezone: () => string = () => 'UTC') {}
 
   private requireCompleteBatch(batch: WorkItemBatchResult, ids: number[], purpose: string): WorkItem[] {
@@ -443,13 +444,17 @@ export class AzureWorkItemService implements WorkItemRepository {
         const title = workItem.fields['System.Title'] || '';
         let isoDate = '';
 
-        if (matchesTaskSeries(title, titlePrefix)) {
+        // Prioritize Planned Start Date as primary source of truth
+        const planned = extractWorkItemPlannedStartDate(workItem, this.timezone());
+        if (planned && (!title.includes('|') || matchesTaskSeries(title, titlePrefix))) {
+          isoDate = planned.isoDate;
+        } else if (matchesTaskSeries(title, titlePrefix)) {
           const parsed = parseWorkItemTaskDate(workItem, titlePrefix, this.timezone());
           if (parsed.isValid) {
             isoDate = parsed.isoDate;
           } else {
             // Graceful resilience: If the title date parsing was ambiguous or conflicted,
-            // fall back to recorded Azure scheduling dates (PlannedStartdate, StartDate, ActualStartdate)
+            // fall back to recorded Azure scheduling dates (PlannedStartDate, StartDate, ActualStartDate)
             // or non-pipe title date instead of crashing the entire preview/planning execution.
             const recorded = extractWorkItemRecordedDate(workItem, this.timezone());
             if (recorded) {
@@ -571,14 +576,23 @@ export class AzureWorkItemService implements WorkItemRepository {
     }
   }
 
-  async getWorkItem(id: number): Promise<WorkItem> {
-    if (this.workItemCache.has(id)) {
-      return this.workItemCache.get(id)!;
+  async getWorkItem(id: number, options: { fresh?: boolean } = {}): Promise<WorkItem> {
+    const cached = this.workItemCache.get(id);
+    if (!options.fresh && cached && Date.now() - cached.timestamp < 30000) {
+      this.workItemCache.delete(id);
+      this.workItemCache.set(id, cached);
+      return cached.item;
     }
     const item = await this.client.get<WorkItem>(
       `/_apis/wit/workitems/${id}?$expand=relations&api-version=7.0`
     );
-    this.workItemCache.set(id, item);
+    if (!options.fresh) {
+      this.workItemCache.delete(id);
+      this.workItemCache.set(id, { item, timestamp: Date.now() });
+      while (this.workItemCache.size > 1000) {
+        this.workItemCache.delete(this.workItemCache.keys().next().value!);
+      }
+    }
     return item;
   }
 
@@ -621,6 +635,7 @@ export class AzureWorkItemService implements WorkItemRepository {
     targetId: number,
     copyableTypes: string[]
   ): Promise<{ copiedCount: number; failedCount: number; totalRelations: number }> {
+    this.workItemCache.delete(targetId);
     const relations = sourceWorkItem.relations || [];
     const copyable = relations.filter(r => copyableTypes.includes(r.rel));
     
@@ -651,38 +666,10 @@ export class AzureWorkItemService implements WorkItemRepository {
       );
       return { copiedCount: copyable.length, failedCount: 0, totalRelations: copyable.length };
     } catch (error) {
-      // Log error but attempt individual fallback for partial success
-      logger.warn(`Batch relation copy failed for work item ${targetId}: ${error instanceof Error ? error.message : String(error)}`);
-      
-      // Fallback: try individual copies to get partial success
-      let copiedCount = 0;
-      let failedCount = 0;
-
-      for (const relation of copyable) {
-        try {
-          const relBody = {
-            op: 'add',
-            path: '/relations/-',
-            value: {
-              rel: relation.rel,
-              url: relation.url,
-              ...(relation.attributes?.comment
-                ? { attributes: { comment: relation.attributes.comment } }
-                : {}),
-            },
-          };
-
-          await this.client.patch(
-            `/_apis/wit/workitems/${targetId}?api-version=7.0`,
-            [relBody],
-            { headers: { 'Content-Type': 'application/json-patch+json' } }
-          );
-          copiedCount++;
-        } catch {
-          failedCount++;
-        }
-      }
-      return { copiedCount, failedCount, totalRelations: copyable.length };
+      logger.warn(`Relation batch outcome for #${targetId} is unverified; read back existing links before repair. No write replay attempted. ${error instanceof Error ? error.message : String(error)}`);
+      return { copiedCount: 0, failedCount: copyable.length, totalRelations: copyable.length };
+    } finally {
+      this.workItemCache.delete(targetId);
     }
   }
 
@@ -718,11 +705,16 @@ export class AzureWorkItemService implements WorkItemRepository {
     options?: { bypassRules?: boolean }
   ): Promise<WorkItem> {
     const qs = options?.bypassRules ? '?bypassRules=true&api-version=7.0' : '?api-version=7.0';
-    return await this.client.patch<WorkItem>(
-      `/_apis/wit/workitems/${id}${qs}`,
-      fieldOps,
-      { headers: { 'Content-Type': 'application/json-patch+json' } }
-    );
+    this.workItemCache.delete(id);
+    try {
+      return await this.client.patch<WorkItem>(
+        `/_apis/wit/workitems/${id}${qs}`,
+        fieldOps,
+        { headers: { 'Content-Type': 'application/json-patch+json' } }
+      );
+    } finally {
+      this.workItemCache.delete(id);
+    }
   }
 
   private escapeWiql(value: string): string {

@@ -7,8 +7,6 @@
 import { Person } from '../../domain/entities/person.js';
 import { 
   DiscoveredTask, 
-  matchesTaskSeries,
-  parseTitleDate,
   extractTitlePrefix,
 } from '../../domain/entities/task.js';
 import { 
@@ -108,7 +106,8 @@ export class TaskPlanBuilder {
         thursdayMode,
         this.config.skipWeekends,
         this.config.stopDayOfWeek,
-        this.duplicateDetector
+        this.duplicateDetector,
+        this.config.calendar
       );
 
       const toCreate = plan.plannedDates.filter(d => d.status === 'PLANNED');
@@ -180,7 +179,8 @@ export class TaskPlanBuilder {
         thursdayMode,
         this.config.skipWeekends,
         this.config.stopDayOfWeek,
-        this.duplicateDetector
+        this.duplicateDetector,
+        this.config.calendar
       );
       
       const toCreate = newPlan.plannedDates.filter(d => d.status === 'PLANNED');

@@ -4,6 +4,8 @@ The only supported application is `new-app/`. Use this index to avoid mistaking 
 
 ## Authoritative current references
 
+The [Project Master Plan](PROJECT_MASTER_PLAN.md) is the single authority for target behavior, product/design decisions, implementation phases and acceptance criteria. The references below describe current operation or record evidence; they do not establish that the target plan has been implemented. Resolve conflicts in favor of the master plan for future implementation, while retaining honest current-state and release-gate records.
+
 1. [Application setup, API, CLI and operational commands](../README.md)
 2. [Release verification and go/no-go evidence ledger](RELEASE_VERIFICATION.md)
 3. [Features and navigation responsibilities](FEATURE_INVENTORY.md)

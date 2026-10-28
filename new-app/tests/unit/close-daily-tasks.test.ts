@@ -51,7 +51,7 @@ describe('CloseDailyTasksUseCase - Process Rule Recovery (TF401320)', () => {
     }),
   } as unknown as GitHubClient;
 
-  it('recovers from TF401320 using PascalCase fields when tenant uses Custom.PlannedStartDate', async () => {
+  it('preserves PascalCase fields when tenant rules reject closure', async () => {
     const candidateTasks = [{
       id: 1001,
       fields: {
@@ -93,20 +93,13 @@ describe('CloseDailyTasksUseCase - Process Rule Recovery (TF401320)', () => {
     const useCase = new CloseDailyTasksUseCase(baseConfig, mockRepo, mockDatePlanning, mockGitHubClient);
     const result = await useCase.execute({ asOf: '2026-10-15', dryRun: false });
 
-    expect(result.totalClosed).toBe(1);
-    expect(result.totalFailed).toBe(0);
-    expect(patchCalls).toHaveLength(2);
-
-    // Second patch call should have used PascalCase fields
-    const recoveryOps = patchCalls[1].ops;
-    const paths = recoveryOps.map((op: any) => op.path);
-    expect(paths).toContain('/fields/Custom.ActualStartDate');
-    expect(paths).toContain('/fields/Custom.ActualEndDate');
-    expect(paths).not.toContain('/fields/Custom.ActualStartdate');
-    expect(paths).not.toContain('/fields/Custom.ActualEnddate');
+    expect(result.totalClosed).toBe(0);
+    expect(result.totalFailed).toBe(1);
+    expect(patchCalls).toHaveLength(1);
+    expect(patchCalls[0].ops.some((op: any) => op.path.includes('/Custom.'))).toBe(false);
   });
 
-  it('recovers from TF401320 using lowercase fields when tenant uses Custom.PlannedStartdate', async () => {
+  it('preserves lowercase fields when tenant rules reject closure', async () => {
     const candidateTasks = [{
       id: 1002,
       fields: {
@@ -147,20 +140,13 @@ describe('CloseDailyTasksUseCase - Process Rule Recovery (TF401320)', () => {
     const useCase = new CloseDailyTasksUseCase(baseConfig, mockRepo, mockDatePlanning, mockGitHubClient);
     const result = await useCase.execute({ asOf: '2026-10-15', dryRun: false });
 
-    expect(result.totalClosed).toBe(1);
-    expect(result.totalFailed).toBe(0);
-    expect(patchCalls).toHaveLength(2);
-
-    // Second patch call should have used lowercase fields
-    const recoveryOps = patchCalls[1].ops;
-    const paths = recoveryOps.map((op: any) => op.path);
-    expect(paths).toContain('/fields/Custom.ActualStartdate');
-    expect(paths).toContain('/fields/Custom.ActualEnddate');
-    expect(paths).not.toContain('/fields/Custom.ActualStartDate');
-    expect(paths).not.toContain('/fields/Custom.ActualEndDate');
+    expect(result.totalClosed).toBe(0);
+    expect(result.totalFailed).toBe(1);
+    expect(patchCalls).toHaveLength(1);
+    expect(patchCalls[0].ops.some((op: any) => op.path.includes('/Custom.'))).toBe(false);
   });
 
-  it('attempts alternate casing fallback if initial recovery patch fails', async () => {
+  it('does not attempt alternate casing fallback after a rejected transition', async () => {
     const candidateTasks = [{
       id: 1003,
       fields: {
@@ -207,18 +193,12 @@ describe('CloseDailyTasksUseCase - Process Rule Recovery (TF401320)', () => {
     const useCase = new CloseDailyTasksUseCase(baseConfig, mockRepo, mockDatePlanning, mockGitHubClient);
     const result = await useCase.execute({ asOf: '2026-10-15', dryRun: false });
 
-    expect(result.totalClosed).toBe(1);
-    expect(result.totalFailed).toBe(0);
-    expect(patchCalls).toHaveLength(3);
-
-    // Third patch call should have swapped to PascalCase
-    const finalOps = patchCalls[2].ops;
-    const paths = finalOps.map((op: any) => op.path);
-    expect(paths).toContain('/fields/Custom.ActualStartDate');
-    expect(paths).toContain('/fields/Custom.ActualEndDate');
+    expect(result.totalClosed).toBe(0);
+    expect(result.totalFailed).toBe(1);
+    expect(patchCalls).toHaveLength(1);
   });
 
-  it('fills OriginalEstimate and all scheduling fields when task has none (production TF401320 scenario)', async () => {
+  it('does not invent estimate, description or actual dates to satisfy missing tenant evidence', async () => {
     // This reproduces the exact failure: task #10707242 had no Original Estimate,
     // no Actual dates, no Planned dates, and no Description
     const candidateTasks = [{
@@ -268,24 +248,14 @@ describe('CloseDailyTasksUseCase - Process Rule Recovery (TF401320)', () => {
     const useCase = new CloseDailyTasksUseCase(baseConfig, mockRepo, mockDatePlanning, mockGitHubClient);
     const result = await useCase.execute({ asOf: '2026-10-22', dryRun: false });
 
-    expect(result.totalClosed).toBe(1);
-    expect(result.totalFailed).toBe(0);
-    expect(patchCalls).toHaveLength(2);
-
-    const recoveryOps = patchCalls[1].ops;
-    const paths = recoveryOps.map((op: any) => op.path);
-
-    // Must include OriginalEstimate to satisfy the tenant rule
-    expect(paths).toContain('/fields/Microsoft.VSTS.Scheduling.OriginalEstimate');
-
-    // The Original Estimate value should default to 8 (closureCompletedWork fallback)
-    const origEstOp = recoveryOps.find((op: any) => op.path === '/fields/Microsoft.VSTS.Scheduling.OriginalEstimate');
-    expect(origEstOp.value).toBe(8);
-
-    // Must also include Description, Actual dates
-    expect(paths).toContain('/fields/System.Description');
-    expect(paths).toContain('/fields/Custom.ActualStartDate');
-    expect(paths).toContain('/fields/Custom.ActualEndDate');
+    expect(result.totalClosed).toBe(0);
+    expect(result.totalFailed).toBe(1);
+    expect(patchCalls).toHaveLength(1);
+    const paths = patchCalls[0].ops.map((op: any) => op.path);
+    expect(paths).not.toContain('/fields/Microsoft.VSTS.Scheduling.OriginalEstimate');
+    expect(paths).not.toContain('/fields/Microsoft.VSTS.Scheduling.CompletedWork');
+    expect(paths).not.toContain('/fields/System.Description');
+    expect(paths.some((value: string) => value.includes('/Custom.'))).toBe(false);
   });
 
   it('excludes people who have autoCloseEnabled set to false when running in all-members mode', async () => {
@@ -390,5 +360,50 @@ describe('CloseDailyTasksUseCase - Process Rule Recovery (TF401320)', () => {
     expect(result.totalFound).toBe(1);
     expect(result.totalClosed).toBe(1);
     expect(result.results[0].personKey).toBe('user2');
+  });
+
+  it('matches and closes candidate task strictly as per its Planned Start Date', async () => {
+    const candidateTasks = [{
+      id: 7001,
+      fields: {
+        'System.Id': 7001,
+        'System.Title': '3in1_PWA_MyAccount | Code Review and Testing',
+        'System.AssignedTo': { displayName: 'Alice Smith', uniqueName: 'alice@example.com' },
+        'System.State': 'Active',
+        'Custom.PlannedStartDate': '2026-10-15T04:00:00.000Z',
+        'Microsoft.VSTS.Scheduling.CompletedWork': 8,
+        'Microsoft.VSTS.Scheduling.RemainingWork': 0,
+      },
+    }];
+
+    const patchCalls: any[] = [];
+    const mockRepo: WorkItemRepository = {
+      validateProject: vi.fn(),
+      validateWorkItemType: vi.fn(),
+      findLatestTaskForPerson: vi.fn(),
+      discoverLatestTasksForPeople: vi.fn(),
+      getExistingTasksForPerson: vi.fn(),
+      findCandidateTasks: vi.fn().mockResolvedValue(candidateTasks),
+      getWorkItem: vi.fn().mockResolvedValue({
+        id: 7001,
+        fields: {
+          'System.State': 'Closed',
+          'System.AssignedTo': { displayName: 'Alice Smith', uniqueName: 'alice@example.com' },
+        },
+      }),
+      createWorkItemWithReconciliation: vi.fn(),
+      copyRelations: vi.fn(),
+      patchWorkItem: vi.fn().mockImplementation(async (id, ops) => {
+        patchCalls.push({ id, ops });
+        return { id, rev: 2, fields: {} };
+      }),
+    };
+
+    const useCase = new CloseDailyTasksUseCase(baseConfig, mockRepo, mockDatePlanning, mockGitHubClient);
+    const result = await useCase.execute({ asOf: '2026-10-15', dryRun: false });
+
+    expect(result.totalClosed).toBe(1);
+    expect(result.results[0].taskId).toBe(7001);
+    expect(result.results[0].status).toBe('closed');
   });
 });

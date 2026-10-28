@@ -282,17 +282,48 @@ export function parseTitleDate(
 }
 
 /**
+ * Extracts specifically the Planned Start Date from an Azure work item's fields in the specified timezone.
+ * Checks Custom.PlannedStartDate, Custom.PlannedStartdate, and Microsoft.VSTS.Scheduling.StartDate.
+ */
+export function extractWorkItemPlannedStartDate(
+  item: WorkItem,
+  timezone = 'UTC'
+): { isoDate: string; year: number } | null {
+  const fieldNames = [
+    'Custom.PlannedStartDate',
+    'Custom.PlannedStartdate',
+    'Microsoft.VSTS.Scheduling.StartDate',
+  ];
+  for (const field of fieldNames) {
+    const raw = item.fields[field];
+    if (!raw) continue;
+    const date = new Date(String(raw));
+    if (!Number.isFinite(date.getTime())) continue;
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(date);
+    const part = (type: string) => parts.find(p => p.type === type)?.value || '';
+    const isoDate = `${part('year')}-${part('month')}-${part('day')}`;
+    const year = Number(part('year'));
+    if (isoDate && !Number.isNaN(year)) {
+      return { isoDate, year };
+    }
+  }
+  return null;
+}
+
+/**
  * Extracts the recorded start/work date from an Azure work item's fields in the specified timezone.
- * Checks PlannedStartdate, PlannedStartDate, StartDate, ActualStartdate, and ActualStartDate.
+ * Checks PlannedStartDate, PlannedStartdate, StartDate, ActualStartDate, and ActualStartdate.
  */
 export function extractWorkItemRecordedDate(
   item: WorkItem,
   timezone = 'UTC'
 ): { isoDate: string; year: number } | null {
   const fieldNames = [
-    'Custom.PlannedStartdate', 'Custom.PlannedStartDate',
+    'Custom.PlannedStartDate', 'Custom.PlannedStartdate',
     'Microsoft.VSTS.Scheduling.StartDate',
-    'Custom.ActualStartdate', 'Custom.ActualStartDate',
+    'Custom.ActualStartDate', 'Custom.ActualStartdate',
   ];
   for (const field of fieldNames) {
     const raw = item.fields[field];

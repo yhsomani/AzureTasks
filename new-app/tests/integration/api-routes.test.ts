@@ -105,6 +105,44 @@ const json = async (path: string, init?: RequestInit): Promise<TestResponse> =>
   fetch(base + path, init) as unknown as Promise<TestResponse>;
 
 describe('API routes', () => {
+  it('enforces explicit read-only deployment mode before mutation handlers', async () => {
+    const isolated = new AppServer(makeDeps(), 0, { readOnly: true });
+    const port = await isolated.start();
+    try {
+      const session = await fetch(`http://127.0.0.1:${port}/api/session`);
+      const sessionBody = await session.json() as { data: { role: string } };
+      expect(sessionBody.data.role).toBe('viewer');
+      const write = await fetch(`http://127.0.0.1:${port}/api/tasks/execute`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true, all: true }),
+      });
+      expect(write.status).toBe(403);
+      const preview = await fetch(`http://127.0.0.1:${port}/api/tasks/plan`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }),
+      });
+      expect(preview.status).toBe(200);
+    } finally {
+      await isolated.stop();
+    }
+  });
+
+  it('coalesces overlapping identical Explorer requests without retaining completed responses', async () => {
+    const execute = vi.spyOn(deps.exploreTasks, 'execute');
+    const original = execute.getMockImplementation();
+    execute.mockImplementationOnce(async input => {
+      await new Promise(resolve => setTimeout(resolve, 40));
+      return original!(input);
+    });
+    const before = execute.mock.calls.length;
+    const responses = await Promise.all(Array.from({ length: 5 }, () => json('/api/explorer?preset=today')));
+    expect(responses.every(response => response.status === 200)).toBe(true);
+    expect(responses[0].headers.get('server-timing')).toMatch(/^coverage;dur=\d+(\.\d+)?$/);
+    expect(responses[0].headers.get('cache-control')).toBe('private, no-store');
+    expect(execute.mock.calls.length - before).toBe(1);
+    await json('/api/explorer?preset=today');
+    expect(execute.mock.calls.length - before).toBe(2);
+  });
+
   it('GET /api/health', async () => {
     const res = await json('/api/health');
     expect(res.status).toBe(200);

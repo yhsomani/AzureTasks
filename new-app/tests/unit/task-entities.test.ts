@@ -4,6 +4,7 @@ import { validateSourceTaskOwnership } from '../../src/domain/entities/task';
 import {
   parseTitleDate,
   parseWorkItemTaskDate,
+  extractWorkItemPlannedStartDate,
   matchesTaskSeries,
   filterCopyableRelations,
   isRelationCopyable,
@@ -362,5 +363,54 @@ describe('isUserStoryOrParentContainer', () => {
       relations: [],
     } as any;
     expect(isUserStoryOrParentContainer(leafTask)).toBe(false);
+  });
+});
+
+describe('task: extractWorkItemPlannedStartDate', () => {
+  it('extracts date from Custom.PlannedStartDate', () => {
+    const item = {
+      id: 1,
+      fields: {
+        'Custom.PlannedStartDate': '2026-10-15T04:00:00.000Z',
+      },
+    } as any;
+    const res = extractWorkItemPlannedStartDate(item, 'Asia/Kolkata');
+    expect(res).not.toBeNull();
+    expect(res?.isoDate).toBe('2026-10-15');
+    expect(res?.year).toBe(2026);
+  });
+
+  it('extracts date from Custom.PlannedStartdate (lowercase d)', () => {
+    const item = {
+      id: 2,
+      fields: {
+        'Custom.PlannedStartdate': '2026-10-20T04:00:00.000Z',
+      },
+    } as any;
+    const res = extractWorkItemPlannedStartDate(item, 'Asia/Kolkata');
+    expect(res).not.toBeNull();
+    expect(res?.isoDate).toBe('2026-10-20');
+  });
+
+  it('extracts date from Microsoft.VSTS.Scheduling.StartDate', () => {
+    const item = {
+      id: 3,
+      fields: {
+        'Microsoft.VSTS.Scheduling.StartDate': '2026-10-25T04:00:00.000Z',
+      },
+    } as any;
+    const res = extractWorkItemPlannedStartDate(item, 'Asia/Kolkata');
+    expect(res).not.toBeNull();
+    expect(res?.isoDate).toBe('2026-10-25');
+  });
+
+  it('returns null if no planned start date field exists', () => {
+    const item = {
+      id: 4,
+      fields: {
+        'System.Title': 'Task without planned start',
+      },
+    } as any;
+    expect(extractWorkItemPlannedStartDate(item)).toBeNull();
   });
 });

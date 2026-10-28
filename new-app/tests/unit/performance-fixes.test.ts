@@ -116,12 +116,12 @@ describe('Performance Fixes', () => {
       expect(batchTime).toBeLessThan(200); // Batching should be fast
     });
 
-    it('falls back to individual copies on batch failure', async () => {
+    it('does not replay relation writes after an uncertain batch failure', async () => {
       let attemptCount = 0;
       const mockClient = {
         get: vi.fn(),
         post: vi.fn(),
-        patch: vi.fn(async (url, body) => {
+        patch: vi.fn(async () => {
           attemptCount++;
           // First call (batch) fails
           if (attemptCount === 1) {
@@ -154,11 +154,9 @@ describe('Performance Fixes', () => {
 
       const result = await service.copyRelations(sourceWorkItem, 300, ['System.LinkTypes.Related']);
 
-      // Should attempt batch first, then fall back to individual
-      // Total calls: 1 (batch) + 2 (individual) = 3
-      expect(attemptCount).toBe(3);
-      expect(result.copiedCount).toBe(2);
-      expect(result.failedCount).toBe(0);
+      expect(attemptCount).toBe(1);
+      expect(result.copiedCount).toBe(0);
+      expect(result.failedCount).toBe(2);
     });
   });
 
@@ -243,6 +241,7 @@ describe('Performance Fixes', () => {
       const repo = new FileJournalRepository(journalPath);
 
       const entries: JournalEntry[] = Array.from({ length: 10 }, (_, i) => ({
+        personKey: 'sample',
         timestamp: new Date().toISOString(),
         runId: `run-${i}`,
         personName: 'Test',
@@ -274,9 +273,8 @@ describe('Performance Fixes', () => {
 
     it('respects 100ms flush interval', async () => {
       const repo = new FileJournalRepository(journalPath);
-      const writeStartTime = Date.now();
-
       const entry: JournalEntry = {
+        personKey: 'sample',
         timestamp: new Date().toISOString(),
         runId: 'run-1',
         personName: 'Test',
@@ -310,6 +308,7 @@ describe('Performance Fixes', () => {
       const repo = new FileJournalRepository(journalPath);
 
       const entries: JournalEntry[] = Array.from({ length: 5 }, (_, i) => ({
+        personKey: 'sample',
         timestamp: new Date().toISOString(),
         runId: `run-${i}`,
         personName: 'Test',
@@ -341,6 +340,7 @@ describe('Performance Fixes', () => {
       const writeTimings: number[] = [];
 
       const entries: JournalEntry[] = Array.from({ length: 100 }, (_, i) => ({
+        personKey: 'sample',
         timestamp: new Date().toISOString(),
         runId: `run-${i}`,
         personName: 'Test',
@@ -380,6 +380,7 @@ describe('Performance Fixes', () => {
       const repo = new FileJournalRepository(journalPath);
 
       const entry: JournalEntry = {
+        personKey: 'sample',
         timestamp: new Date().toISOString(),
         runId: 'run-1',
         personName: 'Test',

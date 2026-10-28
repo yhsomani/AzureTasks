@@ -18,6 +18,8 @@ import {
   parseTitleDate,
   matchesTaskSeries,
   isUserStoryOrParentContainer,
+  extractWorkItemPlannedStartDate,
+  extractWorkItemRecordedDate,
   DatePlanningService,
   AutoClosureConfigRepository,
   AutoClosureAuditLogRepository,
@@ -101,7 +103,6 @@ export class CloseDailyTasksUseCase {
     const triggerSource = input.triggerSource || 'manual';
     const targetDate = input.asOf || this.datePlanning.getTodayIso(this.config.timezone);
     const nowUtc = new Date().toISOString();
-    const runId = `close-${Date.now()}`;
 
     // Acquire concurrency lock for non-dry-run operations
     if (!isDryRun && this.lockRepo) {
@@ -181,35 +182,34 @@ export class CloseDailyTasksUseCase {
             let itemDate = '';
             const personPrefix = p.titlePrefix || activeConfig.titlePrefix;
 
-            if (matchesTaskSeries(title, personPrefix)) {
+            // Check if matches person or default series prefix
+            const matchesSeries = matchesTaskSeries(title, personPrefix);
+            const isNonPipe = !p.titlePrefix && !title.includes('|');
+
+            // If task belongs to series or is a valid non-pipe task, consider Planned Start Date
+            if (matchesSeries || isNonPipe) {
+              const plannedDate = extractWorkItemPlannedStartDate(item, activeConfig.timezone);
+              if (plannedDate) {
+                // Verify title does not contradict planned date (if title has a date, month/day must match)
+                const titleParsed = parseTitleDate(title, personPrefix, isNonPipe);
+                if (!titleParsed.isValid || titleParsed.isoDate.slice(5) === plannedDate.isoDate.slice(5)) {
+                  itemDate = plannedDate.isoDate;
+                }
+              }
+            }
+
+            if (!itemDate && matchesSeries) {
               const parsed = parseWorkItemTaskDate(item, personPrefix, activeConfig.timezone, true);
               if (parsed.isValid) itemDate = parsed.isoDate;
-            } else if (!p.titlePrefix && !title.includes('|')) {
+            } else if (!itemDate && isNonPipe) {
               const titleParsed = parseTitleDate(title, undefined, true);
               if (titleParsed.isValid) {
-                const fieldNames = [
-                  'Custom.PlannedStartdate', 'Custom.PlannedStartDate',
-                  'Microsoft.VSTS.Scheduling.StartDate',
-                  'Custom.ActualStartdate', 'Custom.ActualStartDate',
-                ];
-                for (const f of fieldNames) {
-                  const raw = item.fields[f];
-                  if (raw) {
-                    const d = new Date(String(raw));
-                    if (Number.isFinite(d.getTime())) {
-                      const parts = new Intl.DateTimeFormat('en-CA', {
-                        timeZone: activeConfig.timezone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit',
-                      }).formatToParts(d);
-                      const part = (type: string) => parts.find(pt => pt.type === type)?.value || '';
-                      const isoDate = `${part('year')}-${part('month')}-${part('day')}`;
-                      if (isoDate.slice(5) === titleParsed.isoDate.slice(5)) {
-                        itemDate = isoDate;
-                        break;
-                      }
-                    }
-                  }
+                const recorded = extractWorkItemRecordedDate(item, activeConfig.timezone);
+                if (recorded && recorded.isoDate.slice(5) === titleParsed.isoDate.slice(5)) {
+                  itemDate = recorded.isoDate;
+                } else {
+                  itemDate = titleParsed.isoDate;
                 }
-                if (!itemDate) itemDate = titleParsed.isoDate;
               }
             }
 

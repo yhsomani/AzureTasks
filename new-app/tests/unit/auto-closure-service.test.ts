@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { AutoClosureService } from '../../src/domain/services/auto-closure-service.js';
-import { AutoClosureConfig, AutoClosureRule } from '../../src/domain/entities/auto-closure-config.js';
+import { AutoClosureConfig } from '../../src/domain/entities/auto-closure-config.js';
 
 describe('AutoClosureService', () => {
   let service: AutoClosureService;

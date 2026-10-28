@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="3in1 Mission Control — inspect Azure DevOps work, review task plans, and control team automation." />
-  <title>3in1 Mission Control · 3in1 Task Studio</title>
+  <title>3in1 Task Studio</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23080f1b'/%3E%3Cg fill='none' stroke='%2366e3ed' stroke-width='1.7'%3E%3Cpath d='M5 10h8V5h14v14h-8v8H5z'/%3E%3Cpath d='M10 16l5 5L25 11'/%3E%3C/g%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
@@ -20,7 +20,7 @@
           <svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 10h8V5h14v14h-8v8H5z"/><path d="M10 16l5 5L25 11"/></svg>
         </div>
         <div class="brand-text">
-          <strong>Mission control</strong>
+          <strong>3in1 Task Studio</strong>
           <span>3in1 · Azure DevOps</span>
         </div>
       </div>
@@ -39,6 +39,7 @@
         <div class="nav-group">
           <span class="nav-group-label">Create & automate</span>
           <button type="button" class="nav-item" data-view="planner"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M8 3v4M16 3v4M4 11h16M9 16h6M12 13v6"/></svg></span><span>Plan & create</span></button>
+          <button type="button" class="nav-item" data-view="lifecycle"><span>Task lifecycle</span></button>
           <button type="button" class="nav-item" data-view="scheduler"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 3"/></svg></span><span>Scheduler</span></button>
         </div>
         <div class="nav-group">
@@ -53,7 +54,6 @@
         </div>
       </nav>
 
-      <div class="rail-context"><span class="section-kicker">Operating principle</span><p>Inspect the work.<br />Review the change.<br />Execute with confidence.</p></div>
       <div class="sidebar-footer">
         <div class="conn" id="connBadge" role="status">
           <span class="dot" id="connDot"></span>
@@ -88,12 +88,9 @@
       <section class="view active" id="view-dashboard">
         <div class="mission-briefing">
           <div class="briefing-copy">
-            <p class="briefing-eyebrow">01 / OPERATIONAL BRIEFING</p>
-            <h2>A clear picture.<br />A deliberate next move.</h2>
-            <p>Check your connection, resolve coverage gaps, and review the plan before changing remote work items.</p>
+            <h2>Work coverage</h2>
             <div class="briefing-actions"><button type="button" class="btn primary" data-view-link="planner">Review task plan <span aria-hidden="true">↗</span></button><button type="button" class="btn ghost" data-view-link="explorer">Inspect coverage</button></div>
           </div>
-          <div class="briefing-visual" aria-hidden="true"><svg viewBox="0 0 240 180" fill="none" stroke="currentColor" stroke-width="1"><circle cx="120" cy="90" r="66"/><circle cx="120" cy="90" r="44"/><path d="M120 9v162M39 90h162M73 43l94 94M73 137l94-94"/><path d="M90 90l20 20 45-45" stroke-width="3"/><circle cx="120" cy="90" r="78" stroke-dasharray="3 9"/></svg><span>INSPECT / REVIEW / EXECUTE</span></div>
         </div>
         <div class="grid cols-4 mission-metrics">
           <article class="card kpi"><span class="kpi-label">Connection</span><span class="kpi-value" id="kpiConn">—</span><span class="kpi-hint" id="kpiConnHint">Azure DevOps</span></article>
@@ -104,12 +101,12 @@
         <div class="dashboard-layout">
           <div class="dashboard-primary">
             <article class="card">
-              <header class="card-head"><div><p class="section-kicker">ATTENTION QUEUE</p><h2>Smart Insights</h2></div><span class="pill" id="insightsCountBadge">Coverage signals</span></header>
+              <header class="card-head"><div><h2>Needs attention</h2></div><span class="pill" id="insightsCountBadge">Coverage signals</span></header>
               <div id="insightsContainer"><p class="muted">Loading insights…</p></div>
             </article>
             <article class="card">
-              <header class="card-head"><div><p class="section-kicker">NEXT REVIEWED ACTION</p><h2>Today's plan</h2></div><button class="btn small ghost" data-view-link="planner">Open planner</button></header>
-              <div id="dashboardPlan" class="plan-preview"><p class="muted">Loading plan…</p></div>
+              <header class="card-head"><div><h2>Current-week coverage</h2></div><button class="btn small ghost" data-view-link="planner">Open planner</button></header>
+              <div id="dashboardPlan" class="plan-preview"><p class="muted">Loading coverage...</p></div>
               <div class="action-dock">
                 <p class="muted small">Preview first. Creation requires your confirmation.</p>
                 <div class="row gap m-0">
@@ -158,12 +155,11 @@
 
       <!-- 2. DAILY BURNDOWN VIEW -->
       <section class="view" id="view-burndown">
-        <div class="workspace-intro"><div><p class="section-kicker">EFFORT OBSERVATORY / 02</p><h2>The month, in perspective.</h2></div><p class="muted">Inspect daily allocations and recorded completion without changing tasks.</p></div>
+        <div class="workspace-intro"><div><h2>Recorded effort</h2></div></div>
         <article class="card operation-panel">
           <header class="card-head">
             <div>
-              <h2>Daily work &amp; burndown matrix</h2>
-              <p class="muted small">Monthly work tracking, completed hours, and daily effort allocation</p>
+              <h2>Monthly records</h2>
             </div>
             <div class="row gap" style="margin: 0;">
               <label class="field"><span>Reporting month</span><input type="month" id="burndownMonthSelector" /></label>
@@ -181,16 +177,15 @@
       <section class="view" id="view-mywork">
         <div class="workspace-layout">
         <aside class="workspace-controls card">
-          <p class="section-kicker">PERSONAL WORKSPACE / 03</p><h2>Focus on one person.</h2><p class="muted">Choose a team member to review assignments, completion, and linked work items.</p>
+          <h2>Member scope</h2>
           <label class="field" for="myWorkPersonSelect"><span>Team member</span><select id="myWorkPersonSelect"></select></label>
           <button class="btn ghost" id="myWorkRefreshBtn">Refresh personal work</button>
-          <div class="mission-footer"><span>INSPECT, THEN ACT</span><p>Need to fill a gap? Review the task plan before creating work.</p><button type="button" class="btn ghost small" data-view-link="planner">Open planner</button></div>
+          <button type="button" class="btn ghost small" data-view-link="planner">Review task plan</button>
         </aside>
         <article class="card workspace-content">
           <header class="card-head">
             <div>
-              <p class="section-kicker">ASSIGNMENTS &amp; PROGRESS</p><h2>My work dashboard</h2>
-              <p class="muted small">Personalized task assignment, completion status, and quick links</p>
+              <h2>Assignments</h2>
             </div>
           </header>
           <div id="myWorkContainer"><p class="muted">Loading personal tasks...</p></div>
@@ -200,7 +195,7 @@
 
       <!-- 4. TASK EXPLORER VIEW -->
       <section class="view" id="view-explorer">
-        <div class="workspace-intro"><div><p class="section-kicker">COVERAGE INTELLIGENCE / 04</p><h2>Find the gaps before they become work.</h2></div><p class="muted">Set your scope. Inspect coverage. Review any missing tasks before creation.</p></div>
+        <div class="workspace-intro"><div><h2>Task coverage</h2></div></div>
         <div class="workspace-layout">
         <article class="card workspace-controls">
           <header class="card-head">
@@ -314,15 +309,13 @@
 
       <!-- 5. PLANNER VIEW -->
       <section class="view" id="view-planner">
-        <div class="workspace-intro"><div><p class="section-kicker">CREATION WORKSPACE / 05</p><h2>Build the plan. Then make the call.</h2></div><p class="muted">A deliberate sequence from team selection to confirmed creation.</p></div>
-        <div class="workflow-note" role="note"><strong>Preview before creating.</strong> Choose team members and a date window, review what will change, then confirm creation. No remote work items are changed by a preview.</div>
+        <div class="workspace-intro"><div><h2>Creation scope</h2></div></div>
         <!-- Configuration & Controls -->
         <div class="workspace-layout">
         <article class="card workspace-controls">
           <header class="card-head">
             <div>
-              <p class="step-label">01 / DEFINE THE SCOPE</p><h2>Task planner</h2>
-              <p class="muted small">Plan, preview, and safely execute rolling daily task creation with concurrency guards and duplicate prevention</p>
+              <h2>Members and dates</h2>
             </div>
             <div class="row gap m-0">
               <button class="btn ghost small" id="openAdHocModalBtn">Create ad-hoc task</button>
@@ -397,15 +390,39 @@
         </div>
       </section>
 
+      <section class="view" id="view-lifecycle">
+        <div class="workspace-layout">
+          <div class="workspace-controls">
+            <h2>Transition scope</h2>
+            <p id="lifecycleWorkday" class="muted" role="status">Loading workday...</p>
+            <div class="field"><span>Team members</span><div id="lifecycleMembers" class="row wrap" role="group" aria-label="Lifecycle team members"></div></div>
+            <div class="row wrap"><button type="button" class="btn ghost small" id="lifecycleSelectAll">Select all enabled</button><button type="button" class="btn ghost small" id="lifecycleClear">Clear selection</button></div>
+            <p id="lifecycleScopeStatus" class="muted" role="status">No members selected</p>
+          </div>
+          <div class="workspace-content">
+            <article class="card">
+              <header class="card-head"><h2>Activate tasks</h2></header>
+              <p class="muted">Current-workday tasks move to Active. Existing descriptions and recorded work values are preserved.</p>
+              <div class="action-dock"><button type="button" class="btn primary" id="lifecycleActivatePreview">Preview activation</button></div>
+            </article>
+            <article class="card">
+              <header class="card-head"><h2>Close tasks</h2></header>
+              <p class="muted">Current-workday tasks move to Closed with remaining work set to zero. Recorded completed hours and actual dates are preserved.</p>
+              <div class="action-dock"><button type="button" class="btn ghost" id="lifecycleClosePreview">Preview closure</button></div>
+            </article>
+            <div class="action-dock"><button type="button" class="btn ghost" data-view-link="journal">Review recorded operations</button></div>
+          </div>
+        </div>
+      </section>
+
       <!-- 6. TEAM MANAGEMENT VIEW -->
       <section class="view" id="view-people">
         <div class="workspace-layout">
-        <aside class="workspace-controls card"><p class="section-kicker">TEAM CONFIGURATION / 06</p><h2>The people behind the plan.</h2><p class="muted">Maintain the identities and source-task mappings used for daily creation.</p><div class="mission-footer"><span>CONFIGURATION ONLY</span><p>Save roster changes explicitly. Saving a team never creates remote work items.</p><button type="button" class="btn ghost small" data-view-link="planner">Review the team plan</button></div></aside>
+        <aside class="workspace-controls card"><h2>Roster</h2><button type="button" class="btn ghost small" data-view-link="planner">Review team plan</button></aside>
         <article class="card workspace-content">
           <header class="card-head">
             <div>
-              <p class="section-kicker">ROSTER EDITOR</p><h2>Team members (people.json)</h2>
-              <p class="muted small">Configured identities for multi-person daily task automation</p>
+              <h2>Team members</h2>
             </div>
             <button class="btn primary small" id="addPersonBtn">Add member</button>
           </header>
@@ -421,7 +438,7 @@
 
       <!-- 7. AUDIT LOG (JOURNAL) VIEW -->
       <section class="view" id="view-journal">
-        <div class="workspace-intro"><div><p class="section-kicker">EXECUTION LEDGER / 07</p><h2>Every operation leaves a trail.</h2></div><p class="muted">Inspect recorded outcomes before repairing incomplete relationships.</p></div>
+        <div class="workspace-intro"><div><h2>Recorded operations</h2></div></div>
         <article class="card">
           <header class="card-head">
             <div>
@@ -447,7 +464,7 @@
 
       <!-- 8. SCHEDULER VIEW -->
       <section class="view" id="view-scheduler">
-        <div class="workspace-intro"><div><p class="section-kicker">AUTOMATION CONTROL / 08</p><h2>Three distinct workflows. Explicit control.</h2></div><p class="muted">Creation, mid-day activation, and end-of-day closure are isolated remote operations with separate schedules and dry-run safety.</p></div>
+        <div class="workspace-intro"><div><h2>Scheduled operations</h2></div></div>
         <div class="automation-grid">
         <div class="operation-panel">
         <div class="operation-head"><span class="panel-index">01</span><div><p class="section-kicker">CREATE UPCOMING WORK</p><h2>Daily task creation</h2></div></div>
@@ -628,7 +645,7 @@
 
       <!-- 9. LOGS VIEW -->
       <section class="view" id="view-logs">
-        <div class="workspace-intro"><div><p class="section-kicker">OPERATIONAL STREAM / 09</p><h2>Follow the execution.</h2></div><button type="button" class="btn ghost" data-view-link="journal">Open item-level audit</button></div>
+        <div class="workspace-intro"><div><h2>Operational events</h2></div><button type="button" class="btn ghost" data-view-link="journal">Open item-level audit</button></div>
         <article class="card operation-panel">
           <header class="card-head"><h2>Live logs</h2><span class="pill" id="logStatus" role="status" aria-live="polite">Connecting…</span></header>
           <p class="muted small">Operational events only. For item-level execution history, open the Audit log.</p>
@@ -654,7 +671,7 @@
 
       <!-- 10. SETTINGS VIEW -->
       <section class="view" id="view-settings">
-        <div class="workspace-intro"><div><p class="section-kicker">WORKSPACE CONFIGURATION / 10</p><h2>Establish a trusted connection.</h2></div><p class="muted">Workspace settings, access credentials, and maintenance in one controlled space.</p></div>
+        <div class="workspace-intro"><div><h2>Workspace configuration</h2></div></div>
         <div class="workspace-layout">
         <aside class="workspace-controls">
         <div class="settings-setup" id="settingsSetupGuide" role="note">

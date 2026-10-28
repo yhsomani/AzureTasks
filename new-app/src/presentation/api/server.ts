@@ -61,7 +61,11 @@ export class AppServer {
   private app: express.Application;
   private server: http.Server;
 
-  constructor(private deps: ApiDependencies, private port: number = 3000) {
+  constructor(
+    private deps: ApiDependencies,
+    private port: number = 3000,
+    private readonly options: { readOnly?: boolean } = {}
+  ) {
     this.app = express();
     this.server = http.createServer(this.app);
     
@@ -134,6 +138,16 @@ export class AppServer {
     }
 
     this.app.use(express.json({ limit: '1mb' }));
+    if (this.options.readOnly) {
+      this.app.use('/api', (req, res, next) => {
+        (req as express.Request & { authRole?: string }).authRole = 'viewer';
+        const read = ['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+        const preview = req.method === 'POST' && (req.path === '/tasks/plan' ||
+          (['/tasks/close-today', '/tasks/activate-today'].includes(req.path) && req.body?.dryRun === true));
+        if (read || preview) return next();
+        return res.status(403).json({ success: false, error: 'This server is running in read-only mode.' });
+      });
+    }
 
     // API
     this.app.use('/api', createApiRouter(this.deps));

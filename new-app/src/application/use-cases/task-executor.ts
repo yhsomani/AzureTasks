@@ -55,7 +55,7 @@ export class TaskExecutor {
   ): Promise<boolean> {
     if (relationFailures > 0) return false;
     try {
-      const actual = await this.workItemRepo.getWorkItem(id);
+      const actual = await this.workItemRepo.getWorkItem(id, { fresh: true });
       const expectedStart = zonedTimeToUtcIso(
         targetIsoDate, this.config.startTime, this.config.timezone
       );

@@ -74,9 +74,9 @@ describe('Explorer selection and data integrity', () => {
       return urls;
     })()`, context);
     expect(result).toHaveLength(2);
-    expect(result.some(url => url.includes('users=alice'))).toBe(true);
-    expect(result.some(url => url.includes('users=bob'))).toBe(true);
-    expect(result.every(url => !url.includes('alice%2Cbob'))).toBe(true);
+    expect(result.some((url: string) => url.includes('users=alice'))).toBe(true);
+    expect(result.some((url: string) => url.includes('users=bob'))).toBe(true);
+    expect(result.every((url: string) => !url.includes('alice%2Cbob'))).toBe(true);
   });
 
 });

@@ -5,11 +5,13 @@
 
 import { WorkItemRepository, AppConfig } from '../../domain/ports/repositories.js';
 import { Person, PersonConfig, matchesPerson } from '../../domain/entities/person.js';
+import { workdayEligibility } from '../../domain/services/work-calendar.js';
 import {
   WorkItem,
   parseWorkItemTaskDate,
   parseTitleDate,
   matchesTaskSeries,
+  extractWorkItemPlannedStartDate,
   extractWorkItemRecordedDate,
   isUserStoryOrParentContainer,
 } from '../../domain/entities/task.js';
@@ -21,7 +23,7 @@ import {
   formatTitleDate,
 } from '../../domain/value-objects/date-window.js';
 
-export type CellStatus = 'CREATED' | 'MISSING' | 'DUPLICATE' | 'WEEKEND_SKIP' | 'NOT_APPLICABLE';
+export type CellStatus = 'CREATED' | 'MISSING' | 'DUPLICATE' | 'WEEKEND_SKIP' | 'NOT_APPLICABLE' | 'CALENDAR_SKIP';
 
 export interface ExplorerTaskSummary {
   id: number;
@@ -318,28 +320,35 @@ export class ExploreTasksUseCase {
       for (const p of selectedPeople) {
         if (matchesPerson(assignedToVal, p)) {
           let itemDate = '';
+          const memberPrefix = p.titlePrefix || this.config.titlePrefix;
 
-          // If person has an explicit titlePrefix configured, check it first
-          if (p.titlePrefix) {
-            if (matchesTaskSeries(title, p.titlePrefix)) {
-              const parsed = parseWorkItemTaskDate(item, p.titlePrefix, timezone);
-              if (parsed.isValid) itemDate = parsed.isoDate;
-            }
-          } else {
-            // Check default series prefix
-            if (matchesTaskSeries(title, this.config.titlePrefix)) {
-              const parsed = parseWorkItemTaskDate(item, this.config.titlePrefix, timezone);
-              if (parsed.isValid) itemDate = parsed.isoDate;
-            } else if (!title.includes('|')) {
-              // Non-pipe task formats (e.g. Mukul's "23 Oct 26 - Task", "My Account Task - 21 Oct")
-              const titleParsed = parseTitleDate(title, undefined, true);
-              if (titleParsed.isValid) itemDate = titleParsed.isoDate;
+          // 1. Prioritize Planned Start Date as primary source of truth
+          const planned = extractWorkItemPlannedStartDate(item, timezone);
+          if (planned && (!title.includes('|') || (memberPrefix && matchesTaskSeries(title, memberPrefix)))) {
+            itemDate = planned.isoDate;
+          }
+
+          // 2. If no Planned Start Date, check task title series parsing
+          if (!itemDate) {
+            if (p.titlePrefix) {
+              if (matchesTaskSeries(title, p.titlePrefix)) {
+                const parsed = parseWorkItemTaskDate(item, p.titlePrefix, timezone);
+                if (parsed.isValid) itemDate = parsed.isoDate;
+              }
+            } else {
+              // Check default series prefix
+              if (matchesTaskSeries(title, this.config.titlePrefix)) {
+                const parsed = parseWorkItemTaskDate(item, this.config.titlePrefix, timezone);
+                if (parsed.isValid) itemDate = parsed.isoDate;
+              } else if (!title.includes('|')) {
+                // Non-pipe task formats (e.g. Mukul's "23 Oct 26 - Task", "My Account Task - 21 Oct")
+                const titleParsed = parseTitleDate(title, undefined, true);
+                if (titleParsed.isValid) itemDate = titleParsed.isoDate;
+              }
             }
           }
 
-          // Fallback to Azure scheduling dates if not already found (PlannedStartdate, StartDate, ActualStartdate)
-          // only if task belongs to their series or has no contradictory series
-          const memberPrefix = p.titlePrefix || this.config.titlePrefix;
+          // 3. Fallback to any remaining Azure recorded dates (ActualStartDate, etc.)
           if (!itemDate && (!title.includes('|') || (memberPrefix && matchesTaskSeries(title, memberPrefix)))) {
             const recorded = extractWorkItemRecordedDate(item, timezone);
             if (recorded) {
@@ -392,8 +401,11 @@ export class ExploreTasksUseCase {
       let userRecordedCompleted = 0;
       let userUnrecordedCompleted = 0;
       let userRecordedRemaining = 0;
+      let eligibleDays = 0;
 
       for (const cal of calendarDates) {
+        const eligibility = workdayEligibility(person.key, cal.dateIso, this.config.skipWeekends !== false, this.config.calendar);
+        if (eligibility.eligible) eligibleDays++;
         const rawTasks = dateMap.get(cal.dateIso) || [];
         const taskSummaries: ExplorerTaskSummary[] = rawTasks.map((t: WorkItem) => {
           const st = String(t.fields['System.State'] || 'New');
@@ -439,6 +451,8 @@ export class ExploreTasksUseCase {
 
         if (cal.isWeekend) {
           status = 'WEEKEND_SKIP';
+        } else if (!eligibility.eligible) {
+          status = 'CALENDAR_SKIP';
         } else if (taskSummaries.length > 0) {
           if (taskSummaries.length > 1) {
             status = 'DUPLICATE';
@@ -473,7 +487,7 @@ export class ExploreTasksUseCase {
           isEligibleForCreation: isEligible,
           tasks: taskSummaries,
           primaryTask,
-          reason: cal.isWeekend ? 'Weekend' : undefined,
+          reason: eligibility.reason,
         };
 
         // Add to detailed task items
@@ -510,15 +524,15 @@ export class ExploreTasksUseCase {
         }
       }
 
-      const coveragePercent = workingDaysCount > 0
-        ? Math.min(100, Math.round((userCreated / workingDaysCount) * 100))
-        : 100;
+      const coveragePercent = eligibleDays > 0
+        ? Math.min(100, Math.round((userCreated / eligibleDays) * 100))
+        : 0;
 
       matrix.push({
         person: person.toConfig(),
         cells,
         stats: {
-          totalWorkingDays: workingDaysCount,
+          totalWorkingDays: eligibleDays,
           createdCount: userCreated,
           missingCount: userMissing,
           duplicateCount: userDuplicates,
@@ -546,10 +560,10 @@ export class ExploreTasksUseCase {
       overallStateCounts.Other += userStateCounts.Other || 0;
     }
 
-    const expectedCombinations = selectedPeople.length * workingDaysCount;
+    const expectedCombinations = matrix.reduce((total, row) => total + row.stats.totalWorkingDays, 0);
     const overallCoveragePercent = expectedCombinations > 0
       ? Math.min(100, Math.round((overallCreated / expectedCombinations) * 100))
-      : 100;
+      : 0;
 
     return {
       dateRange: {

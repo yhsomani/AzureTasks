@@ -198,11 +198,12 @@ export class FileConfigRepository implements ConfigRepository {
       schedulerEnabled: config.schedulerEnabled ?? false,
       schedulerAutoStart: config.schedulerAutoStart ?? false,
       scheduleTime: config.scheduleTime ?? config.startTime ?? '09:30',
-      autoActive: config.autoActive ?? true,
+      autoActive: config.autoActive === true,
       autoActiveTime: config.autoActiveTime ?? '17:30',
       githubOrg: config.githubOrg,
       githubUserSuffix: config.githubUserSuffix,
       githubApiUrl: config.githubApiUrl,
+      calendar: config.calendar,
       people: config.people,
     };
     if (config.lastAutoClose !== undefined) data.lastAutoClose = config.lastAutoClose;
@@ -230,7 +231,7 @@ export class FileConfigRepository implements ConfigRepository {
       'workItemType', 'titlePrefix', 'schedulerEnabled', 'schedulerAutoStart',
       'scheduleTime', 'autoClose', 'autoCloseStartTime', 'autoCloseEndTime',
       'lastAutoClose', 'autoActive', 'autoActiveTime', 'lastAutoActive',
-      'githubOrg', 'githubUserSuffix', 'githubApiUrl',
+      'githubOrg', 'githubUserSuffix', 'githubApiUrl', 'calendar',
     ] as const;
     for (const key of keys) {
       if (settings[key] !== undefined) data[key] = settings[key];
@@ -311,7 +312,7 @@ export class FileConfigRepository implements ConfigRepository {
       autoClose: false,
       autoCloseStartTime: '18:15',
       autoCloseEndTime: '18:45',
-      autoActive: true,
+      autoActive: false,
       autoActiveTime: '17:30',
       copyEstimates: true,
       resetActualWork: true,

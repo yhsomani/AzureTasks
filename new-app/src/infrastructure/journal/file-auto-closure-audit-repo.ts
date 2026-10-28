@@ -12,7 +12,6 @@ import {
   AutoClosureAuditFilter,
 } from '../../domain/ports/repositories.js';
 
-const MAX_AUDIT_SIZE = 50 * 1024 * 1024;  // 50MB
 const MAX_ENTRIES = 50000;
 
 export class FileAutoClosureAuditRepository implements AutoClosureAuditLogRepository {

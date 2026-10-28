@@ -82,7 +82,9 @@
   "schedulerEnabled": false,
   "scheduleTime": "09:30",
   "schedulerAutoStart": false,
-  "autoClose": false,
+  "autoClose": true,
   "autoCloseStartTime": "18:15",
-  "autoCloseEndTime": "18:45"
+  "autoCloseEndTime": "18:45",
+  "autoActive": true,
+  "autoActiveTime": "17:30"
 }

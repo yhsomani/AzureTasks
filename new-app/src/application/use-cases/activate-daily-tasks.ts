@@ -17,7 +17,10 @@ import {
   parseTitleDate,
   matchesTaskSeries,
   isUserStoryOrParentContainer,
+  extractWorkItemPlannedStartDate,
+  extractWorkItemRecordedDate,
   DatePlanningService,
+  matchesPerson,
 } from '../../domain/index.js';
 import type { FieldPatchOperation } from '../../domain/services/task-services.js';
 import { GitHubClient } from '../../infrastructure/github/github-client.js';
@@ -61,19 +64,6 @@ export interface ActivateDailyTasksOutput {
   totalAlreadyClosed: number;
   totalFailed: number;
   results: ActivatedTaskResult[];
-}
-
-function matchesPerson(assignedTo: any, person: Person): boolean {
-  if (!assignedTo) return false;
-  const pName = (person.name || '').trim().toLowerCase();
-  const pEmail = (person.assignedTo || '').trim().toLowerCase();
-  if (typeof assignedTo === 'string') {
-    const s = assignedTo.trim().toLowerCase();
-    return Boolean((pEmail && s.includes(pEmail)) || (pName && s.includes(pName)));
-  }
-  const dName = String(assignedTo.displayName || '').trim().toLowerCase();
-  const uName = String(assignedTo.uniqueName || '').trim().toLowerCase();
-  return Boolean((pEmail && uName === pEmail) || (pName && dName === pName));
 }
 
 export class ActivateDailyTasksUseCase {
@@ -166,35 +156,34 @@ export class ActivateDailyTasksUseCase {
             let itemDate = '';
             const personPrefix = p.titlePrefix || activeConfig.titlePrefix;
 
-            if (matchesTaskSeries(title, personPrefix)) {
+            // Check if matches person or default series prefix
+            const matchesSeries = matchesTaskSeries(title, personPrefix);
+            const isNonPipe = !p.titlePrefix && !title.includes('|');
+
+            // If task belongs to series or is a valid non-pipe task, consider Planned Start Date
+            if (matchesSeries || isNonPipe) {
+              const plannedDate = extractWorkItemPlannedStartDate(item, activeConfig.timezone);
+              if (plannedDate) {
+                // Verify title does not contradict planned date (if title has a date, month/day must match)
+                const titleParsed = parseTitleDate(title, personPrefix, isNonPipe);
+                if (!titleParsed.isValid || titleParsed.isoDate.slice(5) === plannedDate.isoDate.slice(5)) {
+                  itemDate = plannedDate.isoDate;
+                }
+              }
+            }
+
+            if (!itemDate && matchesSeries) {
               const parsed = parseWorkItemTaskDate(item, personPrefix, activeConfig.timezone, true);
               if (parsed.isValid) itemDate = parsed.isoDate;
-            } else if (!p.titlePrefix && !title.includes('|')) {
+            } else if (!itemDate && isNonPipe) {
               const titleParsed = parseTitleDate(title, undefined, true);
               if (titleParsed.isValid) {
-                const fieldNames = [
-                  'Custom.PlannedStartdate', 'Custom.PlannedStartDate',
-                  'Microsoft.VSTS.Scheduling.StartDate',
-                  'Custom.ActualStartdate', 'Custom.ActualStartDate',
-                ];
-                for (const f of fieldNames) {
-                  const raw = item.fields[f];
-                  if (raw) {
-                    const d = new Date(String(raw));
-                    if (Number.isFinite(d.getTime())) {
-                      const parts = new Intl.DateTimeFormat('en-CA', {
-                        timeZone: activeConfig.timezone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit',
-                      }).formatToParts(d);
-                      const part = (type: string) => parts.find(pt => pt.type === type)?.value || '';
-                      const isoDate = `${part('year')}-${part('month')}-${part('day')}`;
-                      if (isoDate.slice(5) === titleParsed.isoDate.slice(5)) {
-                        itemDate = isoDate;
-                        break;
-                      }
-                    }
-                  }
+                const recorded = extractWorkItemRecordedDate(item, activeConfig.timezone);
+                if (recorded && recorded.isoDate.slice(5) === titleParsed.isoDate.slice(5)) {
+                  itemDate = recorded.isoDate;
+                } else {
+                  itemDate = titleParsed.isoDate;
                 }
-                if (!itemDate) itemDate = titleParsed.isoDate;
               }
             }
 
@@ -293,7 +282,7 @@ export class ActivateDailyTasksUseCase {
               isToday: false,
               pullRequests: [],
               htmlDescription: `<div><p>Task activated on ${targetDate}. Work in progress.</p></div>`,
-              summaryText: 'Activated at 5:30 PM; work in progress.',
+              summaryText: 'GitHub evidence unavailable.',
             };
           }
 
@@ -309,13 +298,8 @@ export class ActivateDailyTasksUseCase {
             { op: 'add', path: '/fields/System.State', value: 'Active' },
             {
               op: 'add',
-              path: '/fields/System.Description',
-              value: prDeliverables.htmlDescription || `<div><p>Task activated on ${targetDate}. ${prDeliverables.summaryText}</p></div>`,
-            },
-            {
-              op: 'add',
               path: '/fields/System.History',
-              value: `Task moved to Active state at 17:30 (${nowUtc}). ${prDeliverables.summaryText}`,
+              value: `Task activation requested at ${nowUtc}. Existing description and recorded work values preserved.`,
             },
           ];
 
@@ -323,64 +307,13 @@ export class ActivateDailyTasksUseCase {
           let verified = false;
 
           if (!isDryRun) {
-            try {
-              await this.workItemRepo.patchWorkItem(taskId, ops, { bypassRules: false });
-            } catch (patchErr: any) {
-              const errStr = String(patchErr?.message || '');
-              // If tenant requires ActualStartDate or Planned dates when moving to Active
-              if (errStr.includes('TF401320') || errStr.toLowerCase().includes('rule error')) {
-                logger.info(`Applying compliant activation fields for task #${taskId} to satisfy tenant process rules...`);
-                const ruleOps = [...ops];
+            await this.workItemRepo.patchWorkItem(taskId, ops, { bypassRules: false });
 
-                const hasActualStart = Boolean(item.fields['Custom.ActualStartdate'] || item.fields['Custom.ActualStartDate']);
-                const fieldKeys = Object.keys(item.fields || {});
-                const hasPascalField = fieldKeys.some(
-                  k => k === 'Custom.ActualStartDate' || k === 'Custom.PlannedStartDate'
-                );
-                const hasLowerField = fieldKeys.some(
-                  k => k === 'Custom.ActualStartdate' || k === 'Custom.PlannedStartdate'
-                );
-                const prefersPascalCase = hasPascalField || (!hasLowerField && fieldKeys.some(k => k.startsWith('Custom.') && k.endsWith('Date')));
-
-                const startField = prefersPascalCase ? 'Custom.ActualStartDate' : 'Custom.ActualStartdate';
-                const plannedStartField = prefersPascalCase ? 'Custom.PlannedStartDate' : 'Custom.PlannedStartdate';
-
-                if (!hasActualStart) {
-                  ruleOps.push({ op: 'add', path: `/fields/${startField}`, value: String(plannedStart || `${targetDate}T04:00:00Z`) });
-                }
-
-                const hasPlannedStart = Boolean(
-                  item.fields['Custom.PlannedStartdate'] || item.fields['Custom.PlannedStartDate'] ||
-                  item.fields['Microsoft.VSTS.Scheduling.StartDate']
-                );
-                if (!hasPlannedStart) {
-                  ruleOps.push({ op: 'add', path: `/fields/${plannedStartField}`, value: `${targetDate}T04:00:00Z` });
-                  ruleOps.push({ op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.StartDate', value: `${targetDate}T04:00:00Z` });
-                }
-
-                try {
-                  await this.workItemRepo.patchWorkItem(taskId, ruleOps, { bypassRules: false });
-                } catch (retryErr: any) {
-                  // Invert casing if needed
-                  const alternateOps = ruleOps.map(op => {
-                    if (op.path === '/fields/Custom.ActualStartdate') return { ...op, path: '/fields/Custom.ActualStartDate' };
-                    if (op.path === '/fields/Custom.ActualStartDate') return { ...op, path: '/fields/Custom.ActualStartdate' };
-                    if (op.path === '/fields/Custom.PlannedStartdate') return { ...op, path: '/fields/Custom.PlannedStartDate' };
-                    if (op.path === '/fields/Custom.PlannedStartDate') return { ...op, path: '/fields/Custom.PlannedStartdate' };
-                    return op;
-                  });
-                  await this.workItemRepo.patchWorkItem(taskId, alternateOps, { bypassRules: false });
-                }
-              } else {
-                throw patchErr;
-              }
-            }
-
-            logger.info(`Activated task #${taskId} for ${person.name} with updated description.`);
+            logger.info(`Activated task #${taskId} for ${person.name}; preserved recorded fields.`);
             totalActivated++;
 
             try {
-              const current = await this.workItemRepo.getWorkItem(taskId);
+              const current = await this.workItemRepo.getWorkItem(taskId, { fresh: true });
               verified = current.id === taskId &&
                 String(current.fields['System.State'] || '').trim().toLowerCase() === 'active' &&
                 matchesPerson(current.fields['System.AssignedTo'], person);

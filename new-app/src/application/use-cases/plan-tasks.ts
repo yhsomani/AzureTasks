@@ -135,7 +135,8 @@ export class PlanTasksUseCase {
         thursdayMode,
         this.config.skipWeekends,
         this.config.stopDayOfWeek,
-        this.duplicateDetector
+        this.duplicateDetector,
+        this.config.calendar
       );
 
       const toCreate = plan.plannedDates.filter(d => d.status === 'PLANNED');

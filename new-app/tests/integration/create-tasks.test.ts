@@ -340,9 +340,9 @@ describe('CreateTasksUseCase (integration, fake repo)', () => {
   });
 
   it('skips task creation when a task already exists for a planned date (duplicate prevention)', async () => {
-    const repo = new FakeWorkItemRepo(true);
-    // Pretend a task already exists for TODAY
-    repo.existingByDate.set(TODAY, { id: 9999, title: `3in1_PWA_MyAccount | ${TODAY}`, isoDate: TODAY });
+    const repo = new FakeWorkItemRepo(true, new Map([
+      [TODAY, { id: 9999, title: `3in1_PWA_MyAccount | ${TODAY}`, isoDate: TODAY }],
+    ]));
 
     const result = await build(repo).execute({ all: true, asOf: TODAY, yes: true });
     

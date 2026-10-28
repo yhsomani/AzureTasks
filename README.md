@@ -31,6 +31,7 @@ CI runs these checks for the supported application.
 
 ## Documentation
 
+- [Project Master Plan: target product and implementation authority](new-app/docs/PROJECT_MASTER_PLAN.md)
 - [Product direction and feature decisions](new-app/docs/PRODUCT_DIRECTION.md)
 - [Setup, commands, deployment, and security](new-app/README.md)
 - [Historical product requirements (not current release contract)](new-app/PRD.md)

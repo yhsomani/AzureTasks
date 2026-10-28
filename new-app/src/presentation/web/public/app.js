@@ -13,6 +13,7 @@ const state = {
   teamDirty: false,
   teamSaving: false,
   selectedKeys: new Set(),
+  lifecycleKeys: new Set(),
   explorerData: null,
   selectedExplorerKeys: new Set(),
   burndownData: null,
@@ -28,6 +29,9 @@ const state = {
   isExecuting: false,
   cache: new Map(), // SWR client-side cache
   abortControllers: new Map(), // Per-key abort controllers for active requests
+  pendingReads: new Map(),
+  latestReads: new Map(),
+  readGeneration: 0,
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -40,77 +44,82 @@ const api = {
    */
   async get(url, options = {}) {
     const { swr = false, maxAgeMs = 30000, abortKey = null, forceFresh = false } = options;
-
-    if (abortKey) {
-      if (state.abortControllers.has(abortKey)) {
-        state.abortControllers.get(abortKey).abort();
-      }
-      const controller = new AbortController();
-      state.abortControllers.set(abortKey, controller);
-    }
-
     const cached = state.cache.get(url);
     const now = Date.now();
-
-    // If cache is fresh and not forced to refresh, return immediately
     if (!forceFresh && cached && (now - cached.timestamp < maxAgeMs)) {
+      state.cache.delete(url);
+      state.cache.set(url, cached);
       return cached.data;
     }
-
-    // If SWR requested and we have stale cached data, call onStale if provided and fetch in background
     if (!forceFresh && swr && cached && typeof options.onStale === 'function') {
-      try {
-        options.onStale(cached.data);
-      } catch {
-        // Silently ignore errors from user-provided onStale callback to not block fetch
-      }
+      options.onStale(cached.data);
     }
-
-    const fetchOpts = {};
-    if (abortKey && state.abortControllers.has(abortKey)) {
-      fetchOpts.signal = state.abortControllers.get(abortKey).signal;
+    const requestKey = `${url}:${state.readGeneration}:${abortKey || ''}:${forceFresh ? 'fresh' : 'ordinary'}`;
+    const pending = state.pendingReads.get(requestKey);
+    if (pending) return pending;
+    let controller;
+    if (abortKey) {
+      state.abortControllers.get(abortKey)?.abort();
+      controller = new AbortController();
+      state.abortControllers.set(abortKey, controller);
     }
-
-    try {
-      const res = await fetch(`/api${url}`, fetchOpts);
+    const generation = state.readGeneration;
+    const owner = {};
+    state.latestReads.set(url, owner);
+    const request = (async () => {
+      const res = await fetch(`/api${url}`, controller ? { signal: controller.signal } : {});
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(err.error || `HTTP ${res.status}`);
+        const error = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(error.error || `HTTP ${res.status}`);
       }
       const json = await res.json();
-      state.cache.set(url, { data: json.data, timestamp: Date.now() });
-      if (abortKey) state.abortControllers.delete(abortKey);
-      return json.data;
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        // Request was aborted by user navigation or newer query
-        if (cached) return cached.data;
-        throw err;
+      if (controller?.signal.aborted) throw new DOMException('Request superseded.', 'AbortError');
+      if (generation === state.readGeneration && state.latestReads.get(url) === owner) {
+        state.cache.delete(url);
+        state.cache.set(url, { data: json.data, timestamp: Date.now() });
+        while (state.cache.size > 50) state.cache.delete(state.cache.keys().next().value);
       }
-      if (abortKey) state.abortControllers.delete(abortKey);
-      throw err;
+      return json.data;
+    })();
+    state.pendingReads.set(requestKey, request);
+    try {
+      return await request;
+    } finally {
+      state.pendingReads.delete(requestKey);
+      if (state.latestReads.get(url) === owner) state.latestReads.delete(url);
+      if (abortKey && state.abortControllers.get(abortKey) === controller) {
+        state.abortControllers.delete(abortKey);
+      }
     }
   },
 
   async post(url, body) {
     if (state.viewerMode && !(url === '/tasks/plan' ||
-      (url === '/tasks/close-today' && body?.dryRun === true))) {
+      (['/tasks/close-today', '/tasks/activate-today'].includes(url) && body?.dryRun === true))) {
       throw new Error('Read-only viewer credentials cannot change Azure tasks, scheduling or settings.');
     }
-    const res = await fetch(`/api${url}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(err.error || `HTTP ${res.status}`);
+    const preview = url === '/tasks/plan' ||
+      (['/tasks/close-today', '/tasks/activate-today'].includes(url) && body?.dryRun === true);
+    if (!preview) api.invalidateCache();
+    try {
+      const res = await fetch(`/api${url}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const json = await res.json();
+      return json.data;
+    } finally {
+      if (!preview) api.invalidateCache();
     }
-    const json = await res.json();
-    return json.data;
   },
 
   invalidateCache(pattern) {
+    state.readGeneration += 1;
     if (!pattern) {
       state.cache.clear();
       return;
@@ -328,8 +337,9 @@ const VIEW_META = {
   mywork: ['My Work', 'Personalized task assignment, completion status, and quick links'],
   explorer: ['Task Explorer', 'Intelligent date-range coverage matrix and team work inspection'],
   planner: ['Task Planner', 'Preview creation window and execute tasks with duplicate safeguards'],
+  lifecycle: ['Task lifecycle', 'Current-workday activation and closure'],
   people: ['Team Management', 'Configured team members, roles, PODs, and source task overrides'],
-  journal: ['Audit Log', 'Cryptographic execution record of created tasks, fields, and relations'],
+  journal: ['Audit Log', 'Recorded task changes, verification and relation recovery'],
   scheduler: ['Scheduler', 'Automated weekday task generation daemon'],
   logs: ['Live Logs', 'Real-time server logs and event stream'],
   settings: ['Settings', 'Azure DevOps connection, Personal Access Token, and maintenance'],
@@ -338,7 +348,7 @@ const VIEW_META = {
 const VIEW_GROUPS = {
   dashboard: 'Overview', mywork: 'Overview',
   explorer: 'Explore work', burndown: 'Explore work',
-  planner: 'Create & automate', scheduler: 'Create & automate',
+  planner: 'Create & automate', scheduler: 'Create & automate', lifecycle: 'Create & automate',
   people: 'Manage', settings: 'Manage',
   journal: 'Monitor', logs: 'Monitor',
 };
@@ -392,6 +402,7 @@ function switchView(view) {
   if (view === 'journal') refreshJournal();
   if (view === 'scheduler') refreshScheduler();
   if (view === 'settings') fillSettings();
+  if (view === 'lifecycle') renderLifecycleScope().catch(error => toast(error.message, 'err'));
 
   // Always refresh connection status when navigating to any view
   refreshStatus();
@@ -468,21 +479,8 @@ async function refreshDashboard() {
     if ($('#kpiSchedHint')) $('#kpiSchedHint').textContent = err.message;
   });
 
-  // 3. Plan Preview: render cached or progressive skeleton
   const dp = $('#dashboardPlan');
-  if (dp && !state.dashboardPlan) {
-    dp.innerHTML = `
-      <div class="skeleton-text skeleton" style="width:60%;"></div>
-      <div class="skeleton-text skeleton" style="width:85%;"></div>
-      <div class="skeleton-text skeleton" style="width:70%;"></div>
-    `;
-  }
-  api.post('/tasks/plan', { all: true }).then(plan => {
-    state.dashboardPlan = plan;
-    renderPlanPreview(plan);
-  }).catch(err => {
-    if (dp) dp.innerHTML = `<p class="muted">${escapeHtml(err.message)}</p>`;
-  });
+  if (dp) dp.textContent = 'Loading current-week coverage...';
 
   // 4. Timeline journal
   api.get('/journal?limit=6', { swr: true, maxAgeMs: 20000 }).then(j => {
@@ -509,6 +507,12 @@ async function refreshDashboard() {
   }).then(data => {
     renderOverviewCharts(data);
     generateInsights(data);
+    if (dp) {
+      const summary = data.summary;
+      dp.textContent = summary
+        ? `${summary.existingCombinations} covered, ${summary.missingCombinations} missing, ${summary.duplicateCombinations} duplicate member-days in the current week.`
+        : 'Coverage details unavailable.';
+    }
   }).catch(err => {
     // A failed Azure read is not an empty workload or a different date range.
     // Surface the error rather than swallowing it and leaving stale statistics.
@@ -516,6 +520,7 @@ async function refreshDashboard() {
       insightsContainer.textContent = `Live task coverage unavailable: ${err.message}. Check Azure DevOps connection and permissions.`;
     }
     state.explorerData = null;
+    if (dp) dp.textContent = `Coverage unavailable: ${err.message}`;
   });
 
   // 6. Daily Pull Request Tracking
@@ -2611,7 +2616,48 @@ async function runSchedulerNow() {
   }
 }
 
+async function renderLifecycleScope() {
+  const config = await ensureConfig();
+  const members = $('#lifecycleMembers');
+  if (!members) return;
+  members.replaceChildren();
+  const enabled = config.people.filter(person => person.enabled !== false);
+  const eligible = new Set(enabled.map(person => person.key));
+  state.lifecycleKeys = new Set([...state.lifecycleKeys].filter(key => eligible.has(key)));
+  for (const person of enabled) {
+    const selected = state.lifecycleKeys.has(person.key);
+    members.append(el('button', {
+      type: 'button', class: `person-chip${selected ? ' on' : ''}`, 'aria-pressed': String(selected),
+      onclick: () => {
+        if (state.lifecycleKeys.has(person.key)) state.lifecycleKeys.delete(person.key);
+        else state.lifecycleKeys.add(person.key);
+        state.eodPreviewReadyAt = 0;
+        state.activePreviewReadyAt = 0;
+        renderLifecycleScope();
+      },
+    }, person.name));
+  }
+  const workday = $('#lifecycleWorkday');
+  if (workday) workday.textContent = `${isoDateInTimeZone(new Date(), config.timezone)} (${config.timezone})`;
+  const status = $('#lifecycleScopeStatus');
+  if (status) status.textContent = `${state.lifecycleKeys.size} of ${enabled.length} enabled members selected`;
+}
+
+function lifecycleSelection() {
+  if (state.currentView !== 'lifecycle') return { all: true };
+  const personKeys = [...state.lifecycleKeys].sort();
+  if (!personKeys.length) throw new Error('Select at least one team member for the lifecycle preview.');
+  return { personKeys };
+}
+
 async function triggerEodClosure(dryRun = false) {
+  let scope;
+  try { scope = lifecycleSelection(); } catch (error) { toast(error.message, 'warn'); return; }
+  const signature = JSON.stringify(scope);
+  if (!dryRun && state.eodPreviewScope !== signature) {
+    toast('Member scope changed. Preview EOD closure again.', 'warn');
+    return;
+  }
   if (!dryRun) {
     if (!state.eodPreviewReadyAt || Date.now() - state.eodPreviewReadyAt > 120000) {
       toast('Preview EOD closure before executing. The preview must be less than two minutes old.', 'warn');
@@ -2637,7 +2683,8 @@ async function triggerEodClosure(dryRun = false) {
   if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="muted" style="text-align:center; padding:24px;">Analyzing tasks for today...</td></tr>';
 
   try {
-    const res = await api.post('/tasks/close-today', { dryRun, all: true, confirm: !dryRun });
+    const res = await api.post('/tasks/close-today', { dryRun, ...scope, confirm: !dryRun });
+    if (dryRun) state.eodPreviewScope = signature;
     state.lastEodResult = res;
 
     if (summaryEl) {
@@ -2730,13 +2777,20 @@ async function triggerEodClosure(dryRun = false) {
 }
 
 async function triggerActivation(dryRun = false) {
+  let scope;
+  try { scope = lifecycleSelection(); } catch (error) { toast(error.message, 'warn'); return; }
+  const signature = JSON.stringify(scope);
+  if (!dryRun && state.activePreviewScope !== signature) {
+    toast('Member scope changed. Preview activation again.', 'warn');
+    return;
+  }
   if (!dryRun) {
     if (!state.activePreviewReadyAt || Date.now() - state.activePreviewReadyAt > 120000) {
       toast('Preview activation before executing. The preview must be less than two minutes old.', 'warn');
       triggerActivation(true);
       return;
     }
-    if (!window.confirm("Activate today's candidate tasks in Azure DevOps and update descriptions?")) return;
+    if (!window.confirm("Activate the tasks shown in the preview? Existing descriptions and recorded work values will be preserved.")) return;
     state.activePreviewReadyAt = 0;
   } else {
     state.activePreviewReadyAt = 0;
@@ -2756,7 +2810,8 @@ async function triggerActivation(dryRun = false) {
   if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center; padding:24px;">Analyzing tasks for today...</td></tr>';
 
   try {
-    const res = await api.post('/tasks/activate-today', { dryRun, all: true, confirm: !dryRun });
+    const res = await api.post('/tasks/activate-today', { dryRun, ...scope, confirm: !dryRun });
+    if (dryRun) state.activePreviewScope = signature;
     state.lastActiveResult = res;
 
     if (summaryEl) {
@@ -2782,7 +2837,7 @@ async function triggerActivation(dryRun = false) {
 
           let statusBadge;
           if (r.status === 'activated') {
-            statusBadge = el('span', { class: 'pill ok' }, 'Activated & Updated');
+            statusBadge = el('span', { class: 'pill ok' }, r.verified ? 'Activation verified' : 'Accepted; verification pending');
           } else if (r.status === 'simulated') {
             statusBadge = el('span', { class: 'state-pill ready-activate' }, 'Ready to Activate');
           } else if (r.status === 'already_active') {
@@ -2804,7 +2859,7 @@ async function triggerActivation(dryRun = false) {
               el('div', {}, prBadge),
               el('div', { class: 'muted small', style: 'max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' }, r.summaryText),
             ]),
-            el('td', {}, el('span', { class: 'pill muted' }, r.initialState || 'New')),
+            el('td', {}, el('span', { class: 'pill muted' }, r.previousState || 'Not recorded')),
             el('td', {}, statusBadge),
           ]);
           tbody.append(tr);
@@ -3470,6 +3525,21 @@ function wire() {
   $('#activeSaveConfigBtn')?.addEventListener('click', saveActiveSchedulerConfig);
 
   // Daily Activation (5:30 PM) triggers
+  $('#lifecycleActivatePreview')?.addEventListener('click', () => triggerActivation(true));
+  $('#lifecycleClosePreview')?.addEventListener('click', () => triggerEodClosure(true));
+  $('#lifecycleSelectAll')?.addEventListener('click', async () => {
+    const config = await ensureConfig();
+    state.lifecycleKeys = new Set(config.people.filter(person => person.enabled !== false).map(person => person.key));
+    state.eodPreviewReadyAt = 0;
+    state.activePreviewReadyAt = 0;
+    renderLifecycleScope();
+  });
+  $('#lifecycleClear')?.addEventListener('click', () => {
+    state.lifecycleKeys.clear();
+    state.eodPreviewReadyAt = 0;
+    state.activePreviewReadyAt = 0;
+    renderLifecycleScope();
+  });
   $('#activateTodayTasksBtn')?.addEventListener('click', () => triggerActivation(true));
   $('#dashboardActivateTodayBtn')?.addEventListener('click', () => triggerActivation(true));
   $('#plannerActivateTodayBtn')?.addEventListener('click', () => triggerActivation(true));
@@ -3587,7 +3657,7 @@ function applyViewerMode() {
     '#executeBtn', '#openAdHocModalBtn', '#btnSubmitAdHocTask', '#explorerCreateMissingBtn',
     '#savePeopleBtn', '#addPersonBtn',
     '#schedSaveConfigBtn', '#schedRunNowBtn', '#eodSaveConfigBtn',
-    '#btnExecuteEodConfirmed', '#saveSettingsBtn', '#savePatBtn',
+    '#btnExecuteEodConfirmed', '#btnExecuteActiveConfirmed', '#activeSaveConfigBtn', '#saveSettingsBtn', '#savePatBtn',
     '#saveGhSettingsBtn', '#journalRepairBtn', '#btnRepairAll',
   ].forEach(selector => {
     const button = $(selector);
