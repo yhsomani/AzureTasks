@@ -287,4 +287,108 @@ describe('CloseDailyTasksUseCase - Process Rule Recovery (TF401320)', () => {
     expect(paths).toContain('/fields/Custom.ActualStartDate');
     expect(paths).toContain('/fields/Custom.ActualEndDate');
   });
+
+  it('excludes people who have autoCloseEnabled set to false when running in all-members mode', async () => {
+    const configWithExclusions: AppConfig = {
+      ...baseConfig,
+      people: [
+        {
+          key: 'user1',
+          name: 'Alice Smith',
+          assignedTo: 'alice@example.com',
+          enabled: true,
+          autoCloseEnabled: true,
+        },
+        {
+          key: 'user2',
+          name: 'Bob Jones',
+          assignedTo: 'bob@example.com',
+          enabled: true,
+          autoCloseEnabled: false,
+        },
+      ],
+    };
+
+    const mockRepo: any = {
+      findCandidateTasks: vi.fn().mockResolvedValue([
+        {
+          id: 2001,
+          fields: {
+            'System.Id': 2001,
+            'System.Title': '3in1_PWA_MyAccount | 15 Oct',
+            'System.AssignedTo': { displayName: 'Alice Smith', uniqueName: 'alice@example.com' },
+            'System.State': 'Active',
+            'Custom.PlannedStartDate': '2026-10-15T04:00:00.000Z',
+            'Microsoft.VSTS.Scheduling.CompletedWork': 8,
+            'Microsoft.VSTS.Scheduling.RemainingWork': 0,
+          },
+        },
+        {
+          id: 2002,
+          fields: {
+            'System.Id': 2002,
+            'System.Title': '3in1_PWA_MyAccount | 15 Oct',
+            'System.AssignedTo': { displayName: 'Bob Jones', uniqueName: 'bob@example.com' },
+            'System.State': 'Active',
+            'Custom.PlannedStartDate': '2026-10-15T04:00:00.000Z',
+            'Microsoft.VSTS.Scheduling.CompletedWork': 8,
+            'Microsoft.VSTS.Scheduling.RemainingWork': 0,
+          },
+        },
+      ]),
+      patchWorkItem: vi.fn().mockResolvedValue({ id: 2001, fields: { 'System.State': 'Closed' } }),
+      getWorkItem: vi.fn().mockResolvedValue({ id: 2001, fields: { 'System.State': 'Closed' } }),
+    };
+
+    const useCase = new CloseDailyTasksUseCase(configWithExclusions, mockRepo, mockDatePlanning, mockGitHubClient);
+    const result = await useCase.execute({ asOf: '2026-10-15', dryRun: false });
+
+    // Only Alice Smith should be closed; Bob Jones is excluded because autoCloseEnabled is false
+    expect(result.totalFound).toBe(1);
+    expect(result.totalClosed).toBe(1);
+    expect(result.results[0].personKey).toBe('user1');
+    expect(mockRepo.patchWorkItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows explicitly closing an excluded member when personKeys is provided', async () => {
+    const configWithExclusions: AppConfig = {
+      ...baseConfig,
+      people: [
+        {
+          key: 'user2',
+          name: 'Bob Jones',
+          assignedTo: 'bob@example.com',
+          enabled: true,
+          autoCloseEnabled: false,
+        },
+      ],
+    };
+
+    const mockRepo: any = {
+      findCandidateTasks: vi.fn().mockResolvedValue([
+        {
+          id: 2002,
+          fields: {
+            'System.Id': 2002,
+            'System.Title': '3in1_PWA_MyAccount | 15 Oct',
+            'System.AssignedTo': { displayName: 'Bob Jones', uniqueName: 'bob@example.com' },
+            'System.State': 'Active',
+            'Custom.PlannedStartDate': '2026-10-15T04:00:00.000Z',
+            'Microsoft.VSTS.Scheduling.CompletedWork': 8,
+            'Microsoft.VSTS.Scheduling.RemainingWork': 0,
+          },
+        },
+      ]),
+      patchWorkItem: vi.fn().mockResolvedValue({ id: 2002, fields: { 'System.State': 'Closed' } }),
+      getWorkItem: vi.fn().mockResolvedValue({ id: 2002, fields: { 'System.State': 'Closed' } }),
+    };
+
+    const useCase = new CloseDailyTasksUseCase(configWithExclusions, mockRepo, mockDatePlanning, mockGitHubClient);
+    const result = await useCase.execute({ asOf: '2026-10-15', personKeys: ['user2'], dryRun: false });
+
+    // Explicit manual execution includes Bob Jones even if autoCloseEnabled is false
+    expect(result.totalFound).toBe(1);
+    expect(result.totalClosed).toBe(1);
+    expect(result.results[0].personKey).toBe('user2');
+  });
 });

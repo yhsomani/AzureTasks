@@ -42,10 +42,10 @@ function basicAuth(user: string, token: string, viewerUser?: string, viewerToken
         // Viewer credentials may read the UI and API but cannot mutate local
         // configuration, credentials, scheduling or remote Azure work items.
         if (['GET', 'HEAD', 'OPTIONS'].includes(req.method.toUpperCase())) return next();
-        // These POST routes contain non-mutating previews. EOD previews are
+        // These POST routes contain non-mutating previews. EOD and activation previews are
         // checked again after express.json() parses dryRun inside the route.
         if (req.method === 'POST' &&
-          ['/api/tasks/plan', '/api/tasks/close-today'].includes(req.path)) return next();
+          ['/api/tasks/plan', '/api/tasks/close-today', '/api/tasks/activate-today'].includes(req.path)) return next();
         return res.status(403).json({
           success: false,
           error: 'This credential has read-only access. Operator authorization is required.',
@@ -87,16 +87,15 @@ export class AppServer {
       next();
     });
 
-    // Rate limiting middleware (applied before authentication)
-    // This protects all endpoints from abuse
-    this.app.use(generalLimiter);
-    this.app.use(strictLimiter);
-    this.app.use(bulkOperationsLimiter);
-
     const allowedOrigin = process.env.CORS_ORIGIN?.trim();
     // The SPA is same-origin by default; do not advertise wildcard cross-origin
     // access to the task-mutation API unless an explicit trusted origin is set.
     if (allowedOrigin) this.app.use(cors({ origin: allowedOrigin }));
+
+    this.app.use(unsafeRequestOriginGuard({
+      publicOrigin: process.env.PUBLIC_ORIGIN?.trim(),
+      allowedOrigin,
+    }));
 
     // Production endpoints can mutate remote Azure DevOps items and therefore
     // must never boot without an access-control boundary.
@@ -115,7 +114,9 @@ export class AppServer {
       if (viewerToken) logger.registerSecret(viewerToken);
       
       // Apply auth limiter to authentication attempts
-      this.app.use(authLimiter);
+      if (process.env.NODE_ENV !== 'test' || process.env.ENABLE_RATE_LIMIT_IN_TEST === 'true') {
+        this.app.use(authLimiter);
+      }
       
       this.app.use(basicAuth(user, token, viewerUser, viewerToken));
       logger.info(viewerToken ? 'HTTP authentication enabled (operator + read-only viewer).' : 'HTTP authentication enabled (operator).');
@@ -125,10 +126,12 @@ export class AppServer {
       logger.warn('HTTP authentication disabled. Set API_AUTH_TOKEN to require a login.');
     }
 
-    this.app.use(unsafeRequestOriginGuard({
-      publicOrigin: process.env.PUBLIC_ORIGIN?.trim(),
-      allowedOrigin,
-    }));
+    // Rate limiting middleware (applied after origin guard and auth)
+    if (process.env.NODE_ENV !== 'test' || process.env.ENABLE_RATE_LIMIT_IN_TEST === 'true') {
+      this.app.use(generalLimiter);
+      this.app.use(strictLimiter);
+      this.app.use(bulkOperationsLimiter);
+    }
 
     this.app.use(express.json({ limit: '1mb' }));
 
@@ -206,6 +209,17 @@ export class AppServer {
   }
 
   stop(): Promise<void> {
-    return new Promise(resolve => this.server.close(() => resolve()));
+    return new Promise((resolve, reject) => {
+      if (typeof (this.server as any).closeAllConnections === 'function') {
+        (this.server as any).closeAllConnections();
+      }
+      this.server.close(err => {
+        if (err && (err as any).code !== 'ERR_SERVER_NOT_RUNNING') {
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
   }
 }

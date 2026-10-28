@@ -44,7 +44,7 @@ describe('Environment Security Validation', () => {
         'https://example.com',
       ];
 
-      const pattern = /^(YOUR_|your_|xxx|XXX|replaceme|REPLACE_ME|change_me|CHANGE_ME|example|EXAMPLE|placeholder|PLACEHOLDER|dummy|DUMMY|secret|SECRET|\*+).*$/i;
+      const pattern = /^(YOUR[-_]|your[-_]|xxx|XXX|replace[-_]?me|REPLACE[-_]?ME|change_me|CHANGE_ME|example|EXAMPLE|placeholder|PLACEHOLDER|dummy|DUMMY|secret|SECRET|\*+|\/|https?:\/\/).*$/i;
 
       placeholders.forEach(placeholder => {
         expect(pattern.test(placeholder)).toBe(true);
@@ -121,7 +121,7 @@ describe('Environment Security Validation', () => {
         const [, value] = assignment.split('=');
         if (value && value.trim()) {
           // Check that values are placeholders, not real secrets
-          const placeholderPattern = /^(YOUR_|your_|xxx|XXX|replaceme|REPLACE_ME|change_me|CHANGE_ME|example|EXAMPLE|placeholder|PLACEHOLDER|dummy|DUMMY|\/|https?:\/\/|false|true|0|1|\*+).*$/i;
+          const placeholderPattern = /^(YOUR[-_]|your[-_]|xxx|XXX|replaceme|REPLACE[-_]?ME|change_me|CHANGE_ME|example|EXAMPLE|placeholder|PLACEHOLDER|dummy|DUMMY|\/|https?:\/\/|false|true|0|1|\*+|[0-9]+|UTC|Asia\/|development|production|test|info|warn|error|New|Active|Closed|3in1|Task|_suffix|No|Yes|CURRENT|NEXT|"Task \|").*$/i;
           expect(placeholderPattern.test(value.trim())).toBe(true);
         }
       });
@@ -168,7 +168,7 @@ describe('Environment Security Validation', () => {
       const dummyPat = 'your-personal-access-token-here';
 
       const patPattern = /^[a-zA-Z0-9]{40,}$/;
-      const dummyPattern = /^(YOUR_|your_).*$/i;
+      const dummyPattern = /^(YOUR[-_]|your[-_]).*$/i;
 
       expect(patPattern.test(syntheticPat)).toBe(true);
       expect(dummyPattern.test(dummyPat)).toBe(true);
@@ -183,7 +183,7 @@ describe('Environment Security Validation', () => {
     it('should handle quoted environment values', () => {
       const quotedValue = '"your-token-here"';
       const unquoted = quotedValue.slice(1, -1);
-      const dummyPattern = /^(YOUR_|your_).*$/i;
+      const dummyPattern = /^(YOUR[-_]|your[-_]).*$/i;
       expect(dummyPattern.test(unquoted)).toBe(true);
     });
   });

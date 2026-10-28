@@ -293,7 +293,7 @@ export class CloseDailyTasksUseCase {
             autoClosureConfig,
             person.assignedTo || person.name,
             person.role,
-            person.team
+            person.pod
           );
 
           if (!closureDecision.shouldClose) {

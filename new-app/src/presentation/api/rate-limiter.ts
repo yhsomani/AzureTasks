@@ -113,6 +113,12 @@ export const authLimiter = rateLimit({
   message: 'Too many authentication attempts, please try again later.',
   statusCode: 429,
   standardHeaders: false,
+  skip: (req) => {
+    // Only apply to auth / session requests and never health
+    const path = (req.path || '').toLowerCase();
+    if (path === '/api/health') return true;
+    return !path.includes('auth') && !path.includes('session') && !path.includes('login');
+  },
   handler: (_req, res, _next, options) => {
     const ip = _req.ip || 'unknown';
     logViolation(ip, 'auth', options.max as number, options.windowMs);

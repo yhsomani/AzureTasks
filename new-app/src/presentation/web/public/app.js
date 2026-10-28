@@ -2086,6 +2086,19 @@ function renderPeople() {
       onclick: () => { state.people.splice(idx, 1); updateTeamDirtyState(); renderPeople(); },
     }, 'Remove');
     row.append(del);
+
+    // Auto-close toggle
+    const acLabel = el('label', { class: 'field', style: 'flex-direction:row; align-items:center; gap:8px; cursor:pointer;' });
+    const acCheck = el('input', { type: 'checkbox' });
+    acCheck.checked = state.people[idx].autoCloseEnabled !== false;
+    acCheck.addEventListener('change', () => {
+      state.people[idx].autoCloseEnabled = acCheck.checked;
+      updateTeamDirtyState();
+      renderEodAutoClosePersonList(); // Keep scheduler panel in sync
+    });
+    acLabel.append(acCheck, el('span', { style: 'font-size:12.5px;' }, 'Auto-close'));
+    row.append(acLabel);
+
     list.append(row);
   });
 }
@@ -2159,6 +2172,7 @@ function openAddPersonModal() {
   if ($('#personGithubInput')) $('#personGithubInput').value = '';
   if ($('#personReposInput')) $('#personReposInput').value = '';
   if ($('#personBranchesInput')) $('#personBranchesInput').value = '';
+  if ($('#personAutoCloseInput')) $('#personAutoCloseInput').checked = true; // Default: include in auto-close
   showModal('#personModal', '#personKeyInput');
 }
 
@@ -2182,6 +2196,7 @@ async function savePersonFromModal() {
   const githubUsername = $('#personGithubInput')?.value?.trim();
   const githubRepositories = ($('#personReposInput')?.value || '').split(',').map(x => x.trim()).filter(Boolean);
   const githubBranches = ($('#personBranchesInput')?.value || '').split(',').map(x => x.trim()).filter(Boolean);
+  const autoCloseEnabled = $('#personAutoCloseInput') ? Boolean($('#personAutoCloseInput').checked) : true;
 
   // Check duplicate key in local state
   if (state.people.some(p => p.key.toLowerCase() === key.toLowerCase())) {
@@ -2208,6 +2223,7 @@ async function savePersonFromModal() {
     githubRepositories,
     githubBranches,
     enabled: true,
+    autoCloseEnabled,
   };
 
   state.people.push(newMember);
@@ -2336,6 +2352,90 @@ async function refreshJournal() {
   }
 }
 
+/* ------------------------------------------------------- eod auto-close selector */
+
+/**
+ * Render the per-person auto-close toggle list in the Scheduler → EOD section.
+ * Reads from state.people (cached from /config). Saves directly to /config/people.
+ */
+function renderEodAutoClosePersonList() {
+  const container = $('#eodAutoClosePersonList');
+  if (!container) return;
+
+  const people = (state.config && state.config.people) ? state.config.people : (state.people || []);
+  const enabledPeople = people.filter(p => p.enabled !== false);
+
+  if (enabledPeople.length === 0) {
+    container.innerHTML = '<p class="muted small">No active team members configured. Add members in the Team section first.</p>';
+    return;
+  }
+
+  container.innerHTML = '';
+  for (const p of enabledPeople) {
+    const isAutoClose = p.autoCloseEnabled !== false;
+
+    const pill = el('label', {
+      style: [
+        'display:flex; align-items:center; gap:8px; padding:8px 14px; border-radius:var(--radius-sm);',
+        'border:1.5px solid ' + (isAutoClose ? 'var(--ok)' : 'var(--border)') + ';',
+        'background:' + (isAutoClose ? 'rgba(0,200,120,0.07)' : 'var(--surface-hover)') + ';',
+        'cursor:pointer; min-width:160px; transition:border 0.15s, background 0.15s;',
+      ].join(''),
+      title: isAutoClose ? 'Click to exclude from auto-close' : 'Click to include in auto-close',
+    });
+
+    const chk = el('input', { type: 'checkbox' });
+    chk.checked = isAutoClose;
+    chk.setAttribute('aria-label', `Auto-close for ${p.name}`);
+
+    const nameSpan = el('span', { style: 'font-size:13px; font-weight:500;' }, p.name);
+    const badge = el('span', {
+      class: isAutoClose ? 'pill ok' : 'pill muted',
+      style: 'font-size:11px; margin-left:auto;',
+    }, isAutoClose ? '✓ Included' : '✗ Excluded');
+
+    pill.append(chk, nameSpan, badge);
+
+    chk.addEventListener('change', async () => {
+      // Update local state
+      const personInState = (state.people || []).find(sp => sp.key === p.key);
+      const personInConfig = (state.config && state.config.people) ? state.config.people.find(sp => sp.key === p.key) : null;
+      const newValue = chk.checked;
+      if (personInState) personInState.autoCloseEnabled = newValue;
+      if (personInConfig) personInConfig.autoCloseEnabled = newValue;
+
+      // Visual update on the pill
+      pill.style.borderColor = newValue ? 'var(--ok)' : 'var(--border)';
+      pill.style.background = newValue ? 'rgba(0,200,120,0.07)' : 'var(--surface-hover)';
+      pill.title = newValue ? 'Click to exclude from auto-close' : 'Click to include in auto-close';
+      badge.textContent = newValue ? '✓ Included' : '✗ Excluded';
+      badge.className = newValue ? 'pill ok' : 'pill muted';
+      badge.style.fontSize = '11px';
+      badge.style.marginLeft = 'auto';
+
+      // Persist immediately
+      try {
+        const allPeople = (state.config && state.config.people) ? state.config.people : (state.people || []);
+        await api.post('/config/people', { people: allPeople });
+        api.invalidateCache('/config');
+        toast(`${p.name} ${newValue ? 'included in' : 'excluded from'} auto-close`, 'ok');
+      } catch (err) {
+        toast(`Failed to save auto-close setting: ${err.message}`, 'err');
+        // Roll back
+        chk.checked = !newValue;
+        if (personInState) personInState.autoCloseEnabled = !newValue;
+        if (personInConfig) personInConfig.autoCloseEnabled = !newValue;
+        pill.style.borderColor = !newValue ? 'var(--ok)' : 'var(--border)';
+        pill.style.background = !newValue ? 'rgba(0,200,120,0.07)' : 'var(--surface-hover)';
+        badge.textContent = !newValue ? '✓ Included' : '✗ Excluded';
+        badge.className = !newValue ? 'pill ok' : 'pill muted';
+      }
+    });
+
+    container.append(pill);
+  }
+}
+
 /* ---------------------------------------------------------------- scheduler */
 async function refreshScheduler() {
   try {
@@ -2405,6 +2505,37 @@ async function refreshScheduler() {
     if ($('#eodEnableCheck')) {
       $('#eodEnableCheck').checked = eodEnabled;
     }
+
+    // Daily activation (5:30 PM) fields
+    const autoActiveEnabled = s.autoActiveEnabled !== false;
+    if ($('#activeStatusPill')) {
+      $('#activeStatusPill').textContent = autoActiveEnabled ? '🟢 Enabled' : '⚪ Disabled';
+      $('#activeStatusPill').style.color = autoActiveEnabled ? 'var(--ok)' : 'var(--muted)';
+    }
+    if ($('#activeTimeDisplay')) {
+      $('#activeTimeDisplay').textContent = s.autoActiveTime || '17:30';
+    }
+    if ($('#activeNextDisplay')) {
+      $('#activeNextDisplay').textContent = s.nextAutoActive ? new Date(s.nextAutoActive).toLocaleString() : '—';
+    }
+    if ($('#activeLastDisplay')) {
+      if (s.lastAutoActive) {
+        const res = s.lastAutoActiveResult ? s.lastAutoActiveResult.toUpperCase() : 'ATTEMPTED';
+        $('#activeLastDisplay').textContent = `${res} (${new Date(s.lastAutoActive).toLocaleTimeString()})`;
+      } else {
+        $('#activeLastDisplay').textContent = 'No runs yet';
+      }
+    }
+    if ($('#activeTimeInput') && document.activeElement !== $('#activeTimeInput')) {
+      $('#activeTimeInput').value = s.autoActiveTime || '17:30';
+    }
+    if ($('#activeEnableCheck')) {
+      $('#activeEnableCheck').checked = autoActiveEnabled;
+    }
+
+    // Populate the per-person auto-close selector from current config
+    await ensureConfig();
+    renderEodAutoClosePersonList();
   } catch (err) {
     toast(err.message, 'err');
   }
@@ -2447,6 +2578,19 @@ async function saveEodSchedulerConfig() {
 
     await api.post('/scheduler/config', { autoClose, autoCloseStartTime, autoCloseEndTime });
     toast('EOD Auto-close settings saved successfully', 'ok');
+    refreshScheduler();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function saveActiveSchedulerConfig() {
+  try {
+    const autoActiveTime = $('#activeTimeInput')?.value?.trim() || '17:30';
+    const autoActive = Boolean($('#activeEnableCheck')?.checked);
+
+    await api.post('/scheduler/config', { autoActive, autoActiveTime });
+    toast('Daily task activation settings saved successfully', 'ok');
     refreshScheduler();
   } catch (err) {
     toast(err.message, 'err');
@@ -2581,6 +2725,124 @@ async function triggerEodClosure(dryRun = false) {
     state.eodPreviewReadyAt = 0;
     if (executeBtn) executeBtn.style.display = 'none';
     toast(`EOD closure failed: ${err.message}`, 'err');
+    if (summaryEl) summaryEl.innerHTML = `<span style="color:var(--danger);">Error: ${escapeHtml(err.message)}</span>`;
+  }
+}
+
+async function triggerActivation(dryRun = false) {
+  if (!dryRun) {
+    if (!state.activePreviewReadyAt || Date.now() - state.activePreviewReadyAt > 120000) {
+      toast('Preview activation before executing. The preview must be less than two minutes old.', 'warn');
+      triggerActivation(true);
+      return;
+    }
+    if (!window.confirm("Activate today's candidate tasks in Azure DevOps and update descriptions?")) return;
+    state.activePreviewReadyAt = 0;
+  } else {
+    state.activePreviewReadyAt = 0;
+  }
+
+  const modal = $('#activeModal');
+  const summaryEl = $('#activeModalSummary');
+  const tbody = $('#activeModalTable tbody');
+  const executeBtn = $('#btnExecuteActiveConfirmed');
+  const title = $('#activeModalTitle');
+
+  if (title) title.textContent = dryRun ? "Daily Task Activation Preview (Dry Run)" : "Activating Today's Tasks...";
+  if (executeBtn) executeBtn.style.display = 'none';
+
+  showModal('#activeModal', '#btnCloseActiveModal');
+  if (summaryEl) summaryEl.innerHTML = '<span class="muted">Loading candidate tasks and fetching GitHub PR deliverables...</span>';
+  if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center; padding:24px;">Analyzing tasks for today...</td></tr>';
+
+  try {
+    const res = await api.post('/tasks/activate-today', { dryRun, all: true, confirm: !dryRun });
+    state.lastActiveResult = res;
+
+    if (summaryEl) {
+      summaryEl.innerHTML = '';
+      summaryEl.append(
+        el('div', { class: 'stat-chip' }, [el('b', {}, String(res.totalFound)), el('span', {}, 'Tasks Found')]),
+        el('div', { class: 'stat-chip' }, [el('b', {}, String(res.totalActivated)), el('span', {}, dryRun ? 'Eligible to Activate' : 'Activated Successfully')]),
+        el('div', { class: 'stat-chip' }, [el('b', {}, String(res.totalAlreadyActive)), el('span', {}, 'Already Active (Untouched)')]),
+        el('div', { class: 'stat-chip' }, [el('b', {}, String(res.totalAlreadyClosed)), el('span', {}, 'Already Closed')]),
+        el('div', { class: 'stat-chip' }, [el('b', {}, String(res.totalFailed)), el('span', {}, 'Failed')]),
+      );
+    }
+
+    if (tbody) {
+      tbody.innerHTML = '';
+      if (!res.results || res.results.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center; padding:24px;">No candidate tasks found for today.</td></tr>';
+      } else {
+        for (const r of res.results) {
+          const prBadge = r.prCount > 0
+            ? el('span', { class: 'pill ok' }, `${r.prCount} PR(s) today`)
+            : el('span', { class: 'pill muted' }, '0 PRs today');
+
+          let statusBadge;
+          if (r.status === 'activated') {
+            statusBadge = el('span', { class: 'pill ok' }, 'Activated & Updated');
+          } else if (r.status === 'simulated') {
+            statusBadge = el('span', { class: 'state-pill ready-activate' }, 'Ready to Activate');
+          } else if (r.status === 'already_active') {
+            statusBadge = el('span', { class: 'state-pill already-active' }, 'Already Active');
+          } else if (r.status === 'already_closed') {
+            statusBadge = el('span', { class: 'pill muted' }, 'Already Closed');
+          } else {
+            statusBadge = el('span', { class: 'pill danger' }, 'Failed');
+          }
+
+          const tr = el('tr', {}, [
+            el('td', { style: 'font-weight:600;' }, r.personName),
+            el('td', {}, [
+              el('a', { href: getAdoWorkItemUrl(r.taskId), target: '_blank', class: 'ado-link' }, `#${r.taskId} ↗`),
+              el('div', { class: 'muted small' }, r.taskTitle),
+            ]),
+            el('td', {}, el('code', {}, r.githubUsername || '—')),
+            el('td', {}, [
+              el('div', {}, prBadge),
+              el('div', { class: 'muted small', style: 'max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' }, r.summaryText),
+            ]),
+            el('td', {}, el('span', { class: 'pill muted' }, r.initialState || 'New')),
+            el('td', {}, statusBadge),
+          ]);
+          tbody.append(tr);
+        }
+      }
+    }
+
+    if (dryRun && res.totalActivated > 0 && res.totalFailed === 0) state.activePreviewReadyAt = Date.now();
+    if (executeBtn) {
+      if (dryRun && res.totalActivated > 0 && res.totalFailed === 0) {
+        executeBtn.style.display = 'inline-block';
+        executeBtn.disabled = false;
+        executeBtn.textContent = `Execute Activation in Azure DevOps (${res.totalActivated} tasks)`;
+      } else {
+        executeBtn.style.display = 'none';
+      }
+    }
+
+    if (dryRun) {
+      if (res.totalFailed > 0) {
+        toast(`Activation preview incomplete: ${res.totalFailed} task(s) failed checks.`, 'warn');
+      } else if (res.totalActivated === 0 && res.totalAlreadyActive > 0) {
+        toast(`All candidate task(s) (${res.totalAlreadyActive}) are already active.`, 'ok');
+      } else {
+        toast(`Preview complete: ${res.totalActivated} task(s) eligible for activation.`, 'ok');
+      }
+    } else {
+      if (res.totalFailed > 0) {
+        toast(`Activation partially failed: ${res.totalActivated} activated, ${res.totalFailed} failed.`, 'warn');
+      } else {
+        toast(`Azure accepted ${res.totalActivated} task activation(s).`, 'ok');
+      }
+    }
+    refreshDashboard();
+  } catch (err) {
+    state.activePreviewReadyAt = 0;
+    if (executeBtn) executeBtn.style.display = 'none';
+    toast(`Task activation failed: ${err.message}`, 'err');
     if (summaryEl) summaryEl.innerHTML = `<span style="color:var(--danger);">Error: ${escapeHtml(err.message)}</span>`;
   }
 }
@@ -3205,6 +3467,18 @@ function wire() {
   $('#schedSaveConfigBtn')?.addEventListener('click', saveSchedulerConfig);
   $('#schedRunNowBtn')?.addEventListener('click', runSchedulerNow);
   $('#eodSaveConfigBtn')?.addEventListener('click', saveEodSchedulerConfig);
+  $('#activeSaveConfigBtn')?.addEventListener('click', saveActiveSchedulerConfig);
+
+  // Daily Activation (5:30 PM) triggers
+  $('#activateTodayTasksBtn')?.addEventListener('click', () => triggerActivation(true));
+  $('#dashboardActivateTodayBtn')?.addEventListener('click', () => triggerActivation(true));
+  $('#plannerActivateTodayBtn')?.addEventListener('click', () => triggerActivation(true));
+  $('#activePreviewBtn')?.addEventListener('click', () => triggerActivation(true));
+  $('#activeRunNowBtn')?.addEventListener('click', () => triggerActivation(true));
+  $('#btnCloseActiveModal')?.addEventListener('click', () => hideModal('#activeModal'));
+  $('#btnCloseActiveModalBtn')?.addEventListener('click', () => hideModal('#activeModal'));
+  $('#btnExecuteActiveConfirmed')?.addEventListener('click', () => triggerActivation(false));
+
   // End-of-Day Closure triggers
   $('#closeTodayTasksBtn')?.addEventListener('click', () => triggerEodClosure(true));
   $('#dashboardCloseTodayBtn')?.addEventListener('click', () => triggerEodClosure(true));
@@ -3214,6 +3488,30 @@ function wire() {
   $('#btnCloseEodModal')?.addEventListener('click', () => hideModal('#eodModal'));
   $('#btnCloseEodModalBtn')?.addEventListener('click', () => hideModal('#eodModal'));
   $('#btnExecuteEodConfirmed')?.addEventListener('click', () => triggerEodClosure(false));
+
+  // Per-person auto-close bulk actions
+  $('#eodAutoCloseSelectAllBtn')?.addEventListener('click', async () => {
+    const allPeople = (state.config && state.config.people) ? state.config.people : (state.people || []);
+    for (const p of allPeople) p.autoCloseEnabled = true;
+    if (state.people) for (const p of state.people) p.autoCloseEnabled = true;
+    renderEodAutoClosePersonList();
+    try {
+      await api.post('/config/people', { people: allPeople });
+      api.invalidateCache('/config');
+      toast('All members included in auto-close', 'ok');
+    } catch (err) { toast(err.message, 'err'); }
+  });
+  $('#eodAutoCloseDeselectAllBtn')?.addEventListener('click', async () => {
+    const allPeople = (state.config && state.config.people) ? state.config.people : (state.people || []);
+    for (const p of allPeople) p.autoCloseEnabled = false;
+    if (state.people) for (const p of state.people) p.autoCloseEnabled = false;
+    renderEodAutoClosePersonList();
+    try {
+      await api.post('/config/people', { people: allPeople });
+      api.invalidateCache('/config');
+      toast('All members excluded from auto-close', 'ok');
+    } catch (err) { toast(err.message, 'err'); }
+  });
 
   // Settings controls
   $('#saveSettingsBtn')?.addEventListener('click', saveSettings);

@@ -50,11 +50,11 @@ export class FileAutoClosureConfigRepository implements AutoClosureConfigReposit
 
     try {
       const raw = fs.readFileSync(this.configPath, 'utf-8');
-      const parsed = JSON.parse(raw);
+      const parsed: AutoClosureConfig = JSON.parse(raw);
       this.validateConfigStructure(parsed);
       this.cache = parsed;
       this.cacheTimestamp = now;
-      return this.cache;
+      return parsed;
     } catch (err: any) {
       throw new Error(
         `Failed to load auto-closure config from "${this.configPath}": ${err.message}`

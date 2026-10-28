@@ -14,7 +14,6 @@ import {
   validateSourceTaskOwnership,
   matchesTaskSeries,
   extractTitlePrefix,
-  formatTitleDate,
 } from '../../domain/entities/task.js';
 import { 
   TaskDiscoveryService, 
@@ -24,6 +23,7 @@ import {
 import { 
   PlannedDate,
   validateNotPastDate,
+  formatTitleDate,
 } from '../../domain/value-objects/date-window.js';
 import { TaskPlanBuilder, PersonExecutionPlan } from './task-plan-builder.js';
 import { TaskExecutor } from './task-executor.js';
@@ -523,3 +523,5 @@ export class CreateTasksUseCase {
     }
   }
 }
+
+export type { CreateTasksOutput, PersonExecutionPlan };

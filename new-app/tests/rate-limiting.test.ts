@@ -255,45 +255,64 @@ interface RequestResponse {
 
 async function makeRequest(app: Express, method: string, path: string, body: any): Promise<RequestResponse> {
   return new Promise((resolve) => {
+    let statusCode = 200;
+    let responseBody: any = {};
+    let resolved = false;
+
+    const finish = () => {
+      if (!resolved) {
+        resolved = true;
+        resolve({ status: statusCode, body: responseBody });
+      }
+    };
+
     const req = {
       method,
+      url: path,
+      originalUrl: path,
       path,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      headers: { 'content-type': 'application/json' },
+      body,
+      query: {},
+      params: {},
+      ip: '127.0.0.1',
+      socket: { remoteAddress: '127.0.0.1' },
       on: vi.fn(),
     } as any;
 
-    let statusCode = 200;
-    let responseBody = {};
-
     const res = {
+      statusCode: 200,
       status: (code: number) => {
         statusCode = code;
+        res.statusCode = code;
         return res;
       },
       json: (data: any) => {
         responseBody = data;
-        resolve({ status: statusCode, body: responseBody });
+        finish();
+        return res;
       },
       setHeader: vi.fn(),
+      getHeader: vi.fn(),
       send: (data: any) => {
         responseBody = data;
-        resolve({ status: statusCode, body: responseBody });
+        finish();
+        return res;
+      },
+      end: (data: any) => {
+        if (data && Object.keys(responseBody).length === 0) responseBody = data;
+        finish();
+        return res;
       },
     } as any;
 
-    const next = vi.fn();
-
-    // Simulate Express request handling
-    const handler = app._router?.stack?.find((layer: any) => {
-      return layer.route?.path === path && layer.route?.methods?.[method.toLowerCase()];
+    (app as any).handle(req, res, () => {
+      if (!resolved) {
+        statusCode = 404;
+        responseBody = { error: 'Not Found' };
+        finish();
+      }
     });
-
-    if (handler) {
-      handler.handle(req, res, next);
-    } else {
-      resolve({ status: 404, body: { error: 'Not Found' } });
-    }
   });
 }
 

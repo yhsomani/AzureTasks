@@ -4,11 +4,12 @@
  * Extracted from CreateTasksUseCase (~250 LOC)
  */
 
-import { Person, extractTitlePrefix } from '../../domain/entities/person.js';
+import { Person } from '../../domain/entities/person.js';
 import { 
   DiscoveredTask, 
   matchesTaskSeries,
   parseTitleDate,
+  extractTitlePrefix,
 } from '../../domain/entities/task.js';
 import { 
   DuplicateDetector, 

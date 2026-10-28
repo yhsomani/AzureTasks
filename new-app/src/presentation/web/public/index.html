@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="3in1 Mission Control — inspect Azure DevOps work, review task plans, and control team automation." />
-  <title>3in1 Mission Control · Azure DevOps</title>
+  <title>3in1 Mission Control · 3in1 Task Studio</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23080f1b'/%3E%3Cg fill='none' stroke='%2366e3ed' stroke-width='1.7'%3E%3Cpath d='M5 10h8V5h14v14h-8v8H5z'/%3E%3Cpath d='M10 16l5 5L25 11'/%3E%3C/g%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
@@ -78,6 +78,7 @@
           <span class="pill" id="orgProjectTag" style="display:flex; align-items:center; gap:6px;">—</span>
           <button class="btn ghost small" id="consoleBtn" title="Toggle Live Console Drawer" aria-controls="executionDrawer" aria-expanded="false">Console</button>
           <button class="btn ghost small" id="refreshBtn">Refresh</button>
+          <button class="btn ghost small" id="activateTodayTasksBtn" title="Activate today's tasks (5:30 PM flow)">Activate today's tasks</button>
           <button class="btn ghost small" id="closeTodayTasksBtn" title="Manually trigger end-of-day task closure flow">Close today's tasks</button>
           <button class="btn primary small" id="quickRunBtn">Review plan</button>
         </div>
@@ -109,7 +110,13 @@
             <article class="card">
               <header class="card-head"><div><p class="section-kicker">NEXT REVIEWED ACTION</p><h2>Today's plan</h2></div><button class="btn small ghost" data-view-link="planner">Open planner</button></header>
               <div id="dashboardPlan" class="plan-preview"><p class="muted">Loading plan…</p></div>
-              <div class="action-dock"><p class="muted small">Preview first. Creation requires your confirmation.</p><button class="btn small ghost" id="dashboardCloseTodayBtn" title="Close tasks scheduled for today">Close today's tasks</button></div>
+              <div class="action-dock">
+                <p class="muted small">Preview first. Creation requires your confirmation.</p>
+                <div class="row gap m-0">
+                  <button class="btn small ghost" id="dashboardActivateTodayBtn" title="Activate tasks scheduled for today (5:30 PM flow)">Activate today's tasks</button>
+                  <button class="btn small ghost" id="dashboardCloseTodayBtn" title="Close tasks scheduled for today">Close today's tasks</button>
+                </div>
+              </div>
             </article>
           </div>
           <div class="dashboard-secondary">
@@ -317,8 +324,9 @@
               <p class="step-label">01 / DEFINE THE SCOPE</p><h2>Task planner</h2>
               <p class="muted small">Plan, preview, and safely execute rolling daily task creation with concurrency guards and duplicate prevention</p>
             </div>
-            <div class="row gap" style="margin: 0;">
+            <div class="row gap m-0">
               <button class="btn ghost small" id="openAdHocModalBtn">Create ad-hoc task</button>
+              <button class="btn ghost small" id="plannerActivateTodayBtn" title="Activate tasks scheduled for today (5:30 PM flow)">Activate today's tasks</button>
               <button class="btn ghost small" id="plannerCloseTodayBtn" title="Close tasks scheduled for today">Close today's tasks</button>
               <button class="btn ghost small" id="btnSimulateWindow" title="Preview the next creation window without writing tasks">Preview Next Week</button>
               <button class="btn ghost small" id="btnResetPlannerWindow" title="Reset to today">↺ Reset to Today</button>
@@ -439,7 +447,7 @@
 
       <!-- 8. SCHEDULER VIEW -->
       <section class="view" id="view-scheduler">
-        <div class="workspace-intro"><div><p class="section-kicker">AUTOMATION CONTROL / 08</p><h2>Two workflows. Explicit control.</h2></div><p class="muted">Creation and end-of-day closure are separate remote operations.</p></div>
+        <div class="workspace-intro"><div><p class="section-kicker">AUTOMATION CONTROL / 08</p><h2>Three distinct workflows. Explicit control.</h2></div><p class="muted">Creation, mid-day activation, and end-of-day closure are isolated remote operations with separate schedules and dry-run safety.</p></div>
         <div class="automation-grid">
         <div class="operation-panel">
         <div class="operation-head"><span class="panel-index">01</span><div><p class="section-kicker">CREATE UPCOMING WORK</p><h2>Daily task creation</h2></div></div>
@@ -501,8 +509,53 @@
           </p>
         </article>
         </div>
+
         <div class="operation-panel">
-        <div class="operation-head"><span class="panel-index">02</span><div><p class="section-kicker">CLOSE COMPLETED WORK</p><h2>End-of-day closure</h2></div></div>
+        <div class="operation-head"><span class="panel-index">02</span><div><p class="section-kicker">ACTIVATE WORK IN PROGRESS</p><h2>Daily task activation</h2></div></div>
+        <div class="workflow-note" role="note" id="activeSafetyNotice">
+          <strong>Daily activation at 5:30 PM.</strong> Transitions today's tasks to <strong>Active</strong> and updates System.Description with verified PR deliverables from GitHub. Tasks already Active or Closed are left intact.
+        </div>
+        <!-- DAILY TASK ACTIVATION CARD (5:30 PM) -->
+        <article class="card">
+          <header class="card-head">
+            <div>
+              <div class="row gap m-0" style="align-items:center;">
+                <h2 class="m-0">Daily task activation</h2>
+                <span class="pill" style="border:1px solid var(--accent); color:var(--brand-glow);">5:30 PM Daily</span>
+              </div>
+              <p class="muted small" style="margin:4px 0 0 0;">Automatic or on-demand activation for today's candidate work items.</p>
+            </div>
+            <div class="row gap m-0" style="align-items:center;">
+              <button class="btn ghost small" id="activePreviewBtn">Preview activation (dry run)</button>
+              <button class="btn primary small" id="activeRunNowBtn">Activate today's tasks</button>
+            </div>
+          </header>
+
+          <div class="grid cols-2 mt-lg">
+            <div class="mini"><span>Auto-Active Status</span><strong id="activeStatusPill">Checking…</strong></div>
+            <div class="mini"><span>Scheduled Time</span><strong id="activeTimeDisplay">17:30</strong></div>
+            <div class="mini"><span>Next Scheduled Activation</span><strong id="activeNextDisplay" style="color:var(--brand-glow);">—</strong></div>
+            <div class="mini"><span>Last Execution Result</span><strong id="activeLastDisplay">No runs yet</strong></div>
+          </div>
+
+          <div class="grid cols-3 mt-lg" style="align-items:flex-end;">
+            <label class="field">
+              <span>Daily Activation Time (HH:mm)</span>
+              <input type="time" id="activeTimeInput" value="17:30" />
+            </label>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                <input type="checkbox" id="activeEnableCheck" />
+                <span>Enable automatic daily task activation</span>
+              </label>
+              <button class="btn primary" id="activeSaveConfigBtn">Save activation settings</button>
+            </div>
+          </div>
+        </article>
+        </div>
+
+        <div class="operation-panel">
+        <div class="operation-head"><span class="panel-index">03</span><div><p class="section-kicker">CLOSE COMPLETED WORK</p><h2>End-of-day closure</h2></div></div>
         <div class="workflow-note" role="note" id="eodSafetyNotice">
           <strong>Closure is separate from task creation.</strong> EOD closure changes task states and work hours in Azure DevOps. Use a read-only preview first; leave automatic closure off unless explicitly approved.
         </div>
@@ -548,6 +601,26 @@
             <h4 style="font-size: 13px; margin-bottom: 8px;">Recent EOD Closure Results</h4>
             <div id="eodResultsList" class="plan-preview"></div>
           </div>
+        </article>
+
+        <!-- PER-PERSON AUTO-CLOSE SELECTOR -->
+        <article class="card">
+          <header class="card-head">
+            <div>
+              <h2 style="margin:0;">Who gets auto-closed?</h2>
+              <p class="muted small" style="margin:4px 0 0 0;">Choose which team members are included in the automatic EOD closure. Members you exclude will never be closed automatically — you can still close them manually via the preview.</p>
+            </div>
+            <div class="row gap" style="margin:0; align-items:center;">
+              <button class="btn ghost small" id="eodAutoCloseSelectAllBtn">Include All</button>
+              <button class="btn ghost small" id="eodAutoCloseDeselectAllBtn">Exclude All</button>
+            </div>
+          </header>
+          <div id="eodAutoClosePersonList" style="display:flex; flex-wrap:wrap; gap:10px; padding:4px 0 8px;">
+            <p class="muted small">Loading team members…</p>
+          </div>
+          <p class="muted small" style="margin-top:8px; border-top:1px solid var(--border); padding-top:8px;">
+            💡 Changes take effect on the next auto-close run. Manual "Preview / Close today's tasks" always lets you pick who to close.
+          </p>
         </article>
         </div>
         </div>
@@ -780,6 +853,13 @@
             <input type="text" id="personBranchesInput" placeholder="main, release/version" />
             <span class="muted small">Restrict commits to selected branches; defaults to each configured repository's default branch.</span>
           </label>
+          <div style="padding-top:12px; border-top:1px solid var(--border); margin-top:8px;">
+            <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:13.5px;">
+              <input type="checkbox" id="personAutoCloseInput" checked />
+              <span>Include in automatic EOD closure</span>
+            </label>
+            <p class="muted small" style="margin:4px 0 0 32px;">When unchecked, this member's tasks will never be auto-closed by the scheduler. You can still close their tasks manually.</p>
+          </div>
         </form>
       </div>
       <div class="modal-footer">
@@ -875,13 +955,48 @@
             <tbody></tbody>
           </table>
         </div>
-        <div style="background:rgba(0,120,212,0.1); border:1px solid rgba(0,120,212,0.3); padding:10px 14px; border-radius:var(--radius-sm); margin-top:14px; font-size:12.5px; color:var(--text);">
+        <div class="callout callout-info">
           Remote change: Planned Start and Actual Start dates are matched. Remaining Work is updated to 0h and Completed Work is set to recorded hours or original estimate (default 8h). Review the proposed hours and evidence before confirming. Generated task descriptions contain clickable PR links and statuses.
         </div>
       </div>
-      <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
+      <div class="modal-footer flex-between">
         <button class="btn primary" id="btnExecuteEodConfirmed" style="display:none;">Confirm closure in Azure DevOps</button>
         <button class="btn ghost" id="btnCloseEodModalBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DAILY ACTIVATION PREVIEW / EXECUTE MODAL -->
+  <div id="activeModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="activeModalTitle">
+    <div class="modal-card" style="max-width: 820px;">
+      <div class="modal-header">
+        <h3 id="activeModalTitle">Daily Task Activation (5:30 PM)</h3>
+        <button class="icon-btn" id="btnCloseActiveModal" style="width:28px; height:28px;" aria-label="Close dialog">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="activeModalSummary" style="margin-bottom: 12px; display:flex; gap:8px; flex-wrap:wrap;"></div>
+        <div class="table-wrap" style="max-height: 420px; overflow-y:auto;">
+          <table class="table" id="activeModalTable">
+            <thead>
+              <tr>
+                <th>Member</th>
+                <th>Task ID &amp; Title</th>
+                <th>GitHub User</th>
+                <th>PR Deliverables</th>
+                <th>Initial State</th>
+                <th>Action / Status</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="callout callout-ok">
+          Remote change: Candidate tasks for today in <strong>New</strong> (or non-active, non-closed) state transition to <strong>Active</strong>. System.Description is updated with verified GitHub PR deliverables and commit summaries. Tasks already Active or Closed are left intact.
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
+        <button class="btn primary" id="btnExecuteActiveConfirmed" style="display:none;">Confirm activation in Azure DevOps</button>
+        <button class="btn ghost" id="btnCloseActiveModalBtn">Close</button>
       </div>
     </div>
   </div>

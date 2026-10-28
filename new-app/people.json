@@ -29,7 +29,9 @@
       "githubRepositories": [],
       "githubBranches": [],
       "enabled": true,
-      "githubUsername": "mukul-ramteke_bflghec"
+      "githubUsername": "mukul-ramteke_bflghec",
+      "titlePrefix": "3in1_PWA_MyAccount |",
+      "autoCloseEnabled": false
     },
     {
       "key": "yash_mutatkar",
@@ -39,7 +41,9 @@
       "githubRepositories": [],
       "githubBranches": [],
       "enabled": true,
-      "githubUsername": "yash-mutatkar_bflghec"
+      "githubUsername": "yash-mutatkar_bflghec",
+      "titlePrefix": "3in1_PWA_MyAccount |",
+      "autoCloseEnabled": false
     },
     {
       "key": "ajinkya_lendikar",
@@ -49,7 +53,9 @@
       "githubRepositories": [],
       "githubBranches": [],
       "enabled": true,
-      "githubUsername": "ajinkya-lendikar_bflghec"
+      "githubUsername": "ajinkya-lendikar_bflghec",
+      "titlePrefix": "3in1_PWA_MyAccount |",
+      "autoCloseEnabled": false
     },
     {
       "key": "vishal_shinde17",
@@ -58,7 +64,19 @@
       "role": "SDM",
       "githubRepositories": [],
       "githubBranches": [],
-      "enabled": true
+      "enabled": true,
+      "titlePrefix": "105_FD_Dep_Mandate_and_DNC",
+      "githubUsername": "vishal-shinde17_bflghec",
+      "autoCloseEnabled": false
+    },
+    {
+      "key": "karan_dham",
+      "name": "Karan Dham",
+      "assignedTo": "karan.dham@bajajfinserv.in",
+      "githubRepositories": [],
+      "githubBranches": [],
+      "enabled": true,
+      "autoCloseEnabled": false
     }
   ],
   "schedulerEnabled": false,

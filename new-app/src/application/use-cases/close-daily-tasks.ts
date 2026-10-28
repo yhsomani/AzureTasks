@@ -79,7 +79,9 @@ export class CloseDailyTasksUseCase {
     private readonly githubClient: GitHubClient,
     private readonly configRepo?: ConfigRepository,
     private readonly journalRepo?: JournalRepository,
-    private readonly lockRepo?: LockRepository
+    private readonly lockRepo?: LockRepository,
+    private readonly autoClosureConfigRepo?: any,
+    private readonly autoClosureAuditRepo?: any
   ) {}
 
   async execute(input: CloseDailyTasksInput = {}): Promise<CloseDailyTasksOutput> {
@@ -105,6 +107,7 @@ export class CloseDailyTasksUseCase {
         .map(p => new Person(p));
 
       if (input.personKeys !== undefined) {
+        // Explicit key selection: respect the caller's list regardless of autoCloseEnabled.
         if (!Array.isArray(input.personKeys) || input.personKeys.length === 0) {
           throw new Error('EOD closure requires at least one member when personKeys is provided.');
         }
@@ -113,6 +116,13 @@ export class CloseDailyTasksUseCase {
         if (selectedPeople.length !== keys.size) {
           throw new Error('EOD closure selected unknown or disabled members. Refresh the team list.');
         }
+      } else {
+        // All-members mode (scheduled or manual "all"): skip people who opted out of auto-close.
+        const excluded = selectedPeople.filter(p => !p.autoCloseEnabled).map(p => p.name);
+        if (excluded.length > 0) {
+          logger.info(`EOD auto-close: excluding ${excluded.length} member(s) with autoCloseEnabled=false: ${excluded.join(', ')}`);
+        }
+        selectedPeople = selectedPeople.filter(p => p.autoCloseEnabled);
       }
 
       if (selectedPeople.length === 0) {

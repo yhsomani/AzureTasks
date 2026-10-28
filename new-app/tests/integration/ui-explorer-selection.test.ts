@@ -5,12 +5,18 @@ import { describe, expect, it } from 'vitest';
 const source = readFileSync(new URL('../../src/presentation/web/public/app.js', import.meta.url), 'utf8');
 
 function contextWithNodes() {
-  const nodes: Record<string, { innerHTML: string; textContent: string; value?: string }> = {
-    '#insightsContainer': { innerHTML: '', textContent: '' },
-    '#explorerMatrixWrap': { innerHTML: '', textContent: '' },
+  const nodes: Record<string, { innerHTML: string; textContent: string; value?: string; prepend: () => void }> = {
+    '#insightsContainer': { innerHTML: '', textContent: '', prepend: () => {} },
+    '#explorerMatrixWrap': { innerHTML: '', textContent: '', prepend: () => {} },
   };
   const context = {
-    document: { querySelector: (selector: string) => nodes[selector] || null, querySelectorAll: () => [], addEventListener: () => {} },
+    document: { 
+      querySelector: (selector: string) => nodes[selector] || null, 
+      querySelectorAll: () => [], 
+      addEventListener: () => {},
+      createElement: () => ({ setAttribute: () => {}, prepend: () => {}, append: () => {}, className: '', textContent: '' }),
+      createTextNode: (text: string) => text,
+    },
     window: {}, location: { hash: '#explorer' }, setTimeout, console,
   };
   runInNewContext(source, context);

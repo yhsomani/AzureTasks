@@ -9,15 +9,17 @@ import { Person, matchesPerson } from '../../domain/entities/person.js';
 import { 
   DiscoveredTask, 
   CreatedTask,
-  PlannedDate,
   WorkItemRelation,
   filterCopyableRelations,
 } from '../../domain/entities/task.js';
 import { 
   TaskExecutionService,
   TaskExecutionContext,
+  FieldCopyService,
+  RelationCopyService,
 } from '../../domain/services/task-services.js';
 import { 
+  PlannedDate,
   zonedTimeToUtcIso,
 } from '../../domain/value-objects/date-window.js';
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -34,7 +36,6 @@ export class TaskExecutor {
     private readonly workItemRepo: WorkItemRepository,
     private readonly config: AppConfig
   ) {
-    const { FieldCopyService, RelationCopyService } = require('../../domain/services/task-services.js');
     const fieldCopy = new FieldCopyService();
     const relationCopy = new RelationCopyService(workItemRepo);
     this.execution = new TaskExecutionService(workItemRepo, fieldCopy, relationCopy);

@@ -20,24 +20,32 @@ export type SchedulerConfig = Pick<AppConfig, 'timezone' | 'startTime'> &
       | 'autoCloseStartTime'
       | 'autoCloseEndTime'
       | 'lastAutoClose'
+      | 'autoActive'
+      | 'autoActiveTime'
+      | 'lastAutoActive'
     >
   >;
 
 export class NodeSchedulerRepository implements SchedulerRepository {
   private timer: NodeJS.Timeout | null = null;
   private autoCloseTimer: NodeJS.Timeout | null = null;
+  private autoActiveTimer: NodeJS.Timeout | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private status: SchedulerStatus;
   private scheduleFn: (() => Promise<void>) | null = null;
   private autoCloseFn: (() => Promise<any>) | null = null;
+  private autoActiveFn: (() => Promise<any>) | null = null;
   private timezoneOverride?: string;
   private startTimeOverride?: string;
   private autoStartOverride?: boolean;
   private autoCloseEnabledOverride?: boolean;
   private autoCloseStartTimeOverride?: string;
   private autoCloseEndTimeOverride?: string;
+  private autoActiveEnabledOverride?: boolean;
+  private autoActiveTimeOverride?: string;
   private isExecuting = false;
   private isAutoCloseExecuting = false;
+  private isAutoActiveExecuting = false;
 
   constructor(
     private readonly config: SchedulerConfig = {
@@ -49,6 +57,8 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       autoClose: false,
       autoCloseStartTime: '18:15',
       autoCloseEndTime: '18:45',
+      autoActive: true,
+      autoActiveTime: '17:30',
     },
     private readonly configRepo?: ConfigRepository
   ) {
@@ -58,7 +68,12 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       startTime: config.scheduleTime || config.startTime || '09:30',
       autoStart: Boolean(config.schedulerAutoStart ?? config.schedulerEnabled),
       autoCloseEnabled: config.autoClose === true,
+      autoCloseStartTime: config.autoCloseStartTime || '18:15',
+      autoCloseEndTime: config.autoCloseEndTime || '18:45',
       lastAutoClose: config.lastAutoClose,
+      autoActiveEnabled: config.autoActive !== false,
+      autoActiveTime: config.autoActiveTime || '17:30',
+      lastAutoActive: config.lastAutoActive,
     };
   }
 
@@ -90,6 +105,14 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     return this.autoCloseEndTimeOverride ?? this.config.autoCloseEndTime ?? '18:45';
   }
 
+  private get autoActiveEnabled(): boolean {
+    return this.autoActiveEnabledOverride ?? (this.config.autoActive !== false);
+  }
+
+  private get autoActiveTime(): string {
+    return this.autoActiveTimeOverride ?? this.config.autoActiveTime ?? '17:30';
+  }
+
   getStatus(): SchedulerStatus {
     return {
       ...this.status,
@@ -99,11 +122,13 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       autoCloseEnabled: this.autoCloseEnabled,
       autoCloseStartTime: this.autoCloseStartTime,
       autoCloseEndTime: this.autoCloseEndTime,
+      autoActiveEnabled: this.autoActiveEnabled,
+      autoActiveTime: this.autoActiveTime,
     };
   }
 
   async start(persist: boolean = false): Promise<void> {
-    if (this.timer || this.autoCloseTimer) return;
+    if (this.timer || this.autoCloseTimer || this.autoActiveTimer) return;
 
     // Durable settings must succeed before any unattended timers run.
     if (persist && this.configRepo) {
@@ -111,9 +136,10 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     }
     this.status.running = true;
     this.scheduleDaily();
+    if (this.autoActiveEnabled) this.scheduleAutoActiveDaily();
     if (this.autoCloseEnabled) this.scheduleAutoCloseDaily();
     this.startHeartbeat();
-    logger.info(`Scheduler started. Next run: ${this.status.nextRun} (${this.timezone} @ ${this.startTime}).`);
+    logger.info(`Scheduler started. Next run: ${this.status.nextRun} (${this.timezone} @ ${this.startTime}). Next auto-active: ${this.status.nextAutoActive || 'none'}. Next auto-close: ${this.status.nextAutoClose || 'none'}.`);
   }
 
   async stop(persist: boolean = false): Promise<void> {
@@ -124,10 +150,12 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     }
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     if (this.autoCloseTimer) { clearTimeout(this.autoCloseTimer); this.autoCloseTimer = null; }
+    if (this.autoActiveTimer) { clearTimeout(this.autoActiveTimer); this.autoActiveTimer = null; }
     if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
     this.status.running = false;
     this.status.nextRun = undefined;
     this.status.nextAutoClose = undefined;
+    this.status.nextAutoActive = undefined;
     logger.info('Scheduler stopped.');
   }
 
@@ -143,9 +171,11 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     autoClose?: boolean;
     autoCloseStartTime?: string;
     autoCloseEndTime?: string;
+    autoActive?: boolean;
+    autoActiveTime?: string;
   }): Promise<void> {
     const validTime = (value: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
-    for (const key of ['startTime', 'autoCloseStartTime', 'autoCloseEndTime'] as const) {
+    for (const key of ['startTime', 'autoCloseStartTime', 'autoCloseEndTime', 'autoActiveTime'] as const) {
       if (options[key] !== undefined && !validTime(options[key]!)) {
         throw new Error(`Invalid scheduler ${key}; use HH:mm (24-hour).`);
       }
@@ -162,6 +192,8 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       autoClose: options.autoClose ?? this.autoCloseEnabled,
       autoCloseStartTime: options.autoCloseStartTime ?? this.autoCloseStartTime,
       autoCloseEndTime: options.autoCloseEndTime ?? this.autoCloseEndTime,
+      autoActive: options.autoActive ?? this.autoActiveEnabled,
+      autoActiveTime: options.autoActiveTime ?? this.autoActiveTime,
     };
     if (this.configRepo) await this.configRepo.saveSettings(next);
 
@@ -171,11 +203,15 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     if (options.autoClose !== undefined) this.autoCloseEnabledOverride = options.autoClose;
     if (options.autoCloseStartTime !== undefined) this.autoCloseStartTimeOverride = options.autoCloseStartTime;
     if (options.autoCloseEndTime !== undefined) this.autoCloseEndTimeOverride = options.autoCloseEndTime;
+    if (options.autoActive !== undefined) this.autoActiveEnabledOverride = options.autoActive;
+    if (options.autoActiveTime !== undefined) this.autoActiveTimeOverride = options.autoActiveTime;
 
     this.status.startTime = this.startTime;
     this.status.timezone = this.timezone;
     this.status.autoStart = this.autoStart;
     this.status.autoCloseEnabled = this.autoCloseEnabled;
+    this.status.autoActiveEnabled = this.autoActiveEnabled;
+    this.status.autoActiveTime = this.autoActiveTime;
 
     this.restartIfRunning();
     logger.info(
@@ -209,6 +245,19 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     return { success: true, message: 'EOD closure queued. Check scheduler status and logs for the outcome.' };
   }
 
+  async triggerAutoActiveNow(): Promise<{ success: boolean; message: string }> {
+    if (this.isAutoActiveExecuting) {
+      return { success: false, message: 'Auto-active execution is already in progress.' };
+    }
+    if (!this.autoActiveFn) {
+      return { success: false, message: 'No auto-active function registered.' };
+    }
+
+    logger.info('Manual auto-active trigger requested.');
+    void this.runAutoActiveScheduled();
+    return { success: true, message: 'Task activation queued. Check scheduler status and logs for the outcome.' };
+  }
+
   setScheduleFunction(fn: () => Promise<void>): void {
     this.scheduleFn = fn;
   }
@@ -217,22 +266,33 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     this.autoCloseFn = fn;
   }
 
+  setAutoActiveFunction(fn: () => Promise<any>): void {
+    this.autoActiveFn = fn;
+  }
+
   private restartIfRunning(): void {
     if (this.status.running) {
       if (this.timer) {
         clearTimeout(this.timer);
         this.timer = null;
       }
+      if (this.autoActiveTimer) {
+        clearTimeout(this.autoActiveTimer);
+        this.autoActiveTimer = null;
+      }
       if (this.autoCloseTimer) {
         clearTimeout(this.autoCloseTimer);
         this.autoCloseTimer = null;
       }
       this.scheduleDaily();
+      if (this.autoActiveEnabled) {
+        this.scheduleAutoActiveDaily();
+      }
       if (this.autoCloseEnabled) {
         this.scheduleAutoCloseDaily();
       }
       this.startHeartbeat();
-      logger.info(`Scheduler rescheduled. Next run: ${this.status.nextRun} (${this.timezone} @ ${this.startTime}).`);
+      logger.info(`Scheduler rescheduled. Next run: ${this.status.nextRun} (${this.timezone} @ ${this.startTime}). Next auto-active: ${this.status.nextAutoActive || 'none'}. Next auto-close: ${this.status.nextAutoClose || 'none'}.`);
     }
   }
 
@@ -247,8 +307,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
   }
 
   private checkHeartbeat(): void {
-    if (!this.status.running || !this.autoCloseEnabled || !this.autoCloseFn) return;
-    if (this.isAutoCloseExecuting) return;
+    if (!this.status.running) return;
 
     const now = new Date();
     const tz = this.timezone;
@@ -262,6 +321,37 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     const dow = getDayOfWeek(nowLocalDateIso);
     if (dow === 0 || dow === 6) return; // Weekend
 
+    const nowLocalTimeParts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).format(now).split(':').map(n => parseInt(n, 10) || 0);
+    const nowSeconds = nowLocalTimeParts[0] * 3600 + nowLocalTimeParts[1] * 60 + nowLocalTimeParts[2];
+
+    // 1. Check auto-active heartbeat (5:30 PM = 17:30)
+    if (this.autoActiveEnabled && this.autoActiveFn && !this.isAutoActiveExecuting) {
+      const lastActiveToday = this.status.lastAutoActive
+        ? new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date(this.status.lastAutoActive)) === nowLocalDateIso
+        : false;
+
+      if (!lastActiveToday && !this.autoActiveTimer) {
+        const [actH, actM] = this.autoActiveTime.split(':').map(n => parseInt(n, 10) || 0);
+        const activeSeconds = actH * 3600 + actM * 60;
+        // Window from 17:30 to 18:15 (before auto-close window)
+        const windowEndSeconds = 18 * 3600 + 15 * 60;
+        if (nowSeconds >= activeSeconds && nowSeconds < windowEndSeconds) {
+          logger.info(`Scheduler Heartbeat: auto-active time passed for ${nowLocalDateIso} but tasks not yet activated. Triggering catchup execution...`);
+          void this.runAutoActiveScheduled();
+        }
+      }
+    }
+
+    // 2. Check auto-close heartbeat
+    if (!this.autoCloseEnabled || !this.autoCloseFn) return;
+    if (this.isAutoCloseExecuting) return;
+
     const lastRunToday = this.status.lastAutoClose
       ? new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date(this.status.lastAutoClose)) === nowLocalDateIso
       : false;
@@ -270,15 +360,6 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     // to patch the same Azure work items repeatedly.
     if (lastRunToday || this.autoCloseTimer) return;
 
-    const nowLocalTimeParts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: tz,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    }).format(now).split(':').map(n => parseInt(n, 10) || 0);
-
-    const nowSeconds = nowLocalTimeParts[0] * 3600 + nowLocalTimeParts[1] * 60 + nowLocalTimeParts[2];
     const [startH, startM] = this.autoCloseStartTime.split(':').map(n => parseInt(n, 10) || 0);
     const [endH, endM] = this.autoCloseEndTime.split(':').map(n => parseInt(n, 10) || 0);
     const startSeconds = startH * 3600 + startM * 60;
@@ -529,6 +610,108 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       logger.error(`Scheduler: EOD task auto-close failed: ${error?.message || error}`);
     } finally {
       this.isAutoCloseExecuting = false;
+    }
+  }
+
+  private scheduleAutoActiveDaily(): void {
+    const now = new Date();
+    const tz = this.timezone;
+    const nowLocalDateIso = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+
+    const nowLocalTimeParts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).format(now).split(':').map(n => parseInt(n, 10) || 0);
+
+    const nowSeconds = nowLocalTimeParts[0] * 3600 + nowLocalTimeParts[1] * 60 + nowLocalTimeParts[2];
+    const [actH, actM] = this.autoActiveTime.split(':').map(n => parseInt(n, 10) || 0);
+    const activeSeconds = actH * 3600 + actM * 60;
+
+    const dow = getDayOfWeek(nowLocalDateIso);
+    const isWeekend = dow === 0 || dow === 6;
+
+    const lastActiveToday = this.status.lastAutoActive
+      ? new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date(this.status.lastAutoActive)) === nowLocalDateIso
+      : false;
+
+    let target: Date;
+    if (!isWeekend && !lastActiveToday && nowSeconds < activeSeconds) {
+      target = new Date(zonedTimeToUtcIso(nowLocalDateIso, `${this.autoActiveTime}:00`, tz));
+    } else {
+      const tomorrowIso = addDays(nowLocalDateIso, 1);
+      target = this.getNextRunTime(new Date(zonedTimeToUtcIso(tomorrowIso, '00:00:00', tz)), `${this.autoActiveTime}:00`);
+    }
+
+    this.status.nextAutoActive = target.toISOString();
+    const delay = Math.max(0, target.getTime() - now.getTime());
+
+    logger.info(`Scheduler: Next task auto-active scheduled for ${this.status.nextAutoActive} (${this.timezone} @ ${this.autoActiveTime}).`);
+
+    this.autoActiveTimer = setTimeout(() => {
+      this.autoActiveTimer = null;
+      void this.runAutoActiveScheduled().finally(() => {
+        if (this.status.running && this.autoActiveEnabled) {
+          this.scheduleAutoActiveDaily();
+        }
+      });
+    }, delay);
+  }
+
+  private async runAutoActiveScheduled(): Promise<void> {
+    if (!this.autoActiveFn) {
+      logger.warn('Scheduler: no auto-active function configured');
+      return;
+    }
+    if (this.isAutoActiveExecuting) {
+      logger.warn('Scheduler: auto-active already in progress, skipping parallel execution');
+      return;
+    }
+
+    this.isAutoActiveExecuting = true;
+    this.status.lastAutoActive = new Date().toISOString();
+    logger.info(`Scheduler: running automated task activation (time: ${this.autoActiveTime}, tz: ${this.timezone})...`);
+    try {
+      if (this.configRepo) {
+        try {
+          await this.configRepo.saveSettings({ lastAutoActive: this.status.lastAutoActive });
+        } catch (error) {
+          this.status.lastAutoActiveResult = 'failure';
+          logger.error(`Auto-active checkpoint could not be persisted; Azure activation was not attempted: ${error instanceof Error ? error.message : String(error)}`);
+          return;
+        }
+      }
+      const result: any = await this.autoActiveFn();
+
+      const totalFound = typeof result?.totalFound === 'number' ? result.totalFound : undefined;
+      const totalActivated = typeof result?.totalActivated === 'number' ? result.totalActivated : 0;
+      const totalAlreadyActive = typeof result?.totalAlreadyActive === 'number' ? result.totalAlreadyActive : 0;
+      const totalFailed = typeof result?.totalFailed === 'number' ? result.totalFailed : 0;
+
+      if (totalFound === 0 || (totalFound !== undefined && totalActivated === 0 && totalAlreadyActive === 0)) {
+        logger.warn('Scheduler: auto-active scan found 0 candidate tasks.');
+        this.status.lastAutoActiveResult = 'empty';
+        return;
+      }
+
+      this.status.lastAutoActiveResult = totalFailed > 0 ? 'partial' : 'success';
+      if (totalFailed > 0) {
+        logger.warn(`Scheduler: auto-active incomplete (${totalActivated} activated, ${totalAlreadyActive} already active, ${totalFailed} failed).`);
+      } else {
+        logger.success(`Scheduler: auto-active completed successfully (${totalActivated} activated, ${totalAlreadyActive} already active).`);
+      }
+    } catch (error: any) {
+      this.status.lastAutoActiveResult = 'failure';
+      logger.error(`Scheduler: task auto-active failed: ${error?.message || error}`);
+    } finally {
+      this.isAutoActiveExecuting = false;
     }
   }
 }

@@ -18,6 +18,7 @@ import { ConfigUseCases } from './application/use-cases/config.js';
 import { RepairRelationsUseCase } from './application/use-cases/repair-relations.js';
 import { ExploreTasksUseCase, ExploreTasksInput, ExploreTasksOutput } from './application/use-cases/explore-tasks.js';
 import { CloseDailyTasksUseCase, CloseDailyTasksInput, CloseDailyTasksOutput } from './application/use-cases/close-daily-tasks.js';
+import { ActivateDailyTasksUseCase, ActivateDailyTasksInput, ActivateDailyTasksOutput } from './application/use-cases/activate-daily-tasks.js';
 import { GitHubClient } from './infrastructure/github/github-client.js';
 import { FileAutoClosureConfigRepository } from "./infrastructure/config/file-auto-closure-config-repo.js";
 import { FileAutoClosureAuditRepository } from "./infrastructure/journal/file-auto-closure-audit-repo.js";
@@ -35,6 +36,7 @@ export interface App {
   configUseCases: ConfigUseCases;
   repairRelations: RepairRelationsUseCase;
   closeDailyTasks: CloseDailyTasksUseCase;
+  activateDailyTasks: ActivateDailyTasksUseCase;
   githubClient: GitHubClient;
   journal: FileJournalRepository;
   scheduler: NodeSchedulerRepository;
@@ -110,6 +112,15 @@ export async function buildApp(
     autoClosureConfigRepo,
     autoClosureAuditRepo
   );
+  const activateDailyTasks = new ActivateDailyTasksUseCase(
+    config,
+    workItemRepo,
+    datePlanning,
+    githubClient,
+    configRepo,
+    journalRepo,
+    lockRepo
+  );
 
   // Wire scheduler to run task creation
   schedulerRepo.setScheduleFunction(async () => {
@@ -118,6 +129,17 @@ export async function buildApp(
       result.personResults.some(p => (p.auditWarnings?.length ?? 0) > 0)) {
       throw new Error('Scheduled task creation had failures or unverified audit/relation results. Inspect the task journal.');
     }
+  });
+
+  // Wire scheduler to run 5:30 PM task auto-activation
+  schedulerRepo.setAutoActiveFunction(async () => {
+    logger.info('Scheduler: executing automated 5:30 PM task activation...');
+    const result = await activateDailyTasks.execute({});
+    logger.info(`Scheduler task activation finished: ${result.totalActivated} activated, ${result.totalAlreadyActive} already active, ${result.totalFailed} failed.`);
+    if (result.totalFailed > 0) {
+      throw new Error(`${result.totalFailed} task(s) failed during auto-activation`);
+    }
+    return result;
   });
 
   // Wire scheduler to run EOD task auto-closure
@@ -147,6 +169,7 @@ export async function buildApp(
     configUseCases,
     repairRelations,
     closeDailyTasks,
+    activateDailyTasks,
     githubClient,
     journal: journalRepo,
     scheduler: schedulerRepo,

@@ -8,6 +8,7 @@ export interface PersonConfig {
   name: string;          // Display name
   assignedTo: string;    // Email, UPN, displayName, or identity descriptor
   enabled?: boolean;     // Defaults to true
+  autoCloseEnabled?: boolean; // Whether this person's tasks are included in EOD auto-closure. Defaults to true.
   sourceTaskId?: number; // Optional per-person source work item override
   pod?: string;          // Team or POD name
   role?: string;         // Role in the company
@@ -140,6 +141,7 @@ export class Person {
   readonly name: string;
   readonly assignedTo: string;
   readonly enabled: boolean;
+  readonly autoCloseEnabled: boolean;
   readonly sourceTaskId?: number;
   readonly pod?: string;
   readonly role?: string;
@@ -158,6 +160,7 @@ export class Person {
     this.name = config.name;
     this.assignedTo = config.assignedTo;
     this.enabled = config.enabled ?? true;
+    this.autoCloseEnabled = config.autoCloseEnabled !== false; // Defaults to true
     this.sourceTaskId = config.sourceTaskId;
     this.pod = config.pod;
     this.role = config.role;
@@ -187,6 +190,7 @@ export class Person {
       name: this.name,
       assignedTo: this.assignedTo,
       enabled: this.enabled,
+      autoCloseEnabled: this.autoCloseEnabled,
       sourceTaskId: this.sourceTaskId,
       pod: this.pod,
       role: this.role,

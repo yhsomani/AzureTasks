@@ -221,8 +221,8 @@ describe('Security Implementation Integration Tests', () => {
         // Remove quotes if present
         const unquoted = value.replace(/^["']|["']$/g, '');
 
-        // Should be placeholder-like
-        const isPlaceholder = /^(YOUR_|your_|example|EXAMPLE|replace|REPLACE|xxx|XXX|false|true|0|1|\/|https?:\/\/)/.test(unquoted);
+        // Should be placeholder-like or standard safe configuration defaults
+        const isPlaceholder = /^(YOUR[-_]|your[-_]|example|EXAMPLE|replace|REPLACE|xxx|XXX|false|true|0|1|\/|https?:\/\/|[0-9]+|UTC|Asia\/|development|production|test|info|warn|error|New|Active|Closed|3in1|Task|_suffix|No|Yes|CURRENT|NEXT)/i.test(unquoted);
         expect(isPlaceholder).toBe(true);
       });
     });

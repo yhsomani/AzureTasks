@@ -5,7 +5,7 @@
  */
 
 import { Person } from '../../domain/entities/person.js';
-import { PlannedDate } from '../../domain/entities/task.js';
+import { PlannedDate } from '../../domain/value-objects/date-window.js';
 import { TaskPlanBuilder, PersonExecutionPlan } from './task-plan-builder.js';
 
 export interface PersonExecutionResult {

@@ -90,6 +90,9 @@ export class FileJournalRepository implements JournalRepository {
   }
 
   async getEntries(limit?: number): Promise<JournalEntry[]> {
+    if (this.writeBuffer.length > 0) {
+      await this.flushBuffer();
+    }
     // Newest segment first; never silently omit rotated history from
     // the UI, CSV export or audit search.
     const entries = this.readEntriesFrom(this.journalPath).reverse();

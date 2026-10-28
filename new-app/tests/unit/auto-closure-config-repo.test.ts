@@ -80,7 +80,17 @@ describe('FileAutoClosureConfigRepository', () => {
         updatedAt: '2024-01-01T00:00:00Z',
         createdBy: 'admin',
         lastModifiedBy: 'admin',
-        rules: [],
+        rules: [
+          {
+            ruleId: 'rule-1',
+            type: 'inclusion',
+            filterType: 'users',
+            filters: [{ id: 'user1', name: 'User 1' }],
+            createdAt: '2024-01-01T00:00:00Z',
+            updatedAt: '2024-01-01T00:00:00Z',
+            createdBy: 'admin',
+          },
+        ],
       };
 
       await repo.save(testConfig);
@@ -99,7 +109,17 @@ describe('FileAutoClosureConfigRepository', () => {
         updatedAt: '2024-01-01T00:00:00Z',
         createdBy: 'admin',
         lastModifiedBy: 'admin',
-        rules: [],
+        rules: [
+          {
+            ruleId: 'rule-1',
+            type: 'inclusion',
+            filterType: 'users',
+            filters: [{ id: 'user1', name: 'User 1' }],
+            createdAt: '2024-01-01T00:00:00Z',
+            updatedAt: '2024-01-01T00:00:00Z',
+            createdBy: 'admin',
+          },
+        ],
       };
 
       await repo.save(testConfig);

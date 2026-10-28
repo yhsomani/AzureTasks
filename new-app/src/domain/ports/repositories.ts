@@ -5,8 +5,31 @@
 
 import { WorkItem, DiscoveredTask, CreatedTask } from '../entities/task.js';
 import { Person, PersonConfig } from '../entities/person.js';
+import {
+  FilterType,
+  RuleType,
+  UserFilter,
+  TeamFilter,
+  RoleFilter,
+  AutoClosureRule,
+  AutoClosureConfig,
+  AutoClosureAuditLog,
+  AutoClosureValidationResult,
+} from '../entities/auto-closure-config.js';
 
-export type { PersonConfig, Person };
+export type {
+  PersonConfig,
+  Person,
+  FilterType,
+  RuleType,
+  UserFilter,
+  TeamFilter,
+  RoleFilter,
+  AutoClosureRule,
+  AutoClosureConfig,
+  AutoClosureAuditLog,
+  AutoClosureValidationResult,
+};
 
 /**
  * Azure DevOps Work Item Repository
@@ -135,6 +158,9 @@ export interface AppConfig {
   autoCloseStartTime?: string;
   autoCloseEndTime?: string;
   lastAutoClose?: string;
+  autoActive?: boolean;
+  autoActiveTime?: string;
+  lastAutoActive?: string;
   copyEstimates: boolean;
   resetActualWork: boolean;
   maxRetries: number;
@@ -204,10 +230,14 @@ export interface SchedulerRepository {
     autoClose?: boolean;
     autoCloseStartTime?: string;
     autoCloseEndTime?: string;
+    autoActive?: boolean;
+    autoActiveTime?: string;
   }): Promise<void>;
   triggerRunNow?(): Promise<{ success: boolean; message: string }>;
   setAutoCloseFunction?(fn: () => Promise<any>): void;
   triggerAutoCloseNow?(): Promise<{ success: boolean; message: string }>;
+  setAutoActiveFunction?(fn: () => Promise<any>): void;
+  triggerAutoActiveNow?(): Promise<{ success: boolean; message: string }>;
 }
 
 export interface SchedulerStatus {
@@ -224,6 +254,11 @@ export interface SchedulerStatus {
   nextAutoClose?: string;
   lastAutoClose?: string;
   lastAutoCloseResult?: 'success' | 'failure' | 'partial' | 'empty';
+  autoActiveEnabled?: boolean;
+  autoActiveTime?: string;
+  nextAutoActive?: string;
+  lastAutoActive?: string;
+  lastAutoActiveResult?: 'success' | 'failure' | 'partial' | 'empty';
 }
 
 /**
@@ -276,15 +311,3 @@ export interface AutoClosureAuditFilter {
   endDate?: string;
 }
 
-// Re-export auto-closure types from domain entities
-export type {
-  FilterType,
-  RuleType,
-  UserFilter,
-  TeamFilter,
-  RoleFilter,
-  AutoClosureRule,
-  AutoClosureConfig,
-  AutoClosureAuditLog,
-  AutoClosureValidationResult,
-} from '../entities/auto-closure-config.js';

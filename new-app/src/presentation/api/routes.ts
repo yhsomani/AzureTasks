@@ -12,6 +12,7 @@ import { ConfigUseCases } from '../../application/use-cases/config.js';
 import { ExploreTasksUseCase } from '../../application/use-cases/explore-tasks.js';
 import { RepairRelationsUseCase } from '../../application/use-cases/repair-relations.js';
 import { CloseDailyTasksUseCase } from '../../application/use-cases/close-daily-tasks.js';
+import { ActivateDailyTasksUseCase } from '../../application/use-cases/activate-daily-tasks.js';
 import { GitHubClient } from '../../infrastructure/github/github-client.js';
 import { JournalRepository, SchedulerRepository } from '../../domain/ports/repositories.js';
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -36,6 +37,7 @@ export interface ApiDependencies {
   config: ConfigUseCases;
   repairRelations?: RepairRelationsUseCase;
   closeDailyTasks?: CloseDailyTasksUseCase;
+  activateDailyTasks?: ActivateDailyTasksUseCase;
   githubClient?: GitHubClient;
   journal: JournalRepository;
   scheduler: SchedulerRepository;
@@ -148,14 +150,14 @@ export function createApiRouter(deps: ApiDependencies): Router {
   // Tasks
   router.post('/tasks/plan', asyncHandler(async (req, res) => {
     const { asOf, thursdayMode } = req.body || {};
-          const scope = resolvePersonScope(req.body, true);
-          const data = await deps.planTasks.execute({
-            ...scope,
-            asOf,
-            thursdayMode,
-          });
-          res.json({ success: true, data });
-  }));
+    const scope = resolvePersonScope(req.body, true);
+    const data = await deps.planTasks.execute({
+      ...scope,
+      asOf,
+      thursdayMode,
+    });
+    res.json({ success: true, data });
+  }, { statusCode: 400 }));
 
   router.post('/tasks/execute', asyncHandler(async (req, res) => {
     const { asOf, thursdayMode, dryRun } = req.body || {};
@@ -267,6 +269,42 @@ export function createApiRouter(deps: ApiDependencies): Router {
           res.json({ success: true, data: result });
   }));
 
+  router.post('/tasks/activate-today', asyncHandler(async (req, res) => {
+    if (!deps.activateDailyTasks) {
+      return res.status(501).json({ success: false, error: 'Daily task activation is not configured' });
+    }
+    const { asOf } = req.body || {};
+    const dryRun = req.body?.dryRun === true;
+    if ((req as typeof req & { authRole?: string }).authRole === 'viewer' && !dryRun) {
+      return res.status(403).json({
+        success: false,
+        error: 'Read-only viewer credentials may preview task activation but may not activate work items.',
+      });
+    }
+    const runtimeConfig = await deps.config.getConfig();
+    const today = getTodayIso(runtimeConfig.timezone || 'UTC');
+    if (asOf !== undefined &&
+      (typeof asOf !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(asOf) ||
+        !Number.isFinite(new Date(`${asOf}T00:00:00Z`).getTime()) ||
+        new Date(`${asOf}T00:00:00Z`).toISOString().slice(0, 10) !== asOf)) {
+      return res.status(400).json({ success: false, error: 'Invalid reference date (YYYY-MM-DD).' });
+    }
+    if (!dryRun && asOf && asOf !== today) {
+      return res.status(400).json({ success: false, error: 'Task activation is restricted to the current configured workday. Use preview for other dates.' });
+    }
+    if (!dryRun && req.body?.confirm !== true) {
+      return res.status(400).json({ success: false, error: 'Explicit confirm=true is required for Azure task activation.' });
+    }
+    const scope = resolvePersonScope(req.body, dryRun);
+    logger.info(`Daily task activation requested (dryRun=${dryRun}, asOf=${asOf || 'today'})...`);
+    const result = await deps.activateDailyTasks.execute({
+      personKeys: scope.personKeys,
+      asOf,
+      dryRun,
+    });
+    res.json({ success: true, data: result });
+  }));
+
   // Explorer
   router.get('/explorer', asyncHandler(async (req, res) => {
     const preset = typeof req.query.preset === 'string' ? req.query.preset : undefined;
@@ -314,13 +352,21 @@ export function createApiRouter(deps: ApiDependencies): Router {
 
   // Journal
   router.get('/journal', asyncHandler(async (req, res) => {
-    const limit = parsePageLimit(req.query.limit, 100, 1000);
-          const entries = await deps.journal.getEntries(limit);
-          const unfinished = await deps.journal.getUnfinishedRelations();
-          res.json({
-            success: true,
-            data: { totalEntries: entries.length, incompleteEntriesCount: unfinished.length, entries },
-          });
+    try {
+      const limit = parsePageLimit(req.query.limit, 100, 1000);
+      const entries = await deps.journal.getEntries(limit);
+      const unfinished = await deps.journal.getUnfinishedRelations();
+      res.json({
+        success: true,
+        data: { totalEntries: entries.length, incompleteEntriesCount: unfinished.length, entries },
+      });
+    } catch (err: unknown) {
+      const invalidLimit = err instanceof Error && getErrorMessage(err).startsWith('limit must be a positive integer');
+      if (invalidLimit) {
+        return res.status(400).json({ success: false, error: getErrorMessage(err) });
+      }
+      throw err;
+    }
   }));
 
   router.get('/journal/export', asyncHandler(async (req, res) => {
@@ -357,10 +403,11 @@ export function createApiRouter(deps: ApiDependencies): Router {
   }));
 
   router.post('/scheduler/config', asyncHandler(async (req, res) => {
-    const { startTime, timezone, autoStart, autoClose, autoCloseStartTime, autoCloseEndTime } = req.body || {};
+    const { startTime, timezone, autoStart, autoClose, autoCloseStartTime, autoCloseEndTime, autoActive, autoActiveTime } = req.body || {};
           if ((autoStart !== undefined && typeof autoStart !== 'boolean') ||
             (autoClose !== undefined && typeof autoClose !== 'boolean') ||
-            [startTime, timezone, autoCloseStartTime, autoCloseEndTime].some(value =>
+            (autoActive !== undefined && typeof autoActive !== 'boolean') ||
+            [startTime, timezone, autoCloseStartTime, autoCloseEndTime, autoActiveTime].some(value =>
               value !== undefined && typeof value !== 'string')) {
             return res.status(400).json({ success: false, error: 'Invalid scheduler settings types.' });
           }
@@ -372,6 +419,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
               autoClose,
               autoCloseStartTime,
               autoCloseEndTime,
+              autoActive,
+              autoActiveTime,
             });
           }
           res.json({ success: true, data: deps.scheduler.getStatus() });
@@ -387,6 +436,18 @@ export function createApiRouter(deps: ApiDependencies): Router {
             res.json({ success: true, message: result.message, data: deps.scheduler.getStatus() });
           } else {
             res.status(400).json({ success: false, error: 'Direct run trigger not supported' });
+          }
+  }));
+
+  router.post('/scheduler/trigger-autoactive', asyncHandler(async (req, res) => {
+    if (req.body?.confirm !== true || req.body?.all !== true) {
+            return res.status(400).json({ success: false, error: 'Scheduler auto-active requires confirm=true and all=true.' });
+          }
+          if (deps.scheduler.triggerAutoActiveNow) {
+            const result = await deps.scheduler.triggerAutoActiveNow();
+            res.json({ success: result.success, message: result.message, data: deps.scheduler.getStatus() });
+          } else {
+            res.status(400).json({ success: false, error: 'Direct auto-active trigger not supported' });
           }
   }));
 

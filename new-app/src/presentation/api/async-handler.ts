@@ -63,7 +63,7 @@ export interface AsyncHandlerOptions {
  * ));
  */
 export function asyncHandler(
-  handler: (req: Request, res: Response, next: NextFunction) => Promise<void>,
+  handler: (req: Request, res: Response, next: NextFunction) => Promise<unknown>,
   options: AsyncHandlerOptions = {}
 ): RequestHandler {
   const {
@@ -112,7 +112,7 @@ export function asyncHandler(
  * }));
  */
 export function readyHandler(
-  handler: (req: Request, res: Response) => Promise<void>,
+  handler: (req: Request, res: Response) => Promise<unknown>,
   options: AsyncHandlerOptions = {}
 ): RequestHandler {
   return asyncHandler(
@@ -144,7 +144,7 @@ export function readyHandler(
  * }));
  */
 export function mutationHandler(
-  handler: (req: Request, res: Response) => Promise<void>,
+  handler: (req: Request, res: Response) => Promise<unknown>,
   options: AsyncHandlerOptions = {}
 ): RequestHandler {
   return asyncHandler(
