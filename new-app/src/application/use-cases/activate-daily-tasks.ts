@@ -264,17 +264,29 @@ export class ActivateDailyTasksUseCase {
 
           let prDeliverables;
           if (githubUser) {
-            prDeliverables = await this.githubClient.getPrDeliverablesForDate(
-              githubUser,
-              targetDate,
-              activeConfig.timezone,
-              {
-                org: activeConfig.githubOrg,
-                role: person.role,
-                repositories: person.githubRepositories,
-                branches: person.githubBranches,
-              }
-            );
+            try {
+              prDeliverables = await this.githubClient.getPrDeliverablesForDate(
+                githubUser,
+                targetDate,
+                activeConfig.timezone,
+                {
+                  org: activeConfig.githubOrg,
+                  role: person.role,
+                  repositories: person.githubRepositories,
+                  branches: person.githubBranches,
+                }
+              );
+            } catch (ghErr: any) {
+              logger.warn(`GitHub evidence retrieval failed for ${person.name} (${githubUser}): ${ghErr.message}. Continuing with fallback task description.`);
+              prDeliverables = {
+                username: person.name,
+                sourceDate: targetDate,
+                isToday: false,
+                pullRequests: [],
+                htmlDescription: `<div><p>Task activated on ${targetDate}. Work in progress.</p></div>`,
+                summaryText: 'GitHub evidence temporarily unavailable.',
+              };
+            }
           } else {
             prDeliverables = {
               username: person.name,

@@ -402,19 +402,24 @@ export class GitHubClient {
       }
 
       try {
-        // Query PRs created in the range or updated in the range to catch PRs created or updated today
-        const [createdPrs, updatedPrs] = await Promise.all([
-          this.getUserPullRequests(ghUsername, {
-            org,
-            createdRange: { from: utcDay(-1), to: utcDay(1) },
-            exhaustive: true,
-          }),
-          this.getUserPullRequests(ghUsername, {
-            org,
-            updatedRange: { from: utcDay(-1), to: utcDay(1) },
-            exhaustive: true,
-          }),
-        ]);
+        // Query PRs created in the range or updated in the range sequentially to prevent hitting GitHub burst search limits
+        const createdPrs = await this.getUserPullRequests(ghUsername, {
+          org,
+          createdRange: { from: utcDay(-1), to: utcDay(1) },
+          exhaustive: true,
+        });
+
+        // Small delay between searches to respect GitHub search secondary rate limits
+        await this.sleep(300);
+
+        const updatedPrs = await this.getUserPullRequests(ghUsername, {
+          org,
+          updatedRange: { from: utcDay(-1), to: utcDay(1) },
+          exhaustive: true,
+        });
+
+        // Delay before moving to the next member
+        await this.sleep(200);
 
         // Merge without duplicates by PR ID
         const prMap = new Map<number, GitHubPullRequest>();
@@ -530,16 +535,34 @@ export class GitHubClient {
         const status = res.status ?? 200;
         const remainingHeader = res.headers?.get?.('x-ratelimit-remaining');
         const retryAfterHeader = res.headers?.get?.('retry-after');
-        const isRateLimited = status === 429 || (
+
+        // Check for primary or secondary rate limits
+        let isSecondaryRateLimit = false;
+        let responseBodyText = '';
+        if (status === 403 || status === 429) {
+          responseBodyText = typeof res.text === 'function' ? await res.text().catch(() => '') : '';
+          const lowerText = responseBodyText.toLowerCase();
+          if (
+            lowerText.includes('secondary rate limit') ||
+            lowerText.includes('please wait a few minutes') ||
+            lowerText.includes('abuse detection')
+          ) {
+            isSecondaryRateLimit = true;
+          }
+        }
+
+        const isRateLimited = status === 429 || isSecondaryRateLimit || (
           status === 403 && (remainingHeader === '0' || Boolean(retryAfterHeader))
         );
 
         if (isRateLimited) {
           if (attempt >= this.maxRetries) {
-            const errorBody = typeof res.text === 'function' ? await res.text().catch(() => '') : '';
-            throw new Error(`GitHub API rate limit exceeded (HTTP ${status}): ${errorBody.slice(0, 200)}`);
+            const errorSnippet = responseBodyText.slice(0, 200);
+            throw new Error(`GitHub API rate limit exceeded (HTTP ${status}): ${errorSnippet}`);
           }
-          let delay = this.calculateBackoff(attempt);
+          let delay = isSecondaryRateLimit
+            ? Math.max(this.calculateBackoff(attempt), Math.min(this.initialRetryDelayMs, 5000))
+            : this.calculateBackoff(attempt);
           if (retryAfterHeader) {
             const sec = Number(retryAfterHeader);
             if (Number.isFinite(sec) && sec > 0) delay = Math.min(sec * 1000, 60000);
@@ -553,13 +576,14 @@ export class GitHubClient {
               }
             }
           }
+          logger.warn(`GitHub API ${isSecondaryRateLimit ? 'secondary rate limit' : 'rate limit'} hit (HTTP ${status}). Backing off for ${Math.round(delay)}ms (attempt ${attempt + 1}/${this.maxRetries})...`);
           await this.sleep(delay);
           continue;
         }
 
         if (status >= 500) {
           if (attempt >= this.maxRetries) {
-            const errorBody = typeof res.text === 'function' ? await res.text().catch(() => '') : '';
+            const errorBody = responseBodyText || (typeof res.text === 'function' ? await res.text().catch(() => '') : '');
             throw new Error(`GitHub API server error ${status}: ${errorBody.slice(0, 200)}`);
           }
           await this.sleep(this.calculateBackoff(attempt));
@@ -567,10 +591,13 @@ export class GitHubClient {
         }
 
         if (!res.ok) {
-          const errorBody = typeof res.text === 'function' ? await res.text().catch(() => '') : '';
+          const errorBody = responseBodyText || (typeof res.text === 'function' ? await res.text().catch(() => '') : '');
           throw new Error(`GitHub API error ${res.status} (${res.statusText}): ${errorBody.slice(0, 200)}`);
         }
 
+        if (responseBodyText) {
+          return JSON.parse(responseBodyText) as T;
+        }
         return (await res.json()) as T;
       } catch (err: any) {
         if (err?.name === 'AbortError') {

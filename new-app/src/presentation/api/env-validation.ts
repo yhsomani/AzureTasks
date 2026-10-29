@@ -5,6 +5,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 import { logger } from '../../infrastructure/logging/logger.js';
 
 /**
@@ -89,20 +90,33 @@ export function validateEnvironmentSecrets(): void {
 
     if (foundSecrets.length > 0) {
       const secretsList = foundSecrets.join(', ');
-      logger.error(
-        `⚠️  SECURITY ALERT: Real secrets detected in .env file: ${secretsList}\n` +
-        `These secrets are tracked by git and will be exposed if committed!\n` +
-        `Immediate actions:\n` +
-        `  1. IMMEDIATELY revoke these secrets in Azure DevOps / GitHub\n` +
-        `  2. Use .env.example as a template and replace with new secrets\n` +
-        `  3. Run: git rm --cached .env && git commit --amend\n` +
-        `  4. Verify .env is in .gitignore\n` +
-        `See .env.example for required variables.`
-      );
 
-      // In development, warn but allow startup
-      if (nodeEnv !== 'production') {
-        logger.warn('Starting in development mode despite secret exposure risk. USE CAUTION!');
+      // Check whether .env is actually tracked by git
+      let isTrackedByGit = false;
+      try {
+        execSync('git ls-files --error-unmatch .env', { stdio: 'pipe' });
+        isTrackedByGit = true;
+      } catch {
+        isTrackedByGit = false;
+      }
+
+      if (isTrackedByGit) {
+        logger.error(
+          `⚠️  CRITICAL SECURITY ALERT: Real secrets detected in .env file: ${secretsList}\n` +
+          `The .env file IS TRACKED BY GIT and will be exposed if pushed to a remote repository!\n` +
+          `Immediate actions:\n` +
+          `  1. IMMEDIATELY revoke these secrets in Azure DevOps / GitHub\n` +
+          `  2. Stop tracking .env: git rm --cached .env\n` +
+          `  3. Verify .env is added to .gitignore\n` +
+          `  4. Commit the untracking changes and use .env.example as a template.`
+        );
+        if (nodeEnv !== 'production') {
+          logger.warn('Starting in development mode despite secret exposure risk. USE CAUTION!');
+        }
+      } else {
+        logger.info(
+          `Local secrets detected in .env (${secretsList}). Verified .env is untracked in git (.gitignore active).`
+        );
       }
     }
   } catch (error) {
