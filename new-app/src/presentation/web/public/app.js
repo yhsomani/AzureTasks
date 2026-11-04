@@ -17,6 +17,7 @@ const state = {
   explorerData: null,
   selectedExplorerKeys: new Set(),
   burndownData: null,
+  burndownRequestVersion: 0,
   myWorkRequestVersion: 0,
   journal: [],
   scheduler: null,
@@ -600,12 +601,12 @@ function renderDailyPrTracking(data) {
     return;
   }
 
-  const table = el('table', { class: 'table' }, [
+  const table = el('table', { class: 'table pr-tracking-table' }, [
     el('thead', {}, el('tr', {}, [
-      el('th', { style: 'width:24%;' }, 'Team Member'),
-      el('th', { style: 'text-align:center; width:16%;' }, 'PRs Raised Today'),
-      el('th', { style: 'width:30%;' }, 'Open PR'),
-      el('th', { style: 'width:30%;' }, 'Merged PR'),
+      el('th', { style: 'width:22%;' }, 'Team Member'),
+      el('th', { style: 'text-align:center; width:12%;' }, 'PRs Raised Today'),
+      el('th', { style: 'width:33%;' }, 'Open PR'),
+      el('th', { style: 'width:33%;' }, 'Merged PR'),
     ])),
   ]);
 
@@ -627,16 +628,16 @@ function renderDailyPrTracking(data) {
       const listContainer = el('div', { style: 'display:flex; flex-direction:column; gap:4px;' });
       for (const pr of prItems) {
         const repoTag = pr.repositoryName ? `[${pr.repositoryName}] ` : '';
-        const prRow = el('div', { class: 'small', style: 'display:flex; align-items:center; gap:6px;' }, [
+        const prRow = el('div', { class: 'small', style: 'display:flex; flex-wrap:wrap; align-items:baseline; gap:6px; margin-bottom:4px;' }, [
           el('a', {
             href: pr.htmlUrl,
             target: '_blank',
             rel: 'noopener noreferrer',
             class: 'ado-link',
-            style: 'font-weight:600; text-decoration:none;',
+            style: 'font-weight:600; text-decoration:none; flex-shrink:0;',
           }, `${repoTag}#${pr.number}`),
           el('span', {
-            style: 'max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;',
+            style: 'min-width:0; flex:1 1 180px; word-break:break-word; white-space:normal;',
             title: pr.title,
           }, pr.title),
         ]);
@@ -901,11 +902,24 @@ async function loadBurndownMonth(options = {}) {
   const ym = $('#burndownMonthSelector')?.value;
   if (!ym) return;
 
+  const requestVersion = ++state.burndownRequestVersion || (state.burndownRequestVersion = 1);
+  const cfg = await ensureConfig(forceFresh);
+  if (requestVersion !== state.burndownRequestVersion) return;
+
+  const activePeople = (cfg.people || []).filter(p => p.enabled !== false);
+  const keys = activePeople.map(p => p.key);
+
+  if (!keys.length) {
+    state.burndownData = null;
+    container.innerHTML = '<p class="muted" style="padding:24px;">No active team members configured.</p>';
+    return;
+  }
+
   const [y, m] = ym.split('-');
   const lastDay = new Date(Date.UTC(Number(y), Number(m), 0)).getUTCDate();
   const start = `${ym}-01`;
   const end = `${ym}-${String(lastDay).padStart(2, '0')}`;
-  const url = `/explorer?startDate=${start}&endDate=${end}`;
+  const baseQuery = `startDate=${encodeURIComponent(start)}&endDate=${encodeURIComponent(end)}`;
 
   if (!state.burndownData || forceFresh) {
     container.innerHTML = `
@@ -918,22 +932,62 @@ async function loadBurndownMonth(options = {}) {
     `;
   }
 
-  try {
-    const data = await api.get(url, {
-      swr: !forceFresh,
-      forceFresh,
-      maxAgeMs: 45000,
-      abortKey: 'burndown-query',
-      onStale: (stale) => {
-        state.burndownData = stale;
-        renderBurndownTable(stale);
-      },
-    });
-    state.burndownData = data;
-    renderBurndownTable(data);
-  } catch (err) {
-    if (err.name === 'AbortError') return;
-    container.innerHTML = `<p class="muted" style="color:var(--danger); padding:24px;">Unable to load work tracking: ${escapeHtml(err.message)}</p>`;
+  const selected = new Set(keys);
+  const completed = new Map();
+  const failures = new Map();
+
+  const progress = () => {
+    if (requestVersion !== state.burndownRequestVersion) return;
+    const finished = completed.size + failures.size;
+
+    if (completed.size) {
+      const merged = mergeExplorerSnapshots(keys.filter(key => completed.has(key)).map(key => completed.get(key)));
+      state.burndownData = merged;
+      renderBurndownTable(merged);
+
+      if (container && finished < keys.length) {
+        const pending = document.createElement('p');
+        pending.className = 'muted small';
+        pending.setAttribute('role', 'status');
+        pending.textContent = `Loading team records… ${finished}/${keys.length}`;
+        container.prepend(pending);
+      }
+    }
+
+    if (finished === keys.length && failures.size && container) {
+      const notice = document.createElement('p');
+      notice.className = 'muted';
+      notice.setAttribute('role', 'alert');
+      notice.textContent = `${failures.size} member(s) could not load. Displayed burndown covers only loaded members.`;
+      container.prepend(notice);
+    }
+  };
+
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < keys.length && requestVersion === state.burndownRequestVersion) {
+      const key = keys[cursor++];
+      if (!selected.has(key)) continue;
+      try {
+        const data = await api.get(`/explorer?${baseQuery}&users=${encodeURIComponent(key)}`, {
+          swr: false,
+          forceFresh,
+          maxAgeMs: 45000,
+        });
+        if (requestVersion !== state.burndownRequestVersion) return;
+        completed.set(key, data);
+      } catch (err) {
+        if (requestVersion !== state.burndownRequestVersion) return;
+        failures.set(key, err);
+      }
+      progress();
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(3, keys.length) }, () => worker()));
+  if (requestVersion !== state.burndownRequestVersion) return;
+  if (!completed.size && container) {
+    container.innerHTML = `<p class="muted" style="color:var(--danger); padding:24px;">Unable to load work tracking: ${escapeHtml([...failures.values()][0]?.message || 'Please retry.')}</p>`;
   }
 }
 
@@ -1002,8 +1056,7 @@ function renderBurndownTable(data) {
   table.append(tbody);
 
   container.innerHTML = '';
-  const wrap = el('div', { class: 'matrix-container' }, table);
-  container.append(wrap);
+  container.append(table);
 }
 
 /* ----------------------------------------------------------------- my work */
@@ -1660,18 +1713,29 @@ function setPlannerExecuteReady(ready) {
   }
 }
 
+function mergePlanSnapshots(snapshots) {
+  const first = snapshots[0];
+  return {
+    todayIso: first.todayIso,
+    nextThursdayIso: first.nextThursdayIso,
+    personPlans: snapshots.flatMap(item => item.personPlans || []),
+  };
+}
+
 async function runPlanPreview() {
   const matrixWrap = $('#planMatrixWrap');
   const results = $('#planResults');
   const statusPill = $('#plannerAutoRefreshStatus');
   const signature = plannerSelectionSignature();
   const requestVersion = ++state.planRequestVersion;
+  const keys = [...state.selectedKeys];
+
   state.pendingPlan = null;
   state.pendingPlanSignature = null;
   setPlannerExecuteReady(false);
   if (statusPill) { statusPill.textContent = 'Updating…'; statusPill.className = 'pill warn'; }
 
-  if (state.selectedKeys.size === 0) {
+  if (keys.length === 0) {
     const message = 'Select at least one team member to preview or create tasks.';
     if (matrixWrap) matrixWrap.textContent = message;
     if (results) results.textContent = message;
@@ -1683,36 +1747,99 @@ async function runPlanPreview() {
   }
 
   if (matrixWrap) matrixWrap.innerHTML = '<div style="padding:20px;"><div class="skeleton-row skeleton"></div><div class="skeleton-row skeleton"></div></div>';
-  if (results) results.textContent = 'Checking existing tasks and planned dates…';
+  if (results) results.textContent = `Checking existing tasks and planned dates… 0/${keys.length}`;
 
-  try {
-    const plan = await api.post('/tasks/plan', {
-      personKeys: [...state.selectedKeys],
-      asOf: $('#asOf')?.value || undefined,
-      thursdayMode: $('#thursdayMode')?.value || undefined,
-    });
+  const asOf = $('#asOf')?.value || undefined;
+  const thursdayMode = $('#thursdayMode')?.value || undefined;
+  const selected = new Set(keys);
+  const completed = new Map();
+  const failures = new Map();
+
+  const progress = () => {
     if (requestVersion !== state.planRequestVersion || signature !== plannerSelectionSignature()) return;
-    state.pendingPlan = plan;
-    state.pendingPlanSignature = signature;
-    renderPlanMatrix(plan);
-    renderPlanResults(plan);
-    const count = plan.personPlans.reduce((sum, person) =>
-      sum + (person.plannedDates || []).filter(date => date.status === 'PLANNED').length, 0);
-    setPlannerExecuteReady(count > 0);
-    if (statusPill) {
-      statusPill.textContent = count > 0 ? `${count} pending · ready to review` : 'No pending tasks';
-      statusPill.className = count > 0 ? 'pill warn' : 'pill ok';
+    const finished = completed.size + failures.size;
+
+    if (completed.size) {
+      const merged = mergePlanSnapshots(keys.filter(key => completed.has(key)).map(key => completed.get(key)));
+      state.pendingPlan = merged;
+      state.pendingPlanSignature = signature;
+      renderPlanMatrix(merged);
+      renderPlanResults(merged);
+
+      const count = merged.personPlans.reduce((sum, person) =>
+        sum + (person.plannedDates || []).filter(date => date.status === 'PLANNED').length, 0);
+
+      if (finished < keys.length) {
+        setPlannerExecuteReady(false);
+        if (statusPill) {
+          statusPill.textContent = `Loading ${finished}/${keys.length}…`;
+          statusPill.className = 'pill warn';
+        }
+        if (matrixWrap) {
+          const pending = document.createElement('p');
+          pending.className = 'muted small';
+          pending.setAttribute('role', 'status');
+          pending.textContent = `Evaluating remaining members… ${finished}/${keys.length}`;
+          matrixWrap.prepend(pending);
+        }
+      } else {
+        setPlannerExecuteReady(count > 0);
+        if (statusPill) {
+          if (failures.size) {
+            statusPill.textContent = count > 0 ? `${count} pending · ${failures.size} failed` : `${failures.size} failed`;
+            statusPill.className = 'pill warn';
+          } else {
+            statusPill.textContent = count > 0 ? `${count} pending · ready to review` : 'No pending tasks';
+            statusPill.className = count > 0 ? 'pill warn' : 'pill ok';
+          }
+        }
+      }
     }
-  } catch (err) {
-    if (requestVersion !== state.planRequestVersion) return;
-    state.pendingPlan = null;
-    state.pendingPlanSignature = null;
-    setPlannerExecuteReady(false);
-    if (matrixWrap) matrixWrap.textContent = `Preview failed: ${err.message}`;
-    if (results) results.textContent = `Preview failed: ${err.message}`;
-    if (statusPill) { statusPill.textContent = 'Preview failed'; statusPill.className = 'pill bad'; }
-    toast(`Could not preview tasks: ${err.message}`, 'err');
-  }
+
+    if (finished === keys.length && failures.size) {
+      if (matrixWrap) {
+        const notice = document.createElement('p');
+        notice.className = 'muted';
+        notice.setAttribute('role', 'alert');
+        notice.textContent = `${failures.size} member(s) could not load. Displayed plan covers only loaded members.`;
+        matrixWrap.prepend(notice);
+      }
+      if (!completed.size) {
+        state.pendingPlan = null;
+        state.pendingPlanSignature = null;
+        setPlannerExecuteReady(false);
+        const errMsg = [...failures.values()][0]?.message || 'Please retry.';
+        if (matrixWrap) matrixWrap.textContent = `Preview failed: ${errMsg}`;
+        if (results) results.textContent = `Preview failed: ${errMsg}`;
+        if (statusPill) { statusPill.textContent = 'Preview failed'; statusPill.className = 'pill bad'; }
+        toast(`Could not preview tasks: ${errMsg}`, 'err');
+      }
+    }
+  };
+
+  // Limit parallel Azure queries; render each completed member without waiting for the slowest.
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < keys.length && requestVersion === state.planRequestVersion && signature === plannerSelectionSignature()) {
+      const key = keys[cursor++];
+      if (!selected.has(key)) continue;
+      try {
+        const planItem = await api.post('/tasks/plan', {
+          personKeys: [key],
+          asOf,
+          thursdayMode,
+        });
+        if (requestVersion !== state.planRequestVersion || signature !== plannerSelectionSignature()) return;
+        completed.set(key, planItem);
+      } catch (err) {
+        if (requestVersion !== state.planRequestVersion || signature !== plannerSelectionSignature()) return;
+        failures.set(key, err);
+      }
+      progress();
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(3, keys.length) }, () => worker()));
 }
 
 function renderPlanMatrix(plan) {
@@ -1770,8 +1897,8 @@ function renderPlanMatrix(plan) {
     // Person cell
     const sourceId = planItem.sourceTask?.workItem?.id || planItem.sourceTask?.id;
     const nameCell = el('td', { class: 'sticky-col matrix-person-cell', style: 'vertical-align:top;' }, [
-      el('div', { style: 'font-weight:600;' }, planItem.person.name),
-      el('div', { class: 'muted small' }, planItem.person.assignedTo),
+      el('div', { style: 'font-weight:600;', title: planItem.person.name }, planItem.person.name),
+      el('div', { class: 'muted small', title: planItem.person.assignedTo }, planItem.person.assignedTo),
       sourceId
         ? el('div', { class: 'muted small', style: 'margin-top:2px; font-size:11.5px;' }, [
             document.createTextNode('Source: '),
@@ -2055,21 +2182,27 @@ function renderPeople() {
   list.innerHTML = '';
   state.people.forEach((p, idx) => {
     const row = el('div', { class: 'person-row' });
-    row.append(field('Key', input(p.key, v => state.people[idx].key = v)));
-    row.append(field('Name', input(p.name, v => state.people[idx].name = v)));
-    row.append(field('Assigned to (Email / UPN)', input(p.assignedTo, v => state.people[idx].assignedTo = v)));
-    row.append(field('Role / POD', input(p.role || p.pod || '', v => state.people[idx].role = v)));
-    row.append(field('Title Prefix', input(p.titlePrefix || '', v => state.people[idx].titlePrefix = v ? v : undefined)));
-    row.append(field('GitHub Handle', input(p.githubUsername || '', v => state.people[idx].githubUsername = v || undefined)));
-    row.append(field('GitHub Repositories (owner/repo, comma-separated)', input(
+
+    // Row 1: Core Identity & Assignment
+    const r1 = el('div', { class: 'person-row-identity' });
+    r1.append(field('Key', input(p.key, v => state.people[idx].key = v)));
+    r1.append(field('Name', input(p.name, v => state.people[idx].name = v)));
+    r1.append(field('Assigned to (Email / UPN)', input(p.assignedTo, v => state.people[idx].assignedTo = v)));
+    r1.append(field('Role / POD', input(p.role || p.pod || '', v => state.people[idx].role = v)));
+    r1.append(field('Title Prefix', input(p.titlePrefix || '', v => state.people[idx].titlePrefix = v ? v : undefined)));
+
+    // Row 2: Integrations & Work Items
+    const r2 = el('div', { class: 'person-row-integrations' });
+    r2.append(field('GitHub Handle', input(p.githubUsername || '', v => state.people[idx].githubUsername = v || undefined)));
+    r2.append(field('GitHub Repositories (owner/repo, comma-separated)', input(
       (p.githubRepositories || []).join(', '), v =>
         state.people[idx].githubRepositories = v.split(',').map(s => s.trim()).filter(Boolean)
     )));
-    row.append(field('GitHub Branches (comma-separated)', input(
+    r2.append(field('GitHub Branches (comma-separated)', input(
       (p.githubBranches || []).join(', '), v =>
         state.people[idx].githubBranches = v.split(',').map(s => s.trim()).filter(Boolean)
     )));
-    
+
     // Source Task ID field with link
     const srcField = el('label', { class: 'field' });
     const labelRow = el('span', { style: 'display:flex; justify-content:space-between; align-items:center;' }, [
@@ -2086,16 +2219,11 @@ function renderPeople() {
     srcField.append(input(p.sourceTaskId, v => {
       state.people[idx].sourceTaskId = v ? Number(v) : undefined;
     }, 'number'));
-    row.append(srcField);
+    r2.append(srcField);
 
-    const del = el('button', {
-      class: 'btn ghost small del',
-      onclick: () => { state.people.splice(idx, 1); updateTeamDirtyState(); renderPeople(); },
-    }, 'Remove');
-    row.append(del);
-
-    // Auto-close toggle
-    const acLabel = el('label', { class: 'field', style: 'flex-direction:row; align-items:center; gap:8px; cursor:pointer;' });
+    // Row 3: Action Footer (Auto-close toggle left, Remove button right)
+    const actions = el('div', { class: 'person-row-actions' });
+    const acLabel = el('label', { class: 'person-autoclose' });
     const acCheck = el('input', { type: 'checkbox' });
     acCheck.checked = state.people[idx].autoCloseEnabled !== false;
     acCheck.addEventListener('change', () => {
@@ -2103,9 +2231,17 @@ function renderPeople() {
       updateTeamDirtyState();
       renderEodAutoClosePersonList(); // Keep scheduler panel in sync
     });
-    acLabel.append(acCheck, el('span', { style: 'font-size:12.5px;' }, 'Auto-close'));
-    row.append(acLabel);
+    acLabel.append(acCheck, el('span', {}, 'Auto-close completed tasks at EOD'));
 
+    const del = el('button', {
+      class: 'btn ghost small del danger',
+      type: 'button',
+      onclick: () => { state.people.splice(idx, 1); updateTeamDirtyState(); renderPeople(); },
+    }, 'Remove');
+
+    actions.append(acLabel, del);
+
+    row.append(r1, r2, actions);
     list.append(row);
   });
 }
@@ -2476,60 +2612,76 @@ async function saveCalendar() {
 }
 
 function openAddExceptionModal() {
-  const dialog = el('dialog', { class: 'modal', id: 'addExceptionModal' });
-  const form = el('form', { method: 'dialog', class: 'modal-body' });
+  $('#addExceptionModal')?.remove();
 
-  form.innerHTML = `
-    <header class="modal-header">
-      <h3>Add Calendar Exception</h3>
-      <button type="button" class="btn small ghost close-modal-btn" aria-label="Close dialog">✕</button>
-    </header>
-    <div class="modal-content" style="display:flex; flex-direction:column; gap:12px; margin-top:12px;">
-      <label class="field">
-        <span>Exception Type</span>
-        <select id="newExcType">
-          <option value="holiday">Holiday (Project-wide, 0h)</option>
-          <option value="leave">Planned Leave (0h default)</option>
-        </select>
+  const overlay = el('div', { class: 'modal-overlay open', id: 'addExceptionModal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'addExceptionTitle' });
+  const card = el('div', { class: 'modal-card', style: 'max-width: 520px;' });
+
+  const header = el('div', { class: 'modal-header' }, [
+    el('h3', { id: 'addExceptionTitle' }, 'Add Calendar Exception'),
+    el('button', { type: 'button', class: 'icon-btn close-modal-btn', 'aria-label': 'Close dialog', style: 'width:28px; height:28px;' }, '✕'),
+  ]);
+
+  const form = el('form', { id: 'addExceptionForm' });
+  const body = el('div', { class: 'modal-body', style: 'display:flex; flex-direction:column; gap:14px;' });
+
+  body.innerHTML = `
+    <label class="field">
+      <span>Exception Type</span>
+      <select id="newExcType">
+        <option value="holiday">Holiday (Project-wide, 0h)</option>
+        <option value="leave">Planned Leave (0h default)</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Team Member (Leave only)</span>
+      <select id="newExcMember">
+        <option value="">All members (Project-wide)</option>
+        ${calendarState.members.map(m => `<option value="${escapeHtml(m.key)}">${escapeHtml(m.name)}</option>`).join('')}
+      </select>
+    </label>
+    <div class="row gap">
+      <label class="field" style="flex:1;">
+        <span>Start Date</span>
+        <input type="date" id="newExcStart" required />
       </label>
-      <label class="field">
-        <span>Team Member (Leave only)</span>
-        <select id="newExcMember">
-          <option value="">All members (Project-wide)</option>
-          ${calendarState.members.map(m => `<option value="${escapeHtml(m.key)}">${escapeHtml(m.name)}</option>`).join('')}
-        </select>
-      </label>
-      <div class="row gap">
-        <label class="field" style="flex:1;">
-          <span>Start Date</span>
-          <input type="date" id="newExcStart" required />
-        </label>
-        <label class="field" style="flex:1;">
-          <span>End Date (Optional)</span>
-          <input type="date" id="newExcEnd" />
-        </label>
-      </div>
-      <label class="field">
-        <span>Reason or Note (Optional)</span>
-        <input type="text" id="newExcReason" placeholder="e.g. Diwali Holiday, Vacation" maxlength="100" />
+      <label class="field" style="flex:1;">
+        <span>End Date (Optional)</span>
+        <input type="date" id="newExcEnd" />
       </label>
     </div>
-    <footer class="modal-footer" style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
-      <button type="button" class="btn ghost close-modal-btn">Cancel</button>
-      <button type="submit" class="btn primary" id="saveNewExceptionBtn">Add Exception</button>
-    </footer>
+    <label class="field">
+      <span>Reason or Note (Optional)</span>
+      <input type="text" id="newExcReason" placeholder="e.g. Diwali Holiday, Vacation" maxlength="100" />
+    </label>
   `;
 
-  dialog.append(form);
-  document.body.append(dialog);
-  dialog.showModal();
+  const footer = el('div', { class: 'modal-footer' }, [
+    el('button', { type: 'button', class: 'btn ghost close-modal-btn' }, 'Cancel'),
+    el('button', { type: 'submit', class: 'btn primary', id: 'saveNewExceptionBtn' }, 'Add Exception'),
+  ]);
 
-  const closeDialog = () => {
-    dialog.close();
-    dialog.remove();
+  form.append(body, footer);
+  card.append(header, form);
+  overlay.append(card);
+  document.body.append(overlay);
+
+  const closeModal = () => {
+    overlay.remove();
   };
 
-  form.querySelectorAll('.close-modal-btn').forEach(b => b.addEventListener('click', closeDialog));
+  overlay.querySelectorAll('.close-modal-btn').forEach(b => b.addEventListener('click', closeModal));
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeModal();
+  });
+
+  const onKeydown = (e) => {
+    if (e.key === 'Escape' && document.body.contains(overlay)) {
+      closeModal();
+      document.removeEventListener('keydown', onKeydown);
+    }
+  };
+  document.addEventListener('keydown', onKeydown);
 
   form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -2559,10 +2711,12 @@ function openAddExceptionModal() {
 
     calendarState.calendar.exceptions.push(newException);
     calendarState.isDirty = true;
-    closeDialog();
+    closeModal();
     renderCalendarView();
     toast('Exception added to draft. Click "Save calendar" to persist.', 'info');
   });
+
+  setTimeout(() => $('#newExcStart', form)?.focus(), 50);
 }
 
 /* ------------------------------------------------------- eod auto-close selector */

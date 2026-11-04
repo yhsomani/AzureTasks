@@ -182,7 +182,19 @@ export class AzureWorkItemService implements WorkItemRepository {
       return null;
     }
 
-    pool.sort((a, b) => b.parsedDate.isoDate.localeCompare(a.parsedDate.isoDate));
+    pool.sort((a, b) => {
+      // 1. Primary sort: Chronological parsed task date descending (latest task date first)
+      const dateCompare = b.parsedDate.isoDate.localeCompare(a.parsedDate.isoDate);
+      if (dateCompare !== 0) return dateCompare;
+      // 2. Secondary tie-breaker: Latest work item ID / CreatedDate descending
+      // This ensures if a new task is created for the same date (e.g. new sprint kickoff),
+      // the latest work item is selected.
+      const bCreated = String(b.workItem.fields['System.CreatedDate'] || '');
+      const aCreated = String(a.workItem.fields['System.CreatedDate'] || '');
+      const createdCompare = bCreated.localeCompare(aCreated);
+      if (createdCompare !== 0) return createdCompare;
+      return (b.workItem.id || 0) - (a.workItem.id || 0);
+    });
     return pool[0];
   }
 
@@ -334,10 +346,18 @@ export class AzureWorkItemService implements WorkItemRepository {
       }
     }
 
-    // For each person, take the task with latest date
+    // For each person, take the task with latest date (breaking ties by latest creation date / ID)
     const personTasks = new Map<string, DiscoveredTask>();
     for (const [key, tasks] of personCandidateTasks) {
-      tasks.sort((a, b) => b.parsedDate.isoDate.localeCompare(a.parsedDate.isoDate));
+      tasks.sort((a, b) => {
+        const dateCompare = b.parsedDate.isoDate.localeCompare(a.parsedDate.isoDate);
+        if (dateCompare !== 0) return dateCompare;
+        const bCreated = String(b.workItem.fields['System.CreatedDate'] || '');
+        const aCreated = String(a.workItem.fields['System.CreatedDate'] || '');
+        const createdCompare = bCreated.localeCompare(aCreated);
+        if (createdCompare !== 0) return createdCompare;
+        return (b.workItem.id || 0) - (a.workItem.id || 0);
+      });
       personTasks.set(key, tasks[0]);
     }
 
