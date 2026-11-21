@@ -142,7 +142,8 @@ describe('Production web server access controls', () => {
       const response = await fetch(`http://127.0.0.1:${port}/`, {
         headers: { Authorization: `Basic ${Buffer.from('admin:test-only-secret').toString('base64')}` },
       });
-      expect(response.headers.get('content-security-policy')).toMatch(/script-src 'self' https:\/\/cdn\.jsdelivr\.net/);
+      expect(response.headers.get('content-security-policy')).toMatch(/script-src 'self'/);
+      expect(response.headers.get('content-security-policy')).not.toContain('https://cdn.jsdelivr.net');
       expect(response.headers.get('content-security-policy')?.split('style-src')[0]).not.toContain('unsafe-inline');
       expect(response.headers.get('content-security-policy')).toContain("object-src 'none'");
     } finally {

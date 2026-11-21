@@ -14,7 +14,13 @@ import { RepairRelationsUseCase } from '../../application/use-cases/repair-relat
 import { CloseDailyTasksUseCase } from '../../application/use-cases/close-daily-tasks.js';
 import { ActivateDailyTasksUseCase } from '../../application/use-cases/activate-daily-tasks.js';
 import { GitHubClient } from '../../infrastructure/github/github-client.js';
-import { JournalRepository, SchedulerRepository } from '../../domain/ports/repositories.js';
+import {
+  AutoClosureConfigRepository,
+  AutoClosureAuditLogRepository,
+  JournalRepository,
+  SchedulerRepository,
+} from '../../domain/ports/repositories.js';
+import { createAutoClosureRouter } from './auto-closure-routes.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { getTodayIso } from '../../domain/value-objects/date-window.js';
 import { ReadCoordinator } from './read-coordinator.js';
@@ -42,6 +48,9 @@ export interface ApiDependencies {
   githubClient?: GitHubClient;
   journal: JournalRepository;
   scheduler: SchedulerRepository;
+  autoClosureConfigRepo?: AutoClosureConfigRepository;
+  autoClosureAuditRepo?: AutoClosureAuditLogRepository;
+  adminUsers?: string[];
 }
 
 /**
@@ -176,6 +185,19 @@ export function createApiRouter(deps: ApiDependencies): Router {
           const savedPat = typeof req.body?.pat === 'string' ? req.body.pat.trim() : '';
           if (savedPat) logger.registerSecret(savedPat);
           res.json({ success: true, data });
+  }));
+
+  // Auto-Closure Configuration & Audit Routes
+  const adminUsers = deps.adminUsers ?? (
+    process.env.AUTO_CLOSURE_ADMINS
+      ? process.env.AUTO_CLOSURE_ADMINS.split(',').map(s => s.trim())
+      : [process.env.API_AUTH_USER || 'admin']
+  );
+  router.use('/auto-closure', createAutoClosureRouter({
+    configRepo: deps.autoClosureConfigRepo,
+    auditRepo: deps.autoClosureAuditRepo,
+    adminUsers,
+    requestingUser: (req) => (req as any).user?.email || (req as any).authUser || (process.env.API_AUTH_USER || 'admin'),
   }));
 
   // Tasks

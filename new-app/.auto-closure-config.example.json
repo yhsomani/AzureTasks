@@ -1,0 +1,26 @@
+{
+  "enabled": false,
+  "version": 1,
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "createdBy": "system",
+  "lastModifiedBy": "system",
+  "rules": [
+    {
+      "ruleId": "rule-example-1",
+      "type": "inclusion",
+      "filterType": "users",
+      "filters": [
+        {
+          "id": "alex.developer@example.com",
+          "name": "Alex Developer"
+        }
+      ],
+      "description": "Example inclusion rule for developer",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z",
+      "createdBy": "system"
+    }
+  ],
+  "retentionDays": 90
+}

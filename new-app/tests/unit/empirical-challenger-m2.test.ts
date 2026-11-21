@@ -20,20 +20,20 @@ describe('Empirical Challenger: validateSourceTaskOwnership Adversarial Testing'
       'System.TeamProject': project,
       'System.WorkItemType': workItemType,
       'System.Title': '3in1_PWA_MyAccount | 20 Oct 2026',
-      'System.AssignedTo': { displayName: 'Yash Somani', uniqueName: 'yash.somani@company.test' },
+      'System.AssignedTo': { displayName: 'Alex Developer', uniqueName: 'alex.developer@company.test' },
     },
   };
 
   const person = new Person({
-    key: 'yash-somani',
-    name: 'Yash Somani',
-    assignedTo: 'yash.somani@company.test',
+    key: 'alex-developer',
+    name: 'Alex Developer',
+    assignedTo: 'alex.developer@company.test',
   });
 
   const personConfig: PersonConfig = {
-    key: 'yash-somani',
-    name: 'Yash Somani',
-    assignedTo: 'yash.somani@company.test',
+    key: 'alex-developer',
+    name: 'Alex Developer',
+    assignedTo: 'alex.developer@company.test',
   };
 
   describe('1. Valid Identity Variants Accepted', () => {
@@ -51,7 +51,7 @@ describe('Empirical Challenger: validateSourceTaskOwnership Adversarial Testing'
     it('accepts displayName-only object (no uniqueName) matching person.name', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': { displayName: 'Yash Somani' } },
+        fields: { ...baseItem.fields, 'System.AssignedTo': { displayName: 'Alex Developer' } },
       };
       const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, person);
       expect(res.isValid).toBe(true);
@@ -60,7 +60,7 @@ describe('Empirical Challenger: validateSourceTaskOwnership Adversarial Testing'
     it('accepts displayName-only object matching with different case and whitespace', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': { displayName: '   yash SOMANI   ' } },
+        fields: { ...baseItem.fields, 'System.AssignedTo': { displayName: '   alex DEVELOPER   ' } },
       };
       const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, person);
       expect(res.isValid).toBe(true);
@@ -69,7 +69,7 @@ describe('Empirical Challenger: validateSourceTaskOwnership Adversarial Testing'
     it('accepts object with "name" field fallback if displayName is missing', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': { name: 'Yash Somani' } as any },
+        fields: { ...baseItem.fields, 'System.AssignedTo': { name: 'Alex Developer' } as any },
       };
       const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, person);
       expect(res.isValid).toBe(true);
@@ -78,7 +78,7 @@ describe('Empirical Challenger: validateSourceTaskOwnership Adversarial Testing'
     it('accepts string raw email matching person.assignedTo', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': 'yash.somani@company.test' },
+        fields: { ...baseItem.fields, 'System.AssignedTo': 'alex.developer@company.test' },
       };
       const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, person);
       expect(res.isValid).toBe(true);
@@ -87,7 +87,7 @@ describe('Empirical Challenger: validateSourceTaskOwnership Adversarial Testing'
     it('accepts string raw displayName matching person.name', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': 'Yash Somani' },
+        fields: { ...baseItem.fields, 'System.AssignedTo': 'Alex Developer' },
       };
       const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, person);
       expect(res.isValid).toBe(true);
@@ -96,7 +96,7 @@ describe('Empirical Challenger: validateSourceTaskOwnership Adversarial Testing'
     it('accepts string with angle bracket email "Name <email>" matching person', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': 'Yash Somani <yash.somani@company.test>' },
+        fields: { ...baseItem.fields, 'System.AssignedTo': 'Alex Developer <alex.developer@company.test>' },
       };
       const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, person);
       expect(res.isValid).toBe(true);
@@ -105,7 +105,7 @@ describe('Empirical Challenger: validateSourceTaskOwnership Adversarial Testing'
     it('accepts string with extra spaces in angle brackets "Name <   email   >"', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': 'Yash Somani <   yash.somani@company.test   >' },
+        fields: { ...baseItem.fields, 'System.AssignedTo': 'Alex Developer <   alex.developer@company.test   >' },
       };
       const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, person);
       expect(res.isValid).toBe(true);
@@ -114,7 +114,7 @@ describe('Empirical Challenger: validateSourceTaskOwnership Adversarial Testing'
     it('accepts uniqueName-only object (no displayName) matching person.assignedTo', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': { uniqueName: 'yash.somani@company.test' } as any },
+        fields: { ...baseItem.fields, 'System.AssignedTo': { uniqueName: 'alex.developer@company.test' } as any },
       };
       const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, person);
       expect(res.isValid).toBe(true);
@@ -123,7 +123,7 @@ describe('Empirical Challenger: validateSourceTaskOwnership Adversarial Testing'
     it('accepts uniqueName-only object with casing variations', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': { uniqueName: 'YASH.SOMANI@COMPANY.TEST' } as any },
+        fields: { ...baseItem.fields, 'System.AssignedTo': { uniqueName: 'ALEX.DEVELOPER@COMPANY.TEST' } as any },
       };
       const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, person);
       expect(res.isValid).toBe(true);
@@ -132,7 +132,7 @@ describe('Empirical Challenger: validateSourceTaskOwnership Adversarial Testing'
     it('accepts uniqueName-only object with extra whitespace', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': { uniqueName: '   yash.somani@company.test   ' } as any },
+        fields: { ...baseItem.fields, 'System.AssignedTo': { uniqueName: '   alex.developer@company.test   ' } as any },
       };
       const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, person);
       expect(res.isValid).toBe(true);
@@ -141,7 +141,7 @@ describe('Empirical Challenger: validateSourceTaskOwnership Adversarial Testing'
     it('accepts string with angle-bracket email only "<email>" without displayName', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': '<yash.somani@company.test>' },
+        fields: { ...baseItem.fields, 'System.AssignedTo': '<alex.developer@company.test>' },
       };
       const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, person);
       expect(res.isValid).toBe(true);
@@ -150,77 +150,77 @@ describe('Empirical Challenger: validateSourceTaskOwnership Adversarial Testing'
 
   describe('2. String assignedTo Backward Compatibility', () => {
     it('accepts string email when Azure provides object with uniqueName', () => {
-      const res = validateSourceTaskOwnership(baseItem, project, workItemType, titlePrefix, 'yash.somani@company.test');
+      const res = validateSourceTaskOwnership(baseItem, project, workItemType, titlePrefix, 'alex.developer@company.test');
       expect(res.isValid).toBe(true);
     });
 
     it('accepts string displayName when Azure provides object with uniqueName & displayName', () => {
-      const res = validateSourceTaskOwnership(baseItem, project, workItemType, titlePrefix, 'Yash Somani');
+      const res = validateSourceTaskOwnership(baseItem, project, workItemType, titlePrefix, 'Alex Developer');
       expect(res.isValid).toBe(true);
     });
 
     it('accepts string "Name <email>" when Azure provides object with uniqueName & displayName', () => {
-      const res = validateSourceTaskOwnership(baseItem, project, workItemType, titlePrefix, 'Yash Somani <yash.somani@company.test>');
+      const res = validateSourceTaskOwnership(baseItem, project, workItemType, titlePrefix, 'Alex Developer <alex.developer@company.test>');
       expect(res.isValid).toBe(true);
     });
 
     it('accepts string displayName when Azure provides displayName-only object', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': { displayName: 'Yash Somani' } },
+        fields: { ...baseItem.fields, 'System.AssignedTo': { displayName: 'Alex Developer' } },
       };
-      const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, 'Yash Somani');
+      const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, 'Alex Developer');
       expect(res.isValid).toBe(true);
     });
 
     it('accepts string "Name <email>" when Azure provides displayName-only object', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': { displayName: 'Yash Somani' } },
+        fields: { ...baseItem.fields, 'System.AssignedTo': { displayName: 'Alex Developer' } },
       };
-      const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, 'Yash Somani <yash.somani@company.test>');
+      const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, 'Alex Developer <alex.developer@company.test>');
       expect(res.isValid).toBe(true);
     });
 
     it('accepts string email when Azure provides string "Name <email>"', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': 'Yash Somani <yash.somani@company.test>' },
+        fields: { ...baseItem.fields, 'System.AssignedTo': 'Alex Developer <alex.developer@company.test>' },
       };
-      const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, 'yash.somani@company.test');
+      const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, 'alex.developer@company.test');
       expect(res.isValid).toBe(true);
     });
 
     it('accepts string email when Azure provides uniqueName-only object', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': { uniqueName: 'yash.somani@company.test' } as any },
+        fields: { ...baseItem.fields, 'System.AssignedTo': { uniqueName: 'alex.developer@company.test' } as any },
       };
-      const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, 'yash.somani@company.test');
+      const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, 'alex.developer@company.test');
       expect(res.isValid).toBe(true);
     });
 
     it('accepts string "Name <email>" when Azure provides uniqueName-only object', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': { uniqueName: 'yash.somani@company.test' } as any },
+        fields: { ...baseItem.fields, 'System.AssignedTo': { uniqueName: 'alex.developer@company.test' } as any },
       };
-      const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, 'Yash Somani <yash.somani@company.test>');
+      const res = validateSourceTaskOwnership(item, project, workItemType, titlePrefix, 'Alex Developer <alex.developer@company.test>');
       expect(res.isValid).toBe(true);
     });
 
-    it('accepts uppercase string email "YASH.SOMANI@COMPANY.TEST"', () => {
-      const res = validateSourceTaskOwnership(baseItem, project, workItemType, titlePrefix, 'YASH.SOMANI@COMPANY.TEST');
+    it('accepts uppercase string email "ALEX.DEVELOPER@COMPANY.TEST"', () => {
+      const res = validateSourceTaskOwnership(baseItem, project, workItemType, titlePrefix, 'ALEX.DEVELOPER@COMPANY.TEST');
       expect(res.isValid).toBe(true);
     });
 
     it('accepts string email with surrounding whitespace', () => {
-      const res = validateSourceTaskOwnership(baseItem, project, workItemType, titlePrefix, '   yash.somani@company.test   ');
+      const res = validateSourceTaskOwnership(baseItem, project, workItemType, titlePrefix, '   alex.developer@company.test   ');
       expect(res.isValid).toBe(true);
     });
 
     it('accepts string angle bracket with surrounding whitespace', () => {
-      const res = validateSourceTaskOwnership(baseItem, project, workItemType, titlePrefix, '  Yash Somani   <   yash.somani@company.test   >  ');
+      const res = validateSourceTaskOwnership(baseItem, project, workItemType, titlePrefix, '  Alex Developer   <   alex.developer@company.test   >  ');
       expect(res.isValid).toBe(true);
     });
   });
@@ -231,7 +231,7 @@ describe('Empirical Challenger: validateSourceTaskOwnership Adversarial Testing'
         ...baseItem,
         fields: {
           ...baseItem.fields,
-          'System.AssignedTo': { displayName: 'Yash Somani', uniqueName: 'imposter@other.test' },
+          'System.AssignedTo': { displayName: 'Alex Developer', uniqueName: 'imposter@other.test' },
         },
       };
       expect(() => validateSourceTaskOwnership(item, project, workItemType, titlePrefix, person))
@@ -338,16 +338,16 @@ describe('Empirical Challenger: validateSourceTaskOwnership Adversarial Testing'
     it('rejects when caller provides display name string but Azure provides uniqueName-only object without mapping', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': { uniqueName: 'yash.somani@company.test' } as any },
+        fields: { ...baseItem.fields, 'System.AssignedTo': { uniqueName: 'alex.developer@company.test' } as any },
       };
-      expect(() => validateSourceTaskOwnership(item, project, workItemType, titlePrefix, 'Yash Somani'))
+      expect(() => validateSourceTaskOwnership(item, project, workItemType, titlePrefix, 'Alex Developer'))
         .toThrow(/not assigned to the selected team member/);
     });
 
-    it('rejects email domain mismatch (e.g. yash.somani@other.test)', () => {
+    it('rejects email domain mismatch (e.g. alex.developer@other.test)', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': { uniqueName: 'yash.somani@other.test' } as any },
+        fields: { ...baseItem.fields, 'System.AssignedTo': { uniqueName: 'alex.developer@other.test' } as any },
       };
       expect(() => validateSourceTaskOwnership(item, project, workItemType, titlePrefix, person))
         .toThrow(/not assigned to the selected team member/);
@@ -362,10 +362,10 @@ describe('Empirical Challenger: validateSourceTaskOwnership Adversarial Testing'
         .toThrow(/not assigned to the selected team member/);
     });
 
-    it('rejects email subdomain / suffix attacks (e.g. yash.somani@company.test.evil.org)', () => {
+    it('rejects email subdomain / suffix attacks (e.g. alex.developer@company.test.evil.org)', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': { uniqueName: 'yash.somani@company.test.evil.org' } as any },
+        fields: { ...baseItem.fields, 'System.AssignedTo': { uniqueName: 'alex.developer@company.test.evil.org' } as any },
       };
       expect(() => validateSourceTaskOwnership(item, project, workItemType, titlePrefix, person))
         .toThrow(/not assigned to the selected team member/);
@@ -374,7 +374,7 @@ describe('Empirical Challenger: validateSourceTaskOwnership Adversarial Testing'
     it('rejects angle bracket string with mismatched email even if name matches', () => {
       const item: WorkItem = {
         ...baseItem,
-        fields: { ...baseItem.fields, 'System.AssignedTo': 'Yash Somani <attacker@evil.test>' },
+        fields: { ...baseItem.fields, 'System.AssignedTo': 'Alex Developer <attacker@evil.test>' },
       };
       expect(() => validateSourceTaskOwnership(item, project, workItemType, titlePrefix, person))
         .toThrow(/not assigned to the selected team member/);

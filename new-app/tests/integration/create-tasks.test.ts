@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CreateTasksUseCase } from '../../src/application/use-cases/create-tasks';
 import { PlanTasksUseCase } from '../../src/application/use-cases/plan-tasks';
 import {
@@ -12,8 +12,8 @@ import { WorkItem, DiscoveredTask, CreatedTask, Person } from '../../src/domain/
 import { getTodayIso, addDays, getNextThursdayIso } from '../../src/domain/value-objects/date-window';
 
 /** Clock-independent "today" used to build deterministic-but-current fixtures. */
-const TODAY = getTodayIso('UTC');
-const SOURCE_DATE = addDays(TODAY, -1);
+let TODAY = '2026-10-14';
+let SOURCE_DATE = '2026-10-13';
 
 /** In-memory fake Azure DevOps repository for deterministic tests. */
 class FakeWorkItemRepo implements WorkItemRepository {
@@ -155,8 +155,16 @@ describe('CreateTasksUseCase (integration, fake repo)', () => {
   let lock: FakeLockRepo;
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-14T10:00:00Z'));
+    TODAY = getTodayIso('UTC');
+    SOURCE_DATE = addDays(TODAY, -1);
     journal = new FakeJournalRepo();
     lock = new FakeLockRepo();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   function build(repo: FakeWorkItemRepo) {

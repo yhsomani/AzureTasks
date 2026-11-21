@@ -173,6 +173,8 @@ async function main(): Promise<void> {
         githubClient: app.githubClient,
         journal: app.journal,
         scheduler: app.scheduler,
+        autoClosureConfigRepo: app.autoClosureConfig,
+        autoClosureAuditRepo: app.autoClosureAudit,
       }, opts.port ?? parseInt(process.env.PORT || '3000', 10));
       await server.start();
       return;

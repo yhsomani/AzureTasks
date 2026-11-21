@@ -7,3 +7,9 @@ dist/
 coverage/
 *.log
 .DS_Store
+people.json
+.auto-closure-config.json
+.work-calendar.json
+.auto-closure-audit.json
+*.bak
+*.backup

@@ -34,11 +34,13 @@ function basicAuth(user: string, token: string, viewerUser?: string, viewerToken
     if (scheme === 'Basic' && encoded) {
       const provided = Buffer.from(encoded, 'base64');
       if (matches(provided, operator)) {
-        (req as express.Request & { authRole?: string }).authRole = 'operator';
+        (req as express.Request & { authRole?: string; authUser?: string }).authRole = 'operator';
+        (req as express.Request & { authRole?: string; authUser?: string }).authUser = user;
         return next();
       }
       if (viewer && matches(provided, viewer)) {
-        (req as express.Request & { authRole?: string }).authRole = 'viewer';
+        (req as express.Request & { authRole?: string; authUser?: string }).authRole = 'viewer';
+        (req as express.Request & { authRole?: string; authUser?: string }).authUser = viewerUser;
         // Viewer credentials may read the UI and API but cannot mutate local
         // configuration, credentials, scheduling or remote Azure work items.
         if (['GET', 'HEAD', 'OPTIONS'].includes(req.method.toUpperCase())) return next();
@@ -86,7 +88,7 @@ export class AppServer {
       res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=()');
       res.setHeader(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.github.com; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'self';"
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.github.com; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'self';"
       );
       next();
     });

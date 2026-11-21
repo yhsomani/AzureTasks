@@ -63,11 +63,11 @@ export interface DailyPrTrackingResult {
  * Derives a GitHub Enterprise Managed User (EMU) username from a corporate email.
  * Pattern: local-part dots replaced by hyphens + enterprise suffix (default "_bflghec")
  * Examples:
- *   "yash.somani@bajajfinserv.in"     -> "yash-somani_bflghec"
- *   "mukul.ramteke@bajajfinserv.in"   -> "mukul-ramteke_bflghec"
- *   "ajinkya.lendikar@bajajfinserv.in" -> "ajinkya-lendikar_bflghec"
- *   "vishal.shinde17@bajajfinserv.in" -> "vishal-shinde17_bflghec"
- *   "pankaj.chaure3@bajajfinserv.in"  -> "pankaj-chaure3_bflghec"
+ *   "alex.developer@example.com"      -> "alex-developer_bflghec"
+ *   "sam.lead@example.com"            -> "sam-lead_bflghec"
+ *   "jane.engineer@example.com"       -> "jane-engineer_bflghec"
+ *   "pat.specialist17@example.com"    -> "pat-specialist17_bflghec"
+ *   "chris.tester3@example.com"       -> "chris-tester3_bflghec"
  */
 export function deriveGitHubUsernameFromEmail(email: string, suffix: string = '_bflghec'): string {
   if (!email) return '';

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "defaultHours": 8,
+  "memberHours": {
+    "alex_developer": 8,
+    "sam_lead": 8
+  },
+  "exceptions": [
+    {
+      "id": "new-year-2026",
+      "label": "New Year's Day",
+      "kind": "holiday",
+      "startDate": "2026-01-01",
+      "endDate": "2026-01-01",
+      "memberKeys": [],
+      "availableHours": 0
+    }
+  ]
+}

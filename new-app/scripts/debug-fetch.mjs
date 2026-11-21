@@ -1,5 +1,5 @@
 /**
- * Debug script: fetches raw Azure DevOps tasks for yash_somani
+ * Debug script: fetches raw Azure DevOps tasks for developer
  * and prints every field to diagnose why data isn't showing correctly.
  * Run: node --env-file=.env scripts/debug-fetch.mjs
  */
@@ -7,7 +7,7 @@
 const PAT = process.env.AZURE_DEVOPS_PAT;
 const ORG = process.env.AZURE_DEVOPS_ORG || 'BFLDevOpsOrg';
 const PROJECT = process.env.AZURE_DEVOPS_PROJECT || '3in1_Agile_Projects';
-const ASSIGNED_TO = 'yash.somani@bajajfinserv.in';
+const ASSIGNED_TO = process.env.TEST_ASSIGNED_TO || 'developer@example.com';
 const TITLE_PREFIX = '3in1_PWA_MyAccount |';
 
 const B64 = Buffer.from(`:${PAT}`).toString('base64');

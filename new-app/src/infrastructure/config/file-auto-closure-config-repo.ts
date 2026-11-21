@@ -93,14 +93,14 @@ export class FileAutoClosureConfigRepository implements AutoClosureConfigReposit
     const errors: string[] = [];
     const warnings: string[] = [];
 
+    if (!config || typeof config !== 'object' || !Array.isArray(config.rules)) {
+      errors.push('rules must be an array');
+      return { isValid: false, errors, warnings };
+    }
+
     if (!config.enabled && config.rules.length === 0) {
       // Valid: disabled with no rules
     } else {
-      // Validate rules structure
-      if (!Array.isArray(config.rules)) {
-        errors.push('rules must be an array');
-        return { isValid: false, errors, warnings };
-      }
 
       // Check for conflicting inclusion/exclusion rules
       const inclusionRules = config.rules.filter(r => r.type === 'inclusion');

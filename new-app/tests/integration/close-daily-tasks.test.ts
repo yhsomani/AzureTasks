@@ -29,16 +29,16 @@ describe('CloseDailyTasksUseCase', () => {
     githubUserSuffix: '_bflghec',
     people: [
       {
-        key: 'yash_somani',
-        name: 'Yash Somani',
-        assignedTo: 'yash.somani@bajajfinserv.in',
+        key: 'alex_dev',
+        name: 'Alex Developer',
+        assignedTo: 'alex.developer@example.com',
         role: 'Dev On-Role',
         enabled: true,
       },
       {
-        key: 'mukul_ramteke',
-        name: 'Mukul Ramteke',
-        assignedTo: 'mukul.ramteke@bajajfinserv.in',
+        key: 'sam_lead',
+        name: 'Sam Lead',
+        assignedTo: 'sam.lead@example.com',
         role: 'SDM',
         enabled: true,
       },
@@ -65,12 +65,12 @@ describe('CloseDailyTasksUseCase', () => {
 
     mockGitHubClient = {
       resolveUserByEmail: vi.fn().mockImplementation((email: string) => {
-        if (email.includes('yash')) return 'yash-somani_bflghec';
-        if (email.includes('mukul')) return 'mukul-ramteke_bflghec';
+        if (email.includes('alex')) return 'alex-developer_bflghec';
+        if (email.includes('sam')) return 'sam-lead_bflghec';
         return null;
       }),
       getPrDeliverablesForDate: vi.fn().mockImplementation((username: string, date: string) => {
-        if (username === 'yash-somani_bflghec') {
+        if (username === 'alex-developer_bflghec') {
           return {
             username,
             sourceDate: date,
@@ -100,7 +100,7 @@ describe('CloseDailyTasksUseCase', () => {
         id: 8001,
         fields: {
           'System.Title': 'Unrelated_Project | 15 Oct',
-          'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+          'System.AssignedTo': 'alex.developer@example.com',
           'System.State': 'Active',
           'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
         },
@@ -111,7 +111,7 @@ describe('CloseDailyTasksUseCase', () => {
     );
     const result = await useCase.execute({
       asOf: '2026-10-15',
-      personKeys: ['yash_somani'],
+      personKeys: ['alex_dev'],
       dryRun: false,
     });
     expect(result.totalFound).toBe(0);
@@ -127,7 +127,7 @@ describe('CloseDailyTasksUseCase', () => {
         fields: {
           'System.Id': 5001,
           'System.Title': '3in1_PWA_MyAccount | 15-10-2026',
-          'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+          'System.AssignedTo': 'alex.developer@example.com',
           'System.State': 'Active',
           'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
           'Microsoft.VSTS.Scheduling.RemainingWork': 4,
@@ -147,7 +147,7 @@ describe('CloseDailyTasksUseCase', () => {
 
     const legacyInput = {
       asOf: targetDate,
-      personKeys: ['yash_somani'],
+      personKeys: ['alex_dev'],
       bypassRules: true,
     };
     const output = await useCase.execute(legacyInput);
@@ -162,7 +162,7 @@ describe('CloseDailyTasksUseCase', () => {
     expect(result.remainingWork).toBe(0);
     expect(result.completedWork).toBe(4);
     expect(result.actualStartDate).toBe('');
-    expect(result.githubUsername).toBe('yash-somani_bflghec');
+    expect(result.githubUsername).toBe('alex-developer_bflghec');
     expect(result.isTodayPr).toBe(true);
 
     // Workflow bypass stays disabled, even when a legacy caller requests it.
@@ -193,7 +193,7 @@ describe('CloseDailyTasksUseCase', () => {
         fields: {
           'System.Id': 5002,
           'System.Title': '3in1_PWA_MyAccount | 15-10-2026',
-          'System.AssignedTo': 'mukul.ramteke@bajajfinserv.in',
+          'System.AssignedTo': 'sam.lead@example.com',
           'System.State': 'Active',
           'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
         },
@@ -211,7 +211,7 @@ describe('CloseDailyTasksUseCase', () => {
 
     const output = await useCase.execute({
       asOf: targetDate,
-      personKeys: ['mukul_ramteke'],
+      personKeys: ['sam_lead'],
     });
 
     expect(output.totalClosed).toBe(1);
@@ -230,14 +230,14 @@ describe('CloseDailyTasksUseCase', () => {
       id: 5022,
       fields: {
         'System.Title': '3in1_PWA_MyAccount | 15 Oct 2026',
-        'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+        'System.AssignedTo': 'alex.developer@example.com',
         'System.State': 'Active',
         'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
       },
     }]);
     const output = await new CloseDailyTasksUseCase(
       baseConfig, mockWorkItemRepo, datePlanning, mockGitHubClient as GitHubClient
-    ).execute({ asOf: '2026-10-15', personKeys: ['yash_somani'] });
+    ).execute({ asOf: '2026-10-15', personKeys: ['alex_dev'] });
     expect(output.totalClosed).toBe(1);
     expect(output.results[0].completedWork).toBeNull();
     expect(output.results[0].remainingWork).toBe(0);
@@ -253,7 +253,7 @@ describe('CloseDailyTasksUseCase', () => {
         fields: {
           'System.Id': 5003,
           'System.Title': '3in1_PWA_MyAccount | Oct 15',
-          'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+          'System.AssignedTo': 'alex.developer@example.com',
           'System.State': 'Closed',
           'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
         },
@@ -285,7 +285,7 @@ describe('CloseDailyTasksUseCase', () => {
         fields: {
           'System.Id': 5010,
           'System.Title': '3in1_PWA_MyAccount | Oct 15',
-          'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+          'System.AssignedTo': 'alex.developer@example.com',
           'System.State': 'Done',
           'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
         },
@@ -295,7 +295,7 @@ describe('CloseDailyTasksUseCase', () => {
         fields: {
           'System.Id': 5011,
           'System.Title': '3in1_PWA_MyAccount | Oct 15',
-          'System.AssignedTo': 'mukul.ramteke@bajajfinserv.in',
+          'System.AssignedTo': 'sam.lead@example.com',
           'System.State': 'Active',
           'Custom.ActualEnddate': '2026-10-15T13:00:00Z',
           'Microsoft.VSTS.Common.ClosedDate': '2026-10-15T13:00:00Z',
@@ -330,7 +330,7 @@ describe('CloseDailyTasksUseCase', () => {
         fields: {
           'System.Id': 5004,
           'System.Title': '3in1_PWA_MyAccount | 15-10-2026',
-          'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+          'System.AssignedTo': 'alex.developer@example.com',
           'System.State': 'New',
           'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
         },
@@ -412,7 +412,7 @@ describe('CloseDailyTasksUseCase', () => {
         fields: {
           'System.Id': 5005,
           'System.Title': '3in1_PWA_MyAccount | Oct 15',
-          'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+          'System.AssignedTo': 'alex.developer@example.com',
           'System.State': 'Active',
           'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
         },
@@ -457,7 +457,7 @@ describe('CloseDailyTasksUseCase', () => {
         fields: {
           'System.Id': 5006,
           'System.Title': '3in1_PWA_MyAccount | Oct 15',
-          'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+          'System.AssignedTo': 'alex.developer@example.com',
           'System.State': 'Active',
           'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
         },
@@ -489,7 +489,7 @@ describe('CloseDailyTasksUseCase', () => {
       fields: {
         'System.Id': 7001,
         'System.Title': '3in1_PWA_MyAccount | 15-10-2026',
-        'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+        'System.AssignedTo': 'alex.developer@example.com',
         'System.State': 'Active',
         'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
         'Custom.ActualEndDate': null,
@@ -517,7 +517,7 @@ describe('CloseDailyTasksUseCase', () => {
       fields: {
         'System.Id': 5010,
         'System.Title': '3in1_PWA_MyAccount | Oct 15',
-        'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+        'System.AssignedTo': 'alex.developer@example.com',
         'System.State': 'Active',
         'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
       },
@@ -548,14 +548,14 @@ describe('CloseDailyTasksUseCase', () => {
       id: 6013,
       fields: {
         'System.Title': '3in1_PWA_MyAccount | Oct 15',
-        'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+        'System.AssignedTo': 'alex.developer@example.com',
         'System.State': 'Active',
         'System.CreatedDate': '2025-10-15T04:00:00.000Z',
       },
     }]);
     const result = await new CloseDailyTasksUseCase(
       baseConfig, mockWorkItemRepo, datePlanning, mockGitHubClient as unknown as GitHubClient
-    ).execute({ asOf: '2026-10-15', personKeys: ['yash_somani'], dryRun: false });
+    ).execute({ asOf: '2026-10-15', personKeys: ['alex_dev'], dryRun: false });
     expect(result.totalFound).toBe(0);
     expect(mockWorkItemRepo.patchWorkItem).not.toHaveBeenCalled();
   });
@@ -565,7 +565,7 @@ describe('CloseDailyTasksUseCase', () => {
       id: 5011,
       fields: {
         'System.Title': '3in1_PWA_MyAccount | Oct 15',
-        'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+        'System.AssignedTo': 'alex.developer@example.com',
         'System.State': 'Active',
         'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
       },
@@ -574,13 +574,13 @@ describe('CloseDailyTasksUseCase', () => {
       id: 5011,
       fields: {
         'System.State': 'Closed',
-        'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+        'System.AssignedTo': 'alex.developer@example.com',
       },
     });
     const result = await new CloseDailyTasksUseCase(
       baseConfig, mockWorkItemRepo, datePlanning,
       mockGitHubClient as unknown as GitHubClient
-    ).execute({ asOf: '2026-10-15', personKeys: ['yash_somani'], dryRun: false });
+    ).execute({ asOf: '2026-10-15', personKeys: ['alex_dev'], dryRun: false });
     expect(result.totalClosed).toBe(1);
     expect(result.results[0].verified).toBe(true);
     expect(result.results[0].auditWarning).toBeUndefined();
@@ -591,7 +591,7 @@ describe('CloseDailyTasksUseCase', () => {
       id: 5012,
       fields: {
         'System.Title': '3in1_PWA_MyAccount | Oct 15',
-        'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+        'System.AssignedTo': 'alex.developer@example.com',
         'System.State': 'Active',
         'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
       },
@@ -600,7 +600,7 @@ describe('CloseDailyTasksUseCase', () => {
     const result = await new CloseDailyTasksUseCase(
       baseConfig, mockWorkItemRepo, datePlanning,
       mockGitHubClient as unknown as GitHubClient
-    ).execute({ asOf: '2026-10-15', personKeys: ['yash_somani'], dryRun: false });
+    ).execute({ asOf: '2026-10-15', personKeys: ['alex_dev'], dryRun: false });
     expect(result.totalClosed).toBe(1);
     expect(result.totalFailed).toBe(0);
     expect(result.results[0].verified).toBe(false);
@@ -612,14 +612,14 @@ describe('CloseDailyTasksUseCase', () => {
       id: 6012,
       fields: {
         'System.Title': '3in1_PWA_MyAccount | Oct 16',
-        'System.AssignedTo': 'yash.somani@bajajfinserv.in',
+        'System.AssignedTo': 'alex.developer@example.com',
         'System.State': 'Active',
         'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
       },
     }]);
     const result = await new CloseDailyTasksUseCase(
       baseConfig, mockWorkItemRepo, datePlanning, mockGitHubClient as unknown as GitHubClient
-    ).execute({ asOf: '2026-10-15', personKeys: ['yash_somani'], dryRun: false });
+    ).execute({ asOf: '2026-10-15', personKeys: ['alex_dev'], dryRun: false });
     expect(result.totalFound).toBe(0);
     expect(mockWorkItemRepo.patchWorkItem).not.toHaveBeenCalled();
   });

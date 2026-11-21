@@ -10,21 +10,21 @@ import {
 describe('GitHub Service & EMU Derivation', () => {
   describe('deriveGitHubUsernameFromEmail', () => {
     it('correctly derives GitHub EMU usernames matching enterprise conventions', () => {
-      // User-provided examples
-      expect(deriveGitHubUsernameFromEmail('mukul.ramteke@bajajfinserv.in')).toBe('mukul-ramteke_bflghec');
-      expect(deriveGitHubUsernameFromEmail('yash.somani@bajajfinserv.in')).toBe('yash-somani_bflghec');
-      expect(deriveGitHubUsernameFromEmail('ajinkya.lendikar@bajajfinserv.in')).toBe('ajinkya-lendikar_bflghec');
-      expect(deriveGitHubUsernameFromEmail('vishal.shinde17@bajajfinserv.in')).toBe('vishal-shinde17_bflghec');
-      expect(deriveGitHubUsernameFromEmail('pankaj.chaure3@bajajfinserv.in')).toBe('pankaj-chaure3_bflghec');
+      // Examples using generic domains
+      expect(deriveGitHubUsernameFromEmail('sam.lead@example.com')).toBe('sam-lead_bflghec');
+      expect(deriveGitHubUsernameFromEmail('alex.developer@example.com')).toBe('alex-developer_bflghec');
+      expect(deriveGitHubUsernameFromEmail('jane.engineer@example.com')).toBe('jane-engineer_bflghec');
+      expect(deriveGitHubUsernameFromEmail('pat.specialist17@example.com')).toBe('pat-specialist17_bflghec');
+      expect(deriveGitHubUsernameFromEmail('chris.tester3@example.com')).toBe('chris-tester3_bflghec');
     });
 
     it('handles email wrapped in displayName angle brackets', () => {
-      expect(deriveGitHubUsernameFromEmail('Yash Somani <yash.somani@bajajfinserv.in>')).toBe('yash-somani_bflghec');
-      expect(deriveGitHubUsernameFromEmail('Vishal Shinde <vishal.shinde17@bajajfinserv.in>')).toBe('vishal-shinde17_bflghec');
+      expect(deriveGitHubUsernameFromEmail('Alex Developer <alex.developer@example.com>')).toBe('alex-developer_bflghec');
+      expect(deriveGitHubUsernameFromEmail('Pat Specialist <pat.specialist17@example.com>')).toBe('pat-specialist17_bflghec');
     });
 
     it('handles uppercase and extra whitespace in email', () => {
-      expect(deriveGitHubUsernameFromEmail('  Mukul.Ramteke@BajajFinserv.in  ')).toBe('mukul-ramteke_bflghec');
+      expect(deriveGitHubUsernameFromEmail('  Sam.Lead@Example.com  ')).toBe('sam-lead_bflghec');
     });
 
     it('supports custom enterprise suffixes', () => {
@@ -60,7 +60,7 @@ describe('GitHub Service & EMU Derivation', () => {
 
     it('generates rich HTML description for today PRs', () => {
       const result = formatPrTaskDescription({
-        username: 'yash-somani_bflghec',
+        username: 'alex-developer_bflghec',
         targetIsoDate: '2026-10-15',
         sourceDate: '2026-10-15',
         isToday: true,
@@ -78,7 +78,7 @@ describe('GitHub Service & EMU Derivation', () => {
 
     it('honestly reports missing PR evidence without asserting unverified work', () => {
       const result = formatPrTaskDescription({
-        username: 'mukul-ramteke_bflghec',
+        username: 'sam-lead_bflghec',
         targetIsoDate: '2026-10-15',
         sourceDate: '2026-10-15',
         isToday: false,

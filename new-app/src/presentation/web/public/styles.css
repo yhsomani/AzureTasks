@@ -8,12 +8,17 @@
   --transition: 160ms ease;
   --info: var(--chart-blue);
   --muted: var(--text-muted);
+  --font-h1: clamp(18px, 2.5vw, 24px);
+  --font-h2: clamp(15px, 2vw, 18px);
+  --font-kpi: clamp(18px, 3vw, 26px);
 }
 
 :root, [data-theme="dark"] {
   color-scheme: dark;
   --bg: #151719;
   --surface: #202326;
+  --surface-base: var(--bg);
+  --surface-card: var(--surface);
   --bg-elev: #202326;
   --bg-elev-2: #292e31;
   --text: #f3f5f6;
@@ -41,6 +46,8 @@
   color-scheme: light;
   --bg: #f6f7f8;
   --surface: #ffffff;
+  --surface-base: var(--bg);
+  --surface-card: var(--surface);
   --bg-elev: #ffffff;
   --bg-elev-2: #edf0f2;
   --text: #202529;
@@ -518,7 +525,7 @@ dialog.modal::backdrop {
   .mission-topline { font-size: 8px; letter-spacing: .04em; margin-bottom: 19px; padding-bottom: 13px; }
   .mission-topline > :last-child { text-align: right; }
   .topbar { margin-bottom: 22px; }
-  .topbar h1 { font-size: 27px; }
+  .topbar h1 { font-size: clamp(18px, 4vw, 24px); overflow-wrap: break-word; }
   .topbar-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -540,7 +547,7 @@ dialog.modal::backdrop {
   input, select, textarea { min-height: 44px; }
   .mission-briefing { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 23px; }
   .briefing-visual { display: none; }
-  .briefing-copy h2 { font-size: 27px; }
+  .briefing-copy h2 { font-size: clamp(15px, 3vw, 18px); overflow-wrap: break-word; }
   .briefing-actions .btn { flex: 1; }
   .dashboard-layout, .dashboard-primary, .dashboard-secondary, .workspace-layout, .automation-grid { gap: 14px; }
   .dashboard-secondary, .cols-2, .chart-grid { grid-template-columns: minmax(0, 1fr); }
@@ -550,7 +557,7 @@ dialog.modal::backdrop {
   .card-head .row, .row { flex-wrap: wrap; }
   .kpi { padding: 16px; gap: 7px; }
   .kpi::after { display: none; }
-  .kpi-value { font-size: 27px; }
+  .kpi-value { font-size: clamp(18px, 4vw, 26px); }
   .kpi-value.small { font-size: 17px; }
   .kpi-label { font-size: 8px; }
   .kpi-hint { font-size: 10px; }
@@ -687,4 +694,53 @@ img, svg, canvas, video {
   max-width: 100%;
   min-width: 0;
 }
+
+/* Responsive Card Accordion (<768px) and Accessibility */
+@media (max-width: 768px) {
+  .matrix-desktop-container, .table-container-desktop {
+    display: none !important;
+  }
+  .card-accordion-mobile {
+    display: flex !important;
+    flex-direction: column;
+    gap: 12px;
+  }
+}
+@media (min-width: 769px) {
+  .card-accordion-mobile {
+    display: none !important;
+  }
+}
+.accordion-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  overflow: hidden;
+  transition: var(--transition);
+}
+.accordion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  min-height: 44px;
+  padding: 0;
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+}
+.accordion-body {
+  padding-top: 12px;
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.task-title {
+  overflow-wrap: break-word;
+  word-break: break-all;
+}
+
 

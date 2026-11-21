@@ -90,10 +90,10 @@ export function createAutoClosureRouter(deps: AutoClosureRouteDependencies): Rou
       const user = getUser(req);
       const newConfig: AutoClosureConfig = req.body;
 
-      if (!newConfig || typeof newConfig !== 'object') {
+      if (!newConfig || typeof newConfig !== 'object' || Array.isArray(newConfig) || !Array.isArray(newConfig.rules)) {
         return res.status(400).json({
           success: false,
-          error: 'Configuration must be a valid object',
+          error: 'Configuration must be a valid object with rules array',
         });
       }
 

@@ -7,7 +7,7 @@
   <title>3in1 Task Studio</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23080f1b'/%3E%3Cg fill='none' stroke='%2366e3ed' stroke-width='1.7'%3E%3Cpath d='M5 10h8V5h14v14h-8v8H5z'/%3E%3Cpath d='M10 16l5 5L25 11'/%3E%3C/g%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/styles.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+  <script src="/vendor/chart.umd.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -67,6 +67,7 @@
     <button type="button" class="nav-backdrop" id="navBackdrop" tabindex="-1" aria-label="Close navigation"></button>
 
     <main class="main" id="main" tabindex="-1">
+      <div id="root"></div>
       <p id="viewStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true">Dashboard ready</p>
       <header class="topbar">
         <button type="button" class="icon-btn menu-btn" id="menuBtn" aria-controls="sidebar" aria-expanded="false" aria-label="Open navigation">☰</button>
@@ -785,7 +786,7 @@
             <button class="btn ghost" id="testGhBtn">Test user resolution &amp; PRs</button>
             <button class="btn primary" id="saveGhSettingsBtn">Save GitHub Settings</button>
           </div>
-          <p class="muted small" style="margin-top:6px;">Required to read private PRs for task descriptions. EMU suffix automatically derives GitHub logins from corporate emails (e.g. yash.somani@... &rarr; yash-somani_bflghec).</p>
+          <p class="muted small" style="margin-top:6px;">Required to read private PRs for task descriptions. EMU suffix automatically derives GitHub logins from corporate emails (e.g. alex.developer@... &rarr; alex-developer_bflghec).</p>
           <div id="ghTestResult" style="display:none; margin-top:12px; padding:12px; border-radius:var(--radius-sm); background:var(--surface-hover); font-size:13px;"></div>
         </article>
 

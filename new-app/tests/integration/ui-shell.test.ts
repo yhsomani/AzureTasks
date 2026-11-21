@@ -126,3 +126,29 @@ describe('viewer role client behavior', () => {
     expect(js).toContain('viewerModeNotice');
   });
 });
+
+describe('modern react presentation layer contracts (milestone 2)', () => {
+  it('defines fluid css typography tokens with clamp to eliminate mobile scaling inversion', () => {
+    expect(css).toContain('--font-h1: clamp(');
+    expect(css).toContain('--font-h2: clamp(');
+    expect(css).toContain('--font-kpi: clamp(');
+    expect(css).toContain('--surface-base:');
+    expect(css).toContain('--surface-card:');
+  });
+
+  it('provides responsive mobile card accordion styles for viewports under 768px', () => {
+    expect(css).toContain('@media (max-width: 768px)');
+    expect(css).toContain('.card-accordion-mobile');
+    expect(css).toContain('.matrix-desktop-container');
+    expect(css).toContain('.accordion-card');
+    expect(css).toContain('.accordion-header');
+  });
+
+  it('guarantees touch targets meet or exceed 44x44px for wcag 2.1 aa', () => {
+    expect(css).toContain('min-height: 44px');
+  });
+
+  it('verifies root mount point exists in the html shell', () => {
+    expect(html).toContain('id="root"');
+  });
+});

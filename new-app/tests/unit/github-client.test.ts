@@ -11,8 +11,8 @@ describe('GitHubClient', () => {
         fetchFn: mockFetch,
       });
 
-      const username = await client.resolveUserByEmail('yash.somani@bajajfinserv.in');
-      expect(username).toBe('yash-somani_bflghec');
+      const username = await client.resolveUserByEmail('alex.developer@example.com');
+      expect(username).toBe('alex-developer_bflghec');
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
@@ -24,8 +24,8 @@ describe('GitHubClient', () => {
         fetchFn: mockFetch,
       });
 
-      const username = await client.resolveUserByEmail('mukul.ramteke@company.com', '_custom');
-      expect(username).toBe('mukul-ramteke_custom');
+      const username = await client.resolveUserByEmail('sam.lead@company.com', '_custom');
+      expect(username).toBe('sam-lead_custom');
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
@@ -189,7 +189,7 @@ describe('GitHubClient', () => {
         fetchFn: mockFetch,
       });
 
-      const deliverables = await client.getPrDeliverablesForDate('yash-somani_bflghec', '2026-10-15', 'Asia/Kolkata');
+      const deliverables = await client.getPrDeliverablesForDate('alex-developer_bflghec', '2026-10-15', 'Asia/Kolkata');
       expect(deliverables.isToday).toBe(true);
       expect(deliverables.pullRequests).toHaveLength(1);
       expect(deliverables.pullRequests[0].number).toBe(11);
@@ -211,7 +211,7 @@ describe('GitHubClient', () => {
         fetchFn: mockFetch,
       });
 
-      const deliverables = await client.getPrDeliverablesForDate('mukul-ramteke_bflghec', '2026-10-15', 'Asia/Kolkata', {
+      const deliverables = await client.getPrDeliverablesForDate('sam-lead_bflghec', '2026-10-15', 'Asia/Kolkata', {
         role: 'Dev On-Role',
       });
       expect(deliverables.isToday).toBe(false);

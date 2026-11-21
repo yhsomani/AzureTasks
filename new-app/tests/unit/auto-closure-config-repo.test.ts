@@ -144,6 +144,20 @@ describe('FileAutoClosureConfigRepository', () => {
   });
 
   describe('validate', () => {
+    it('should reject config without rules array or empty object', async () => {
+      const resultEmpty = await repo.validate({} as any);
+      expect(resultEmpty.isValid).toBe(false);
+      expect(resultEmpty.errors).toContain('rules must be an array');
+
+      const resultNull = await repo.validate(null as any);
+      expect(resultNull.isValid).toBe(false);
+      expect(resultNull.errors).toContain('rules must be an array');
+
+      const resultNonArray = await repo.validate({ rules: 'not-array' } as any);
+      expect(resultNonArray.isValid).toBe(false);
+      expect(resultNonArray.errors).toContain('rules must be an array');
+    });
+
     it('should accept valid config', async () => {
       const validConfig: AutoClosureConfig = {
         enabled: false,

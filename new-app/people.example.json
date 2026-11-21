@@ -1,0 +1,47 @@
+{
+  "organization": "SampleDevOpsOrg",
+  "project": "Sample_Agile_Projects",
+  "workItemType": "Task",
+  "titlePrefix": "WorkOps |",
+  "startTime": "09:30",
+  "timezone": "Asia/Kolkata",
+  "thursdayMode": "CURRENT",
+  "githubOrg": "sample-org",
+  "githubUserSuffix": "_emu",
+  "people": [
+    {
+      "key": "alex_developer",
+      "name": "Alex Developer",
+      "assignedTo": "alex.developer@example.com",
+      "pod": "Core Engineering",
+      "role": "Software Engineer",
+      "titlePrefix": "WorkOps |",
+      "githubRepositories": [],
+      "githubBranches": [],
+      "enabled": true,
+      "githubUsername": "alex-developer_emu",
+      "autoCloseEnabled": true
+    },
+    {
+      "key": "sam_lead",
+      "name": "Sam Lead",
+      "assignedTo": "sam.lead@example.com",
+      "pod": "Operations",
+      "role": "Team Lead",
+      "titlePrefix": "WorkOps |",
+      "githubRepositories": [],
+      "githubBranches": [],
+      "enabled": true,
+      "githubUsername": "sam-lead_emu",
+      "autoCloseEnabled": false
+    }
+  ],
+  "schedulerEnabled": false,
+  "scheduleTime": "09:30",
+  "schedulerAutoStart": false,
+  "autoClose": true,
+  "autoCloseStartTime": "18:15",
+  "autoCloseEndTime": "18:45",
+  "autoActive": true,
+  "autoActiveTime": "17:30"
+}

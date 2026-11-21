@@ -58,9 +58,9 @@ describe('Daily PR Tracking by Team Member', () => {
 
     const people: PersonConfig[] = [
       {
-        key: 'yash_somani',
-        name: 'Yash Somani',
-        assignedTo: 'yash.somani@bajajfinserv.in',
+        key: 'alex_developer',
+        name: 'Alex Developer',
+        assignedTo: 'alex.developer@example.com',
         enabled: true,
       },
     ];
@@ -77,8 +77,8 @@ describe('Daily PR Tracking by Team Member', () => {
     // Out of 3 PRs returned, only 2 were created on 2026-10-19 in Asia/Kolkata (the 3rd was 23:30 on 2026-10-18)
     expect(result.totalPrsToday).toBe(2);
     expect(result.members.length).toBe(1);
-    expect(result.members[0].name).toBe('Yash Somani');
-    expect(result.members[0].githubUsername).toBe('yash-somani_bflghec');
+    expect(result.members[0].name).toBe('Alex Developer');
+    expect(result.members[0].githubUsername).toBe('alex-developer_bflghec');
     expect(result.members[0].prCount).toBe(2);
     expect(result.members[0].pullRequests.map(p => p.number)).toEqual([1, 2]);
   });

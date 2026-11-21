@@ -10,7 +10,7 @@ import {
 
 describe('person: identity handling', () => {
   it('creates a stable key from an identity', () => {
-    expect(createPersonKey('Yash.Somani@BajajFinserv.in')).toBe('yash.somani@bajajfinserv.in');
+    expect(createPersonKey('Alex.Developer@Example.com')).toBe('alex.developer@example.com');
     expect(createPersonKey('  John Doe  ')).toBe('john_doe');
   });
 
