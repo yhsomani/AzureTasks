@@ -13,3 +13,7 @@ people.json
 .auto-closure-audit.json
 *.bak
 *.backup
+data.txt
+data.txt.*.tmp
+data/
+*.db
