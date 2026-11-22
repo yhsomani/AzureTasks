@@ -11,6 +11,7 @@ import {
 } from '../../domain/ports/repositories.js';
 import { AutoClosureService } from '../../domain/services/auto-closure-service.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import { hasRole } from '../../infrastructure/auth/rbac.js';
 
 function getErrorMessage(err: unknown): string {
   if (err instanceof Error) {
@@ -27,6 +28,7 @@ export interface AutoClosureRouteDependencies {
   auditRepo?: AutoClosureAuditLogRepository;
   adminUsers?: string[];  // Email addresses of admin users
   requestingUser?: (req: Request) => string;  // Function to extract user from request
+  closeDailyTasks?: any;
 }
 
 export function createAutoClosureRouter(deps: AutoClosureRouteDependencies): Router {
@@ -41,8 +43,43 @@ export function createAutoClosureRouter(deps: AutoClosureRouteDependencies): Rou
     return (req as any).user?.email || (req as any).authUser || 'anonymous';
   };
 
-  // Helper to check admin authorization
+  // Helper to check admin/lead authorization
   const checkAdminAuth = (req: Request, res: Response): boolean => {
+    if (req.user && Array.isArray(req.user.roles)) {
+      const isAuditorOnly =
+        req.user.roles.includes('Auditor') &&
+        !req.user.roles.some((r) => ['Admin', 'Lead'].includes(r));
+      if (isAuditorOnly) {
+        res.status(403).json({ success: false, error: "Role 'Auditor' is read-only." });
+        return false;
+      }
+      if (!hasRole(req.user, ['Admin', 'Lead'])) {
+        res.status(403).json({ success: false, error: 'Insufficient permissions. Allowed roles: Admin, Lead.' });
+        return false;
+      }
+      return true;
+    }
+
+    if ((req as any).authRole === 'viewer') {
+      res.status(403).json({ success: false, error: "Role 'Auditor' is read-only." });
+      return false;
+    }
+
+    const authConfigured =
+      process.env.NODE_ENV === 'production' ||
+      Boolean(process.env.API_AUTH_TOKEN) ||
+      Boolean(process.env.OIDC_ISSUER) ||
+      Boolean(process.env.ENTRA_ID_ISSUER) ||
+      Boolean(req.headers?.authorization);
+
+    if (authConfigured && !req.user) {
+      res.status(401).json({
+        success: false,
+        error: 'Authentication required before role verification.',
+      });
+      return false;
+    }
+
     const user = getUser(req);
     const auth = autoClosureService.checkConfigurationAuthorization(user, deps.adminUsers);
     if (!auth.isAuthorized) {
@@ -141,6 +178,38 @@ export function createAutoClosureRouter(deps: AutoClosureRouteDependencies): Rou
     } catch (err: unknown) {
       const user = getUser(req);
       logger.error(`Failed to update auto-closure config (user: ${user}): ${getErrorMessage(err)}`);
+      res.status(500).json({ success: false, error: getErrorMessage(err) });
+    }
+  });
+
+  // POST /api/auto-closure/run - Trigger verified automated closure execution
+  router.post('/run', async (req, res) => {
+    try {
+      if (!checkAdminAuth(req, res)) return;
+
+      if (!deps.closeDailyTasks) {
+        return res.status(503).json({
+          success: false,
+          error: 'EOD task closure service is not configured',
+        });
+      }
+
+      const { asOf, personKeys, dryRun } = req.body || {};
+      const operatorEmail = getUser(req);
+
+      logger.info(`Automated auto-closure triggered by ${operatorEmail} (asOf=${asOf || 'today'}, dryRun=${Boolean(dryRun)})`);
+
+      const result = await deps.closeDailyTasks.execute({
+        asOf,
+        personKeys,
+        dryRun: Boolean(dryRun),
+        operatorEmail,
+        enforcePolicyGating: true,
+      });
+
+      res.json({ success: true, data: result });
+    } catch (err: unknown) {
+      logger.error(`Failed to execute auto-closure: ${getErrorMessage(err)}`);
       res.status(500).json({ success: false, error: getErrorMessage(err) });
     }
   });

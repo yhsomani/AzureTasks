@@ -23,11 +23,22 @@ import {
 import type { FieldPatchOperation } from '../../domain/services/task-services.js';
 import { GitHubClient } from '../../infrastructure/github/github-client.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import { VerifiedAutoClosurePolicyEngine, ClosureDecision } from '../../domain/services/policy-engine.js';
+import { Role, AuthenticatedUser } from '../../infrastructure/auth/rbac.js';
 
 export interface CloseDailyTasksInput {
   personKeys?: string[];
   asOf?: string; // Optional target date override, format YYYY-MM-DD
   dryRun?: boolean;
+  operatorEmail?: string;
+  enforcePolicyGating?: boolean;
+  manualOverride?: {
+    allowed?: boolean;
+    reason?: string;
+    overrideRole?: string;
+    operatorEmail?: string;
+    operatorUser?: AuthenticatedUser;
+  };
   // DEPRECATED: bypassRules cannot override Azure workflow validation and will be removed in v3.0
 }
 
@@ -50,7 +61,9 @@ export interface ClosedTaskResult {
   htmlDescription: string;
   summaryText: string;
   patchOperations: FieldPatchOperation[];
-  status: 'closed' | 'simulated' | 'already_closed' | 'failed';
+  status: 'closed' | 'simulated' | 'already_closed' | 'failed' | 'needs_review';
+  policyStatus?: string;
+  manualOverrideAttribution?: any;
   error?: string;
   auditWarning?: string;
   verified?: boolean;
@@ -74,6 +87,8 @@ function readRecordedWorkHours(value: unknown): number | null {
 }
 
 export class CloseDailyTasksUseCase {
+  private readonly policyEngine: VerifiedAutoClosurePolicyEngine;
+
   constructor(
     private readonly config: AppConfig,
     private readonly workItemRepo: WorkItemRepository,
@@ -83,8 +98,11 @@ export class CloseDailyTasksUseCase {
     private readonly journalRepo?: JournalRepository,
     private readonly lockRepo?: LockRepository,
     private readonly autoClosureConfigRepo?: any,
-    private readonly autoClosureAuditRepo?: any
-  ) {}
+    private readonly autoClosureAuditRepo?: any,
+    policyEngine?: VerifiedAutoClosurePolicyEngine
+  ) {
+    this.policyEngine = policyEngine || new VerifiedAutoClosurePolicyEngine();
+  }
 
   async execute(input: CloseDailyTasksInput = {}): Promise<CloseDailyTasksOutput> {
     const isDryRun = Boolean(input.dryRun);
@@ -288,6 +306,81 @@ export class CloseDailyTasksUseCase {
           };
         }
 
+        let decision: ClosureDecision | undefined;
+        // If policy gating is enforced, evaluate with Policy Engine
+        if (input.enforcePolicyGating || input.manualOverride?.allowed) {
+          decision = await this.policyEngine.evaluateClosure(
+            item,
+            {
+              username: githubUser,
+              sourceDate: targetDate,
+              pullRequests: prDeliverables.pullRequests,
+              isToday: prDeliverables.isToday,
+            },
+            {
+              targetDate,
+              timezone: activeConfig.timezone,
+              autoCloseEnabled: person.autoCloseEnabled,
+            }
+          );
+
+          if (decision.status === 'NEEDS_REVIEW' || input.manualOverride?.allowed) {
+            let overrideDecision: ClosureDecision | null = null;
+            if (input.manualOverride?.allowed) {
+              const operatorUser: AuthenticatedUser | undefined =
+                input.manualOverride.operatorUser ||
+                (input.manualOverride.overrideRole
+                  ? {
+                      id: 'legacy-operator',
+                      email: input.manualOverride.operatorEmail || input.operatorEmail || 'admin@workops.test',
+                      name: 'Override Operator',
+                      roles: [input.manualOverride.overrideRole as Role],
+                      tenantId: 'tenant-enterprise-01',
+                    }
+                  : undefined);
+
+              if (operatorUser) {
+                try {
+                  overrideDecision = this.policyEngine.evaluateManualOverride(
+                    decision,
+                    operatorUser,
+                    input.manualOverride.reason || ''
+                  );
+                } catch (overrideErr: any) {
+                  logger.warn(`Manual override rejected for task #${taskId}: ${overrideErr.message}`);
+                }
+              }
+            }
+
+            if (!overrideDecision || !overrideDecision.taskClosed) {
+              results.push({
+                personKey: person.key,
+                personName: person.name,
+                taskId,
+                taskTitle,
+                previousState: currentState,
+                newState: currentState,
+                actualEndDate: recordedActualEnd,
+                remainingWork: readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.RemainingWork']),
+                completedWork: readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.CompletedWork']),
+                githubUsername: githubUser,
+                prCount: prDeliverables.pullRequests.length,
+                prSourceDate: prDeliverables.sourceDate,
+                isTodayPr: prDeliverables.isToday,
+                htmlDescription: prDeliverables.htmlDescription,
+                summaryText: `Task requires review: ${decision.reason}`,
+                patchOperations: [],
+                status: 'needs_review',
+                policyStatus: 'NEEDS_REVIEW',
+                auditWarning: decision.reason,
+              });
+              continue;
+            } else {
+              decision = overrideDecision;
+            }
+          }
+        }
+
         const plannedStart =
           item.fields['Custom.PlannedStartdate'] ||
           item.fields['Custom.PlannedStartDate'] ||
@@ -340,6 +433,8 @@ export class CloseDailyTasksUseCase {
                 personKey: person.key,
                 personName: person.name,
                 assignedTo: person.assignedTo,
+                operatorEmail: decision?.manualOverride?.operatorEmail || input.operatorEmail || person.assignedTo,
+                operator_email: decision?.manualOverride?.operatorEmail || input.operatorEmail || person.assignedTo,
                 targetIsoDate: targetDate,
                 title: taskTitle,
                 sourceTaskId: taskId,
@@ -347,6 +442,12 @@ export class CloseDailyTasksUseCase {
                 fieldCopyStatus: 'SUCCESS',
                 relationCopyStatus: 'SUCCESS',
                 verified,
+                action: 'CLOSED',
+                taskId,
+                manualOverride: Boolean(decision?.manualOverride?.allowed),
+                overrideRole: decision?.manualOverride?.overrideRole,
+                overrideReason: decision?.manualOverride?.reason,
+                policyStatus: decision?.status,
                 error: verified ? undefined : 'Closure accepted; independent final-state verification incomplete.',
               });
             } catch (jErr: any) {
@@ -377,6 +478,8 @@ export class CloseDailyTasksUseCase {
           summaryText: prDeliverables.summaryText,
           patchOperations: ops,
           status: isDryRun ? 'simulated' : 'closed',
+          policyStatus: decision?.status,
+          manualOverrideAttribution: decision?.manualOverride,
           auditWarning,
           verified: isDryRun ? false : verified,
         });

@@ -206,6 +206,8 @@ export interface JournalEntry {
   personKey: string;
   personName: string;
   assignedTo: string;
+  operatorEmail?: string;
+  operator_email?: string;
   targetIsoDate: string;
   title: string;
   sourceTaskId: number;
@@ -214,6 +216,13 @@ export interface JournalEntry {
   relationCopyStatus: 'SUCCESS' | 'PARTIAL' | 'FAILED';
   verified: boolean;
   error?: string;
+  action?: string;
+  taskId?: number;
+  details?: Record<string, any>;
+  manualOverride?: boolean;
+  overrideRole?: string;
+  overrideReason?: string;
+  policyStatus?: string;
 }
 
 /**
@@ -312,4 +321,57 @@ export interface AutoClosureAuditFilter {
   startDate?: string;
   endDate?: string;
 }
+
+// Canonical 'I' prefixed interface aliases for Hexagonal Architecture ports
+export type IWorkItemRepository = WorkItemRepository;
+export type IConfigRepository = ConfigRepository;
+export type IJournalRepository = JournalRepository;
+export type ISchedulerRepository = SchedulerRepository;
+export type ILockRepository = LockRepository;
+
+export interface LockHandle {
+  resource: string;
+  ownerToken: string;
+  expiresAt: number;
+}
+
+export interface ILockManager {
+  acquire(resource: string, ttlMs?: number): Promise<LockHandle | null>;
+  release(handle: LockHandle | string): Promise<boolean>;
+  extend(handle: LockHandle | string, additionalMs: number): Promise<boolean>;
+  isLocked(resource: string): Promise<boolean>;
+  checkHealth?(): Promise<{ healthy: boolean; error?: string }>;
+}
+
+export interface PlanTokenRecord {
+  tokenHash: string;
+  planToken: string;
+  expiresAt: number;
+  isExecuted: boolean;
+  snapshotJson: string;
+  operatorEmail: string;
+  createdAt?: string;
+}
+
+export interface IPlanTokenRepository {
+  saveToken(record: PlanTokenRecord): Promise<void>;
+  getTokenByHash(tokenHash: string): Promise<PlanTokenRecord | null>;
+  markExecuted(tokenHash: string): Promise<boolean>;
+}
+
+export interface ScheduledJobDef {
+  id: string;
+  name: string;
+  cronExpression?: string;
+  handler: () => Promise<void>;
+}
+
+export interface IJobScheduler {
+  scheduleJob(job: ScheduledJobDef): void;
+  triggerJob(jobId: string): Promise<boolean>;
+  cancelJob(jobId: string): void;
+  getJobs(): Array<{ id: string; name: string; running: boolean }>;
+}
+
+export * from './secret-manager.js';
 

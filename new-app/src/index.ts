@@ -175,6 +175,9 @@ async function main(): Promise<void> {
         scheduler: app.scheduler,
         autoClosureConfigRepo: app.autoClosureConfig,
         autoClosureAuditRepo: app.autoClosureAudit,
+        db: app.db,
+        secretManager: app.secretManager,
+        lockManager: app.lockManager,
       }, opts.port ?? parseInt(process.env.PORT || '3000', 10));
       await server.start();
       return;

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { FileLockRepository } from '../../../src/infrastructure/lock/file-lock-repo.js';
 import { startHarness, stopHarness, WorkOpsTestHarness } from '../harness/index.js';
+import { AutoClosureService } from '../../../src/domain/services/auto-closure-service.js';
 
 describe('Tier 4: Real-World Application Scenarios (6 Multi-Step Operational Journeys)', () => {
   let harness: WorkOpsTestHarness;
@@ -23,99 +24,127 @@ describe('Tier 4: Real-World Application Scenarios (6 Multi-Step Operational Jou
   it('Scenario 1: Full Sprint Planning & Plan Execution Workflow', async () => {
     const db = harness.dbHelper.getSqliteDb();
 
-    // 1. Authentication & Context: Alex logs in via Entra ID OIDC SSO as Lead
+    // 1. Authentication & Context: Alex logs in via Entra ID OIDC SSO as Lead (F23, F24)
     const alexToken = harness.oidcMock.issueLeadToken('alex.lead@workops.test');
     const claims = harness.oidcMock.verifyToken(alexToken);
     expect(claims?.email).toBe('alex.lead@workops.test');
     expect(claims?.roles).toContain('Lead');
 
-    // Negative RBAC: Auditor cannot generate plan
+    // Negative RBAC: Auditor cannot act as Lead
     const auditorToken = harness.oidcMock.issueAuditorToken('david.auditor@workops.test');
     const auditorClaims = harness.oidcMock.verifyToken(auditorToken);
     expect(auditorClaims?.roles).not.toContain('Lead');
+    expect(auditorClaims?.roles).toContain('Auditor');
 
-    // 2. Planning Workspace & Capacity: Karan is on leave, 5 remaining members active
-    const roster = [
-      { key: 'dev1', name: 'Dev 1', capacityHours: 8 },
-      { key: 'dev2', name: 'Dev 2', capacityHours: 8 },
-      { key: 'dev3', name: 'Dev 3', capacityHours: 8 },
-      { key: 'dev4', name: 'Dev 4', capacityHours: 8 },
-      { key: 'dev5', name: 'Dev 5', capacityHours: 8 },
-      { key: 'karan', name: 'Karan', capacityHours: 0, leave: true },
-    ];
-    const activeMembers = roster.filter((m) => m.capacityHours > 0);
-    expect(activeMembers.length).toBe(5);
+    // 2. Planning Workspace & Capacity Verification via API (F1, F33)
+    const calRes = await harness.get('/api/calendar');
+    expect(calRes.status).toBe(200);
+    const calData = (await calRes.json()) as any;
+    expect(calData.success).toBe(true);
+    expect(calData.data.members).toBeDefined();
 
-    // 3. Work Item Template Interpolation
-    const template = '{{prefix}} | {{sprint}} | {{date}} - {{member_name}}';
-    const renderedTasks = activeMembers.map((m) =>
-      template
-        .replace('{{prefix}}', '3in1_PWA')
-        .replace('{{sprint}}', 'Sprint 48')
-        .replace('{{date}}', '2026-11-21')
-        .replace('{{member_name}}', m.name)
-    );
-    expect(renderedTasks.length).toBe(5);
-    expect(renderedTasks[0]).toBe('3in1_PWA | Sprint 48 | 2026-11-21 - Dev 1');
+    const configRes = await harness.get('/api/config');
+    expect(configRes.status).toBe(200);
+    const configData = (await configRes.json()) as any;
+    expect(configData.data.people.length).toBeGreaterThanOrEqual(2);
 
-    // 4. Plan Generation (Phase 1 Commit) via API
+    // 3. Plan Generation (Phase 1 Commit) via Authentic Endpoint (F19, F34)
     const planRes = await harness.post('/api/tasks/plan', { all: true });
     expect(planRes.status).toBe(200);
     const planJson = (await planRes.json()) as any;
     expect(planJson.success).toBe(true);
+    expect(planJson.data.personPlans.length).toBeGreaterThan(0);
+    const token = planJson.data?.planToken || planJson.planToken;
+    expect(token).toBeDefined();
 
-    // Save snapshot in plan_tokens with SHA-256 fingerprint & HMAC token
-    const planSnapshot = JSON.stringify({
-      sprint: 'Sprint 48',
-      tasks: renderedTasks,
+    // 4. Distributed Execution Lock (Mutual Exclusion) (F22)
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const lockResource = 'workops:lock:execute:' + tokenHash;
+    const lockHandle = await harness.app.lockManager!.acquire(lockResource, 30000);
+    const lockAcquired = lockHandle !== null;
+    expect(lockAcquired).toBe(true);
+
+    // Concurrent execution attempt while lock is held must fail with 409 Conflict
+    const conflictRes = await harness.post('/api/tasks/execute', {
+      planToken: token,
+      confirm: true,
+      dryRun: true,
     });
-    const planHash = crypto.createHash('sha256').update(planSnapshot).digest('hex');
-    const planToken = crypto.createHmac('sha256', 'mock-signing-key').update(planHash).digest('hex');
+    expect(conflictRes.status).toBe(409);
+    const conflictJson = (await conflictRes.json()) as any;
+    expect(conflictJson.success).toBe(false);
+    expect(conflictJson.error).toContain('EXECUTION_LOCK_CONFLICT');
 
-    db.prepare(`
-      INSERT OR REPLACE INTO plan_tokens (token_hash, plan_token, expires_at, is_executed, snapshot_json, operator_email)
-      VALUES (?, ?, ?, ?, ?, ?);
-    `).run(planHash, planToken, Date.now() + 600000, 0, planSnapshot, claims!.email);
+    // Release distributed execution lock
+    await harness.app.lockManager!.release(lockHandle!);
+    await harness.app.lockManager!.release(lockResource);
 
-    // 5. Distributed Execution Lock (Mutual Exclusion)
-    const lock = new FileLockRepository(path.join(harness.tempDir, 'lock-s1.lock'));
-    expect(lock.acquire()).toBe(true);
-    // Second lock attempt must fail (409 Conflict protection)
-    expect(lock.acquire()).toBe(false);
+    // 5. Plan Execution (Phase 2 Commit with Zero Drift) via Authentic API Endpoint (F20, F25)
+    const execRes = await harness.post('/api/tasks/execute', {
+      planToken: token,
+      confirm: true,
+      dryRun: true,
+    });
+    expect(execRes.status).toBe(200);
+    const execJson = (await execRes.json()) as any;
+    expect(execJson.success).toBe(true);
 
-    // 6. Plan Execution (Phase 2 Commit with Zero Drift)
-    const savedPlan = db.prepare('SELECT * FROM plan_tokens WHERE token_hash = ?;').get(planHash) as {
-      snapshot_json: string;
-      is_executed: number;
-    };
-    expect(savedPlan.is_executed).toBe(0);
-    const parsedSnapshot = JSON.parse(savedPlan.snapshot_json);
-    expect(parsedSnapshot.tasks.length).toBe(5);
+    // Verify SQLite plan_tokens was automatically updated to is_executed = 1 by backend
+    const updatedPlan = db.prepare('SELECT is_executed FROM plan_tokens WHERE token_hash = ?;').get(tokenHash) as { is_executed: number };
+    expect(updatedPlan).toBeDefined();
+    expect(updatedPlan.is_executed).toBe(1);
 
-    // Write atomic journal entries
-    const journalStmt = db.prepare(`
-      INSERT INTO journal_entries (id, action_type, operator_email, details_json)
-      VALUES (?, ?, ?, ?);
-    `);
-    for (let i = 0; i < parsedSnapshot.tasks.length; i++) {
-      journalStmt.run(`j_s1_${i}`, 'TASK_CREATED', claims!.email, JSON.stringify({ taskTitle: parsedSnapshot.tasks[i] }));
-    }
+    // Verify Replay Protection: Second execution attempt must fail with 409 Conflict
+    const replayRes = await harness.post('/api/tasks/execute', {
+      planToken: token,
+      confirm: true,
+      dryRun: true,
+    });
+    expect(replayRes.status).toBe(409);
+    const replayJson = (await replayRes.json()) as any;
+    expect(replayJson.success).toBe(false);
+    expect(replayJson.error).toContain('PLAN_ALREADY_EXECUTED');
 
-    db.prepare('UPDATE plan_tokens SET is_executed = 1 WHERE token_hash = ?;').run(planHash);
-    lock.release();
+    // Record personal identity attribution in journal repository (F25)
+    await harness.app.journal.record({
+      timestamp: new Date().toISOString(),
+      action: 'PLAN_EXECUTED',
+      taskId: 1001,
+      personKey: 'dev1',
+      isoDate: '2026-11-21',
+      title: 'Sprint 48 Tasks Executed',
+      assignedTo: claims!.email,
+    } as any);
 
-    // Adversarial Replay Attack: Re-executing an already executed token must fail
-    const recheckPlan = db.prepare('SELECT is_executed FROM plan_tokens WHERE token_hash = ?;').get(planHash) as { is_executed: number };
-    expect(recheckPlan.is_executed).toBe(1);
+    const journalRes = await harness.get('/api/journal');
+    expect(journalRes.status).toBe(200);
+    const journalJson = (await journalRes.json()) as any;
+    expect(journalJson.data.entries.some((e: any) => e.assignedTo === claims!.email)).toBe(true);
 
-    // 7. Enterprise Notification Dispatch
-    const teamsCard = {
-      title: 'Sprint 48 Tasks Created by Alex',
-      tasksCount: parsedSnapshot.tasks.length,
-      operator: claims!.email,
-    };
-    expect(teamsCard.tasksCount).toBe(5);
-    expect(teamsCard.operator).toBe('alex.lead@workops.test');
+    // 6. Enterprise Notification Dispatch to Mock Webhook Receiver (F38)
+    const notifyRes = await fetch(harness.webhookMock.getTeamsUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'message',
+        attachments: [{
+          contentType: 'application/vnd.microsoft.card.adaptive',
+          content: {
+            type: 'AdaptiveCard',
+            version: '1.4',
+            body: [
+              { type: 'TextBlock', text: 'Sprint 48 Tasks Created by Alex' },
+              { type: 'TextBlock', text: `Operator: ${claims!.email}` },
+            ],
+          },
+        }],
+      }),
+    });
+    expect(notifyRes.status).toBe(200);
+
+    const teamsHooks = harness.webhookMock.getTeamsWebhooks();
+    expect(teamsHooks.length).toBeGreaterThanOrEqual(1);
+    expect(JSON.stringify(teamsHooks[teamsHooks.length - 1].body)).toContain('Sprint 48 Tasks Created by Alex');
   });
 
   // =========================================================================
@@ -127,87 +156,145 @@ describe('Tier 4: Real-World Application Scenarios (6 Multi-Step Operational Jou
     const configRes = await harness.get('/api/auto-closure/config');
     expect(configRes.status).toBe(200);
 
-    // 2. Deliverable Verification via Policy Engine (F26)
-    // Priya has verified GitHub PR #412; Mukul has 0 PRs; Sara has unmerged draft PR
-    const membersEvidence = [
-      { name: 'Priya', email: 'priya@workops.test', prs: [{ id: 412, merged: true, commits: 3 }] },
-      { name: 'Mukul', email: 'mukul@workops.test', prs: [] },
-      { name: 'Sara', email: 'sara@workops.test', prs: [{ id: 415, merged: false, commits: 1 }] },
-    ];
+    // 2. Deliverable Verification via Mock GitHub Server and Policy Engine (F26)
+    // Priya has verified GitHub PR #412; Mukul has 0 PRs
+    harness.githubMock.seedPullRequests([
+      {
+        id: 412,
+        number: 412,
+        title: 'feat: add payment gateway webhook handler',
+        state: 'closed',
+        created_at: '2026-11-21T09:00:00Z',
+        merged_at: '2026-11-21T15:00:00Z',
+        user: { login: 'priya-dev', id: 501 },
+      },
+    ]);
 
-    const evaluateClosure = (member: typeof membersEvidence[0]) => {
-      const mergedPr = member.prs.find((p) => p.merged);
-      if (mergedPr) {
-        return {
-          status: 'AUTO_CLOSE_ELIGIBLE',
-          hours: 8.0,
-          action: 'CLOSED_IN_AZURE',
-          evidence: `PR #${mergedPr.id}`,
-        };
-      }
-      return {
-        status: 'NEEDS_REVIEW',
-        hours: 0,
-        action: 'LEAVE_ACTIVE',
-        evidence: member.prs.length > 0 ? `PR #${member.prs[0].id} unmerged` : 'No deliverable PR found',
-      };
-    };
-
-    const priyaEval = evaluateClosure(membersEvidence[0]);
-    const mukulEval = evaluateClosure(membersEvidence[1]);
-    const saraEval = evaluateClosure(membersEvidence[2]);
-
-    expect(priyaEval.status).toBe('AUTO_CLOSE_ELIGIBLE');
-    expect(priyaEval.action).toBe('CLOSED_IN_AZURE');
-    expect(mukulEval.status).toBe('NEEDS_REVIEW');
-    expect(mukulEval.action).toBe('LEAVE_ACTIVE');
-    expect(saraEval.status).toBe('NEEDS_REVIEW');
-    expect(saraEval.action).toBe('LEAVE_ACTIVE');
-
-    // 3. Audit Trail Persistence in Relational Storage (F16, F25)
-    const db = harness.dbHelper.getSqliteDb();
-    db.prepare('INSERT OR REPLACE INTO journal_entries (id, action_type, operator_email, details_json) VALUES (?, ?, ?, ?);').run(
-      'j_eod_priya',
-      'AUTO_CLOSE_SUCCESS',
-      'system:worker-daemon',
-      JSON.stringify(priyaEval)
+    const priyaDeliverables = await harness.app.githubClient.getPrDeliverablesForDate(
+      'priya-dev',
+      '2026-11-21',
+      'Asia/Kolkata'
     );
-    db.prepare('INSERT OR REPLACE INTO journal_entries (id, action_type, operator_email, details_json) VALUES (?, ?, ?, ?);').run(
-      'j_eod_mukul',
-      'AUTO_CLOSE_NEEDS_REVIEW',
-      'system:worker-daemon',
-      JSON.stringify(mukulEval)
+    expect(priyaDeliverables.pullRequests.length).toBeGreaterThanOrEqual(1);
+
+    const mukulDeliverables = await harness.app.githubClient.getPrDeliverablesForDate(
+      'mukul-dev',
+      '2026-11-21',
+      'Asia/Kolkata'
     );
+    expect(mukulDeliverables.pullRequests.length).toBe(0);
+
+    const autoService = new AutoClosureService();
+    const priyaDecision = autoService.shouldCloseTask(
+      {
+        enabled: true,
+        version: 1,
+        createdAt: '2026-11-21T00:00:00Z',
+        updatedAt: '2026-11-21T00:00:00Z',
+        createdBy: 'admin',
+        lastModifiedBy: 'admin',
+        rules: [{
+          ruleId: 'r-priya',
+          type: 'inclusion',
+          filterType: 'users',
+          filters: [{ id: 'priya@workops.test', name: 'Priya' }],
+          createdAt: '2026-11-21T00:00:00Z',
+          updatedAt: '2026-11-21T00:00:00Z',
+          createdBy: 'admin',
+        }],
+      },
+      'priya@workops.test'
+    );
+    expect(priyaDecision.shouldClose).toBe(true);
+
+    const mukulDecision = autoService.shouldCloseTask(
+      {
+        enabled: true,
+        version: 1,
+        createdAt: '2026-11-21T00:00:00Z',
+        updatedAt: '2026-11-21T00:00:00Z',
+        createdBy: 'admin',
+        lastModifiedBy: 'admin',
+        rules: [{
+          ruleId: 'r-priya',
+          type: 'inclusion',
+          filterType: 'users',
+          filters: [{ id: 'priya@workops.test', name: 'Priya' }],
+          createdAt: '2026-11-21T00:00:00Z',
+          updatedAt: '2026-11-21T00:00:00Z',
+          createdBy: 'admin',
+        }],
+      },
+      'mukul@workops.test'
+    );
+    expect(mukulDecision.shouldClose).toBe(false);
+
+    // 3. Audit Trail Persistence in Relational Storage & Journal (F16, F25)
+    await harness.app.journal.record({
+      timestamp: new Date().toISOString(),
+      action: 'AUTO_CLOSE_SUCCESS',
+      taskId: 3001,
+      personKey: 'dev1',
+      isoDate: '2026-11-21',
+      title: 'Auto-closed with verified PR #412',
+      assignedTo: 'system:worker-daemon',
+    } as any);
+
+    await harness.app.journal.record({
+      timestamp: new Date().toISOString(),
+      action: 'AUTO_CLOSE_NEEDS_REVIEW',
+      taskId: 3002,
+      personKey: 'dev2',
+      isoDate: '2026-11-21',
+      title: 'Needs review: zero deliverables found',
+      assignedTo: 'system:worker-daemon',
+    } as any);
+
+    const journalRes = await harness.get('/api/journal');
+    expect(journalRes.status).toBe(200);
+    const journalJson = (await journalRes.json()) as any;
+    expect(journalJson.data.entries.some((e: any) => e.action === 'AUTO_CLOSE_SUCCESS')).toBe(true);
 
     // 4. Lead Manual Review & Attributed Override for Mukul (F24, F25)
-    const leadOverride = {
-      status: 'OVERRIDDEN_BY_LEAD',
-      operator: 'alex.lead@workops.test',
-      comment: 'Pair programming on PR #412 with Priya',
-    };
-    db.prepare('INSERT OR REPLACE INTO journal_entries (id, action_type, operator_email, details_json) VALUES (?, ?, ?, ?);').run(
-      'j_eod_mukul_override',
-      'LEAD_MANUAL_OVERRIDE',
-      leadOverride.operator,
-      JSON.stringify(leadOverride)
-    );
+    const leadAuth = autoService.checkConfigurationAuthorization('alex.lead@workops.test', ['alex.lead@workops.test', 'admin@workops.test']);
+    expect(leadAuth.isAuthorized).toBe(true);
+
+    await harness.app.journal.record({
+      timestamp: new Date().toISOString(),
+      action: 'LEAD_MANUAL_OVERRIDE',
+      taskId: 3002,
+      personKey: 'dev2',
+      isoDate: '2026-11-21',
+      title: 'Lead manual approval: paired with Priya on PR #412',
+      assignedTo: 'alex.lead@workops.test',
+    } as any);
 
     // 5. Auditor Compliance Verification (100% Evidence Linkage)
-    const auditRows = db.prepare("SELECT * FROM journal_entries WHERE id LIKE 'j_eod_%';").all() as Array<{
-      operator_email: string;
-      details_json: string;
-    }>;
-    expect(auditRows.length).toBe(3);
-    for (const row of auditRows) {
-      expect(row.operator_email).toBeDefined();
-      expect(row.operator_email.length).toBeGreaterThan(0);
-    }
+    const auditEntries = await harness.app.journal.getEntries();
+    const priyaEntry = auditEntries.find((e: any) => e.taskId === 3001);
+    const mukulEntry = auditEntries.find((e: any) => e.taskId === 3002 && e.action === 'LEAD_MANUAL_OVERRIDE');
+    expect(priyaEntry?.assignedTo).toBe('system:worker-daemon');
+    expect(mukulEntry?.assignedTo).toBe('alex.lead@workops.test');
 
-    // 6. Deep Telemetry Probes Verification (F35)
+    // 6. Enterprise Notification & Deep Telemetry Probes (F35, F38)
+    const slackRes = await fetch(harness.webhookMock.getSlackUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channel: '#eng-workops',
+        text: 'EOD Auto-Closure Digest: 1 closed, 1 overridden, 0 remaining',
+      }),
+    });
+    expect(slackRes.status).toBe(200);
+
+    const slackHooks = harness.webhookMock.getSlackWebhooks();
+    expect(slackHooks.some((h) => h.body.text?.includes('EOD Auto-Closure Digest'))).toBe(true);
+
     const readyRes = await harness.get('/api/ready');
     expect(readyRes.status).toBe(200);
     const readyJson = (await readyRes.json()) as any;
     expect(readyJson.success).toBe(true);
+    expect(readyJson.data.azureDevOpsConnected).toBe(true);
   });
 
   // =========================================================================
@@ -328,52 +415,71 @@ describe('Tier 4: Real-World Application Scenarios (6 Multi-Step Operational Jou
 
     // 4. Fault Injection & Degraded Telemetry Check
     harness.azureMock.setFault('503', 1);
-    // After fault cleared, status is restored
+    const degradedRes = await fetch(`${harness.azureMock.getBaseUrl()}/_apis/wit/wiql`);
+    expect(degradedRes.status).toBe(503);
+    const degradedBody = (await degradedRes.json()) as any;
+    expect(degradedBody.message).toBe('Service Unavailable');
     harness.azureMock.clearFault();
+
+    const recoveredRes = await harness.get('/api/ready');
+    expect(recoveredRes.status).toBe(200);
   });
 
   // =========================================================================
   // Scenario 5: Web Client Workspace Navigation, Accessibility & Responsive Layout
   // Features: F7-F14, F15, F32
   // =========================================================================
-  it('Scenario 5: Web Client Workspace Navigation, Accessibility & Responsive Layout', () => {
-    // 1. Desktop Experience (1440px): Fluid Typography and Navigation
-    const desktopLayout = {
-      viewport: 1440,
-      headingFontSizePx: 32,
-      activeWorkspace: 'Planning',
-      tableLayout: 'matrix-table',
-      contrastRatio: 5.2,
-    };
-    expect(desktopLayout.headingFontSizePx).toBe(32);
-    expect(desktopLayout.tableLayout).toBe('matrix-table');
-    expect(desktopLayout.contrastRatio).toBeGreaterThanOrEqual(4.5);
+  it('Scenario 5: Web Client Workspace Navigation, Accessibility & Responsive Layout', async () => {
+    // 1. Responsive Typography & Design Tokens (F11, F12, F13)
+    const css = fs.readFileSync('src/presentation/web/public/styles.css', 'utf8');
+    expect(css).toMatch(/--font-h1:\s*clamp\(18px,\s*2\.5vw,\s*24px\)/);
+    expect(css).toMatch(/--font-h2:\s*clamp\(15px,\s*2vw,\s*18px\)/);
+    expect(css).toMatch(/--font-kpi:\s*clamp\(18px,\s*3vw,\s*26px\)/);
+    expect(css).toContain('--surface-base');
+    expect(css).toContain('--surface-card');
+    expect(css).toContain('--surface: #202326'); // dark mode
+    expect(css).toContain('--surface: #ffffff'); // light mode
+    expect(css).toMatch(/@media\s*\(max-width:\s*768px\)/);
+    expect(css).toContain('card-accordion');
 
-    // 2. Mobile Commute Experience (375px): Accordion & 1-Click Closure
-    const mobileLayout = {
-      viewport: 375,
-      headingFontSizePx: 18,
-      layoutMode: 'card-accordion',
-      activeCardExpanded: true,
-      oneClickAction: '1-Click: Log 8h & Close Task',
-      newStatus: 'CLOSED',
-    };
-    expect(mobileLayout.headingFontSizePx).toBe(18);
-    expect(mobileLayout.layoutMode).toBe('card-accordion');
-    expect(mobileLayout.newStatus).toBe('CLOSED');
+    // 2. Three Workspaces Client Navigation Architecture (F7, F8, F9)
+    const navSource = fs.readFileSync('src/presentation/web/src/components/layout/Navigation.tsx', 'utf8');
+    expect(navSource).toContain("id: 'daily'");
+    expect(navSource).toContain("id: 'planning'");
+    expect(navSource).toContain("id: 'governance'");
+    expect(navSource).toContain('Personal Cockpit');
+    expect(navSource).toContain('Plan & Review');
+    expect(navSource).toContain('Audit Log');
 
-    // 3. Keyboard Navigation & WCAG 2.1 AA Focus Trap Verification (F14)
-    const modalFocusTrap = (currentIndex: number, totalElements: number, isShiftTab: boolean) => {
-      if (isShiftTab && currentIndex === 0) return totalElements - 1;
-      if (!isShiftTab && currentIndex === totalElements - 1) return 0;
-      return isShiftTab ? currentIndex - 1 : currentIndex + 1;
-    };
-    // Tab on last element wraps to first (index 0)
-    expect(modalFocusTrap(3, 4, false)).toBe(0);
-    // Shift+Tab on first element wraps to last (index 3)
-    expect(modalFocusTrap(0, 4, true)).toBe(3);
-    // Regular forward tab
-    expect(modalFocusTrap(1, 4, false)).toBe(2);
+    const res = await harness.get('/');
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('id="main"');
+    expect(html).toContain('data-view="mywork"');
+    expect(html).toContain('data-view="planner"');
+    expect(html).toContain('data-view="journal"');
+
+    // 3. WCAG 2.1 AA Accessibility & Modal Focus Trap (F14)
+    const modalSource = fs.readFileSync('src/presentation/web/src/components/common/Modal.tsx', 'utf8');
+    expect(modalSource).toContain('trapModalFocus');
+    expect(modalSource).toContain('role="dialog"');
+    expect(modalSource).toContain('aria-modal="true"');
+    expect(modalSource).toContain('aria-labelledby="modal-title"');
+    expect(modalSource).toContain("e.key === 'Escape'");
+
+    // 4. Asset Bundling & Zero Unescaped innerHTML (F5, F10)
+    expect(fs.existsSync('src/presentation/web/public/vendor/chart.umd.js')).toBe(true);
+    expect(html).toContain('vendor/chart.umd.js');
+    expect(html).not.toContain('cdn.jsdelivr.net');
+
+    const appShellSource = fs.readFileSync('src/presentation/web/src/components/layout/AppShell.tsx', 'utf8');
+    expect(appShellSource).not.toContain('dangerouslySetInnerHTML');
+    expect(appShellSource).not.toContain('.innerHTML');
+
+    // 5. E2E Automation Architecture (F32)
+    const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+    expect(pkg.scripts['test:e2e']).toBeDefined();
+    expect(pkg.devDependencies.vitest).toBeDefined();
   });
 
   // =========================================================================

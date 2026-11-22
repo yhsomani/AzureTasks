@@ -24,6 +24,10 @@ export class TestDatabaseHelper {
     }
   }
 
+  public getSqlitePath(): string {
+    return this.sqlitePath;
+  }
+
   public getSqliteDb(): DatabaseSync {
     if (!this.sqliteDb) {
       this.sqliteDb = new DatabaseSync(this.sqlitePath);

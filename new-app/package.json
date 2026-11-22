@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run",
+    "test:adversarial": "vitest run tests/adversarial",
     "test:e2e": "npx tsx tests/e2e/run-all-e2e.ts",
+    "test:playwright": "playwright test",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint \"{src,tests}/**/*.ts\"",
@@ -25,7 +27,14 @@
     "verify:identities:readonly": "node scripts/verify-azure-identities.mjs",
     "test:identities": "node --test scripts/verify-azure-identities.test.mjs",
     "verify:workitems:readonly": "node scripts/verify-azure-workitems.mjs",
-    "test:workitems": "node --test scripts/verify-azure-workitems.test.mjs"
+    "test:workitems": "node --test scripts/verify-azure-workitems.test.mjs",
+    "azure:export": "NODE_EXTRA_CA_CERTS=\"${NODE_EXTRA_CA_CERTS:-$(pwd)/certs/zscaler.pem}\" node --env-file=.env scripts/export-azure-readable-data.mjs --mode dashboard --projects 3_in_1_AppFrontEnd_Tasks,3in1_Agile_Projects",
+    "azure:export:full": "NODE_EXTRA_CA_CERTS=\"${NODE_EXTRA_CA_CERTS:-$(pwd)/certs/zscaler.pem}\" node --env-file=.env scripts/export-azure-readable-data.mjs --mode full --projects 3_in_1_AppFrontEnd_Tasks,3in1_Agile_Projects",
+    "azure:export:forensic": "NODE_EXTRA_CA_CERTS=\"${NODE_EXTRA_CA_CERTS:-$(pwd)/certs/zscaler.pem}\" node --env-file=.env scripts/export-azure-readable-data.mjs --mode forensic --projects 3_in_1_AppFrontEnd_Tasks,3in1_Agile_Projects",
+    "azure:export:smoke": "AZURE_EXPORT_MAX_WORK_ITEMS=1 AZURE_EXPORT_MAX_CHILDREN=1 npm run azure:export",
+    "azure:verify": "node scripts/azure-export/verify-db.mjs azure-data.db",
+    "azure:normalize": "node scripts/azure-export/normalize-db.mjs azure-data.db",
+    "test:azure-export": "node --test scripts/azure-export/exporter.test.mjs"
   },
   "keywords": [
     "azure-devops",
@@ -35,11 +44,15 @@
   ],
   "license": "ISC",
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/ioredis": "^4.28.10",
     "@types/node": "^22.13.5",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
@@ -58,12 +71,16 @@
     "vitest": "5.0.5"
   },
   "dependencies": {
+    "better-sqlite3": "^13.2.0",
     "chart.js": "^4.6.1",
     "cors": "^2.8.6",
     "dotenv": "^18.0.6",
+    "drizzle-orm": "^0.45.4",
     "express": "^5.2.1",
     "express-rate-limit": "^7.1.5",
+    "ioredis": "^6.0.0",
     "lucide-react": "^1.77.0",
+    "pg": "^8.23.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   }

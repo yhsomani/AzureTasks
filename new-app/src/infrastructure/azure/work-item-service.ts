@@ -19,6 +19,7 @@ import {
   validateSourceTaskOwnership,
   isUserStoryOrParentContainer,
 } from '../../domain/index.js';
+import { TokenBucket, executeBoundedBatch } from './rate-limiter.js';
 
 interface WiqlQueryResult {
   workItems: Array<{ id: number }>;
@@ -31,7 +32,12 @@ interface WorkItemBatchResult {
 
 export class AzureWorkItemService implements WorkItemRepository {
   private readonly workItemCache = new Map<number, { item: WorkItem; timestamp: number }>();
+  private readonly rateLimiter = new TokenBucket({ capacity: 50, refillRatePerSecond: 10 });
   constructor(private readonly client: AzureDevOpsClient, private readonly timezone: () => string = () => 'UTC') {}
+
+  getRateLimiter(): TokenBucket {
+    return this.rateLimiter;
+  }
 
   private requireCompleteBatch(batch: WorkItemBatchResult, ids: number[], purpose: string): WorkItem[] {
     const expected = new Set(ids);
@@ -282,15 +288,18 @@ export class AzureWorkItemService implements WorkItemRepository {
       }
       const ids = result.workItems.map(w => w.id);
       const CHUNK_SIZE = 100;
-      const allFetched: WorkItem[] = [];
-
-      for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
-        const chunk = ids.slice(i, i + CHUNK_SIZE).join(',');
-        const batchResult = await this.client.get<WorkItemBatchResult>(
-          `/${project}/_apis/wit/workitems?ids=${chunk}&$expand=relations&api-version=7.0`
-        );
-        allFetched.push(...this.requireCompleteBatch(batchResult, ids.slice(i, i + CHUNK_SIZE), 'team source work-item batch'));
-      }
+      const allFetched: WorkItem[] = await executeBoundedBatch(
+        ids,
+        async (chunkIds) => {
+          await this.rateLimiter.acquire(1);
+          const chunk = chunkIds.join(',');
+          const batchResult = await this.client.get<WorkItemBatchResult>(
+            `/${project}/_apis/wit/workitems?ids=${chunk}&$expand=relations&api-version=7.0`
+          );
+          return this.requireCompleteBatch(batchResult, chunkIds, 'team source work-item batch');
+        },
+        { chunkSize: CHUNK_SIZE, concurrency: 5 }
+      );
 
       const personFallbackTasks = new Map<string, DiscoveredTask[]>();
 
@@ -446,15 +455,18 @@ export class AzureWorkItemService implements WorkItemRepository {
 
       const ids = result.workItems.map(w => w.id);
       const CHUNK_SIZE = 100;
-      const allFetched: WorkItem[] = [];
-
-      for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
-        const chunk = ids.slice(i, i + CHUNK_SIZE).join(',');
-        const batchResult = await this.client.get<WorkItemBatchResult>(
-          `/${project}/_apis/wit/workitems?ids=${chunk}&$expand=relations&api-version=7.0`
-        );
-        allFetched.push(...this.requireCompleteBatch(batchResult, ids.slice(i, i + CHUNK_SIZE), 'duplicate-detection work-item batch'));
-      }
+      const allFetched: WorkItem[] = await executeBoundedBatch(
+        ids,
+        async (chunkIds) => {
+          await this.rateLimiter.acquire(1);
+          const chunk = chunkIds.join(',');
+          const batchResult = await this.client.get<WorkItemBatchResult>(
+            `/${project}/_apis/wit/workitems?ids=${chunk}&$expand=relations&api-version=7.0`
+          );
+          return this.requireCompleteBatch(batchResult, chunkIds, 'duplicate-detection work-item batch');
+        },
+        { chunkSize: CHUNK_SIZE, concurrency: 5 }
+      );
 
       for (const workItem of allFetched) {
         if (isUserStoryOrParentContainer(workItem)) continue;

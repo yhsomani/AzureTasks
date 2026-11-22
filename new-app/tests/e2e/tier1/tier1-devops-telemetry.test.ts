@@ -288,6 +288,11 @@ describe('Tier 1: Feature Coverage (F29-F38) - DevOps, Multi-Tenancy & Telemetry
       expect(json.success).toBe(true);
       expect(json.data.status).toBe('ready');
       expect(json.data.azureDevOpsConnected).toBe(true);
+      expect(json.data.checks).toBeDefined();
+      expect(json.data.checks.database).toBe('up');
+      expect(json.data.checks.secretManager).toBe('up');
+      expect(json.data.checks.azureApi).toBe('up');
+      expect(json.data.checks.lockManager).toBe('up');
     });
 
     it('T1-F35-03: Database Latency Measurement in Health Check', async () => {

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { startHarness, stopHarness, WorkOpsTestHarness } from '../harness/index.js';
+import { AppServer } from '../../../src/presentation/api/server.js';
 
 describe('Tier 2: Boundary & Corner Cases (F29-F38) - DevOps, Multi-Tenancy & Telemetry', () => {
   let harness: WorkOpsTestHarness;
@@ -404,29 +405,47 @@ describe('Tier 2: Boundary & Corner Cases (F29-F38) - DevOps, Multi-Tenancy & Te
 
   describe('Feature F35: Deep Telemetry Probes', () => {
     it('T2-F35-01: Readiness Probe Fails When Database Is Unreachable (HTTP 503)', async () => {
-      const evaluateReadiness = (dbUp: boolean, azureUp: boolean) => {
-        if (!dbUp || !azureUp) {
-          return { status: 503, data: { status: 'NOT_READY', checks: { database: dbUp ? 'UP' : 'DOWN' } } };
-        }
-        return { status: 200, data: { status: 'READY' } };
-      };
-
-      const readiness = evaluateReadiness(false, true);
-      expect(readiness.status).toBe(503);
-      expect(readiness.data.checks?.database).toBe('DOWN');
+      const failingServer = new AppServer(
+        {
+          ...(harness.server as any)['deps'],
+          checkDatabase: async () => false,
+        },
+        0
+      );
+      const port = await failingServer.start();
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/api/ready`, {
+          headers: { Authorization: `Basic ${Buffer.from(`admin:${harness.operatorToken}`).toString('base64')}` },
+        });
+        expect(res.status).toBe(503);
+        const json = (await res.json()) as any;
+        expect(json.success).toBe(false);
+        expect(json.data.status).toBe('unavailable');
+        expect(json.data.checks.database).toBe('down');
+      } finally {
+        await failingServer.stop();
+      }
     });
 
-    it('T2-F35-02: Readiness Probe Flags Degraded State on Stale Worker Heartbeat', () => {
-      const checkHeartbeat = (ageSeconds: number) => {
-        if (ageSeconds > 60) {
-          return { status: 'DEGRADED', workerDaemon: 'DOWN', workerHeartbeatAgeSeconds: ageSeconds };
-        }
-        return { status: 'READY', workerDaemon: 'UP' };
-      };
-
-      const result = checkHeartbeat(120);
-      expect(result.status).toBe('DEGRADED');
-      expect(result.workerDaemon).toBe('DOWN');
+    it('T2-F35-02: Readiness Probe Flags Degraded State on Distributed Lock Failure', async () => {
+      const failingServer = new AppServer(
+        {
+          ...(harness.server as any)['deps'],
+          checkLockManager: async () => false,
+        },
+        0
+      );
+      const port = await failingServer.start();
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/api/ready`, {
+          headers: { Authorization: `Basic ${Buffer.from(`admin:${harness.operatorToken}`).toString('base64')}` },
+        });
+        expect(res.status).toBe(503);
+        const json = (await res.json()) as any;
+        expect(json.data.checks.lockManager).toBe('down');
+      } finally {
+        await failingServer.stop();
+      }
     });
 
     it('T2-F35-03: High-Frequency Health Polling Overhead Check', async () => {
@@ -453,17 +472,24 @@ describe('Tier 2: Boundary & Corner Cases (F29-F38) - DevOps, Multi-Tenancy & Te
       expect(getReadiness().status).toBe(503);
     });
 
-    it('T2-F35-05: Azure DevOps Connectivity Probe Timeout Handling', () => {
-      const probeAzure = (timeoutMs: number, latencyMs: number) => {
-        if (latencyMs > timeoutMs) {
-          return { status: 'TIMEOUT', connected: false };
-        }
-        return { status: 'OK', connected: true };
-      };
+    it('T2-F35-05: Azure DevOps Connectivity Probe Timeout Handling', async () => {
+      harness.azureMock.setFault('503', 5);
+      try {
+        const degradedRes = await harness.get('/api/ready');
+        expect(degradedRes.status).toBe(503);
+        const degradedJson = (await degradedRes.json()) as any;
+        expect(degradedJson.data.status).toBe('unavailable');
+        expect(degradedJson.data.azureDevOpsConnected).toBe(false);
+        expect(degradedJson.data.checks.azureApi).toBe('down');
+      } finally {
+        harness.azureMock.clearFault();
+      }
 
-      const result = probeAzure(2000, 5000);
-      expect(result.status).toBe('TIMEOUT');
-      expect(result.connected).toBe(false);
+      const recoveredRes = await harness.get('/api/ready');
+      expect(recoveredRes.status).toBe(200);
+      const recoveredJson = (await recoveredRes.json()) as any;
+      expect(recoveredJson.data.status).toBe('ready');
+      expect(recoveredJson.data.checks.azureApi).toBe('up');
     });
   });
 

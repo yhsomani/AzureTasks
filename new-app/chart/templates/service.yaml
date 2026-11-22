@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "workops.fullname" . | default "workops-service" }}
+  labels:
+    app.kubernetes.io/name: workops
+    app.kubernetes.io/instance: {{ .Release.Name | default "workops" }}
+spec:
+  type: {{ .Values.service.type | default "ClusterIP" }}
+  ports:
+    - port: {{ .Values.service.port | default 3000 }}
+      targetPort: {{ .Values.service.targetPort | default 3000 }}
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: workops
+    app.kubernetes.io/instance: {{ .Release.Name | default "workops" }}

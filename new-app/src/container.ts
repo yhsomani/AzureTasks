@@ -19,18 +19,88 @@ import { RepairRelationsUseCase } from './application/use-cases/repair-relations
 import { ExploreTasksUseCase, ExploreTasksInput, ExploreTasksOutput } from './application/use-cases/explore-tasks.js';
 import { CloseDailyTasksUseCase, CloseDailyTasksInput, CloseDailyTasksOutput } from './application/use-cases/close-daily-tasks.js';
 import { ActivateDailyTasksUseCase } from './application/use-cases/activate-daily-tasks.js';
+import { ExecuteTasksUseCase, ExecuteTasksInput, ExecuteTasksOutput } from './application/use-cases/execute-tasks.js';
 import { GitHubClient } from './infrastructure/github/github-client.js';
 import { FileAutoClosureConfigRepository } from "./infrastructure/config/file-auto-closure-config-repo.js";
 import { FileAutoClosureAuditRepository } from "./infrastructure/journal/file-auto-closure-audit-repo.js";
+import { createDatabase, WorkOpsDb } from './infrastructure/persistence/database.js';
+import { RelationalPlanTokenRepository } from './infrastructure/persistence/relational-plan-token-repo.js';
+import { RelationalJournalRepository } from './infrastructure/persistence/relational-journal-repo.js';
+import { createLockManager } from './infrastructure/lock/distributed-lock-manager.js';
 import { DatePlanningService } from './domain/index.js';
-import { AppConfig } from './domain/ports/repositories.js';
+import {
+  AppConfig,
+  IPlanTokenRepository,
+  ILockManager,
+  JournalRepository,
+  JournalEntry,
+} from './domain/ports/repositories.js';
 import { logger } from './infrastructure/logging/logger.js';
 import { assertTlsSafety } from './infrastructure/security/tls-safety.js';
+import { createSecretManager, ISecretManager } from './infrastructure/security/secret-manager.js';
+import { VerifiedAutoClosurePolicyEngine } from './domain/services/policy-engine.js';
+
+export class DualJournalRepository implements JournalRepository {
+  constructor(
+    public readonly relational: RelationalJournalRepository,
+    public readonly file: FileJournalRepository
+  ) {}
+
+  async record(entry: JournalEntry): Promise<void> {
+    await Promise.allSettled([
+      this.relational.record(entry),
+      this.file.record(entry),
+    ]);
+  }
+
+  async getEntries(limit?: number): Promise<JournalEntry[]> {
+    try {
+      const relEntries = await this.relational.getEntries(limit);
+      if (relEntries.length > 0) return relEntries;
+    } catch {
+      // fallback to file
+    }
+    return this.file.getEntries(limit);
+  }
+
+  async getUnfinishedRelations(): Promise<JournalEntry[]> {
+    try {
+      return await this.relational.getUnfinishedRelations();
+    } catch {
+      return this.file.getUnfinishedRelations();
+    }
+  }
+
+  async markRepaired(
+    entry: JournalEntry,
+    status: JournalEntry['relationCopyStatus'],
+    note: string,
+    verified = false
+  ): Promise<boolean> {
+    const [relResult, fileResult] = await Promise.allSettled([
+      this.relational.markRepaired(entry, status, note, verified),
+      this.file.markRepaired(entry, status, note, verified),
+    ]);
+    return (
+      (relResult.status === 'fulfilled' && relResult.value) ||
+      (fileResult.status === 'fulfilled' && fileResult.value)
+    );
+  }
+
+  async exportCsv(): Promise<string> {
+    return this.relational.exportCsv();
+  }
+
+  async exportJson(): Promise<string> {
+    return this.relational.exportJson();
+  }
+}
 
 export interface App {
   config: AppConfig;
   createTasks: CreateTasksUseCase;
   planTasks: PlanTasksUseCase;
+  executeTasks: ExecuteTasksUseCase;
   exploreTasks: ExploreTasksUseCase;
   getStatus: GetSystemStatusUseCase;
   configUseCases: ConfigUseCases;
@@ -38,10 +108,26 @@ export interface App {
   closeDailyTasks: CloseDailyTasksUseCase;
   activateDailyTasks: ActivateDailyTasksUseCase;
   githubClient: GitHubClient;
-  journal: FileJournalRepository;
+  journal: JournalRepository;
   scheduler: NodeSchedulerRepository;
   autoClosureConfig: FileAutoClosureConfigRepository;
   autoClosureAudit: FileAutoClosureAuditRepository;
+  db?: WorkOpsDb;
+  planTokenRepo?: IPlanTokenRepository;
+  lockManager?: ILockManager;
+  policyEngine?: VerifiedAutoClosurePolicyEngine;
+  secretManager?: ISecretManager;
+}
+
+export interface BuildAppOptions {
+  autoStartScheduler?: boolean;
+  db?: WorkOpsDb;
+  planTokenRepo?: IPlanTokenRepository;
+  lockManager?: ILockManager;
+  sqlitePath?: string;
+  databaseUrl?: string;
+  secretManager?: ISecretManager;
+  policyEngine?: VerifiedAutoClosurePolicyEngine;
 }
 
 /**
@@ -50,7 +136,7 @@ export interface App {
  */
 export async function buildApp(
   configFilePath?: string,
-  options: { autoStartScheduler?: boolean } = {}
+  options: BuildAppOptions = {}
 ): Promise<App> {
   // A user-supplied --config may live outside the current working directory.
   // Load its adjacent .env before constructing clients, while preserving
@@ -81,7 +167,36 @@ export async function buildApp(
   const client = new AzureDevOpsClient(config);
 
   const workItemRepo = new AzureWorkItemService(client, () => config.timezone);
-  const journalRepo = new FileJournalRepository();
+  let db: WorkOpsDb | undefined = options.db;
+  if (!db) {
+    try {
+      db = createDatabase({
+        sqlitePath: options.sqlitePath || process.env.SQLITE_PATH,
+        url: options.databaseUrl || process.env.DATABASE_URL,
+      });
+    } catch (err: any) {
+      logger.warn(`Failed to initialize database: ${err.message}.`);
+    }
+  }
+
+  const fileJournalRepo = new FileJournalRepository(
+    configFilePath
+      ? path.join(path.dirname(path.resolve(process.cwd(), configFilePath)), '.task-journal.json')
+      : undefined
+  );
+  const relationalJournalRepo = db ? new RelationalJournalRepository(db) : undefined;
+  const journalRepo: JournalRepository = relationalJournalRepo
+    ? new DualJournalRepository(relationalJournalRepo, fileJournalRepo)
+    : fileJournalRepo;
+
+  const planTokenRepo: IPlanTokenRepository =
+    options.planTokenRepo ||
+    (db ? new RelationalPlanTokenRepository(db) : (undefined as any));
+
+  const lockManager: ILockManager =
+    options.lockManager ||
+    (db ? createLockManager(db) : (undefined as any));
+
   const lockRepo = new FileLockRepository();
   const schedulerRepo = new NodeSchedulerRepository(config, configRepo);
   const autoClosureConfigRepo = new FileAutoClosureConfigRepository();
@@ -96,11 +211,15 @@ export async function buildApp(
   });
 
   const createTasks = new CreateTasksUseCase(workItemRepo, journalRepo, lockRepo, config);
-  const planTasks = new PlanTasksUseCase(workItemRepo, config);
+  const planTasks = new PlanTasksUseCase(workItemRepo, config, planTokenRepo);
+  const executeTasks = new ExecuteTasksUseCase(workItemRepo, journalRepo, planTokenRepo, lockManager, config);
   const exploreTasks = new ExploreTasksUseCase(workItemRepo, config);
   const getStatus = new GetSystemStatusUseCase(workItemRepo, config);
   const configUseCases = new ConfigUseCases(configRepo, config);
   const repairRelations = new RepairRelationsUseCase(workItemRepo, journalRepo, lockRepo);
+  const secretManager = options.secretManager || createSecretManager();
+  const policyEngine = options.policyEngine || new VerifiedAutoClosurePolicyEngine();
+
   const closeDailyTasks = new CloseDailyTasksUseCase(
     config,
     workItemRepo,
@@ -110,7 +229,8 @@ export async function buildApp(
     journalRepo,
     lockRepo,
     autoClosureConfigRepo,
-    autoClosureAuditRepo
+    autoClosureAuditRepo,
+    policyEngine
   );
   const activateDailyTasks = new ActivateDailyTasksUseCase(
     config,
@@ -145,7 +265,10 @@ export async function buildApp(
   // Wire scheduler to run EOD task auto-closure
   schedulerRepo.setAutoCloseFunction(async () => {
     logger.info('Scheduler: executing automated EOD task closure...');
-    const result = await closeDailyTasks.execute({});
+    const result = await closeDailyTasks.execute({
+      enforcePolicyGating: true,
+      operatorEmail: 'system-scheduler@workops.test',
+    });
     logger.info(`Scheduler EOD closure finished: ${result.totalClosed} closed, ${result.totalAlreadyClosed} already closed, ${result.totalFailed} failed.`);
     if (result.totalFailed > 0) {
       throw new Error(`${result.totalFailed} task(s) failed during auto-closure`);
@@ -164,6 +287,7 @@ export async function buildApp(
     config,
     createTasks,
     planTasks,
+    executeTasks,
     exploreTasks,
     getStatus,
     configUseCases,
@@ -175,6 +299,11 @@ export async function buildApp(
     scheduler: schedulerRepo,
     autoClosureConfig: autoClosureConfigRepo,
     autoClosureAudit: autoClosureAuditRepo,
+    db,
+    planTokenRepo,
+    lockManager,
+    policyEngine,
+    secretManager,
   };
 }
 
@@ -184,6 +313,8 @@ export type {
   ProgressEvent,
   PlanTasksInput,
   PlanTasksOutput,
+  ExecuteTasksInput,
+  ExecuteTasksOutput,
   ExploreTasksInput,
   ExploreTasksOutput,
   SystemStatusOutput,

@@ -1,0 +1,108 @@
+# Default values for workops.
+# This is a YAML-formatted file.
+
+replicaCount: 2
+
+image:
+  repository: workops
+  pullPolicy: IfNotPresent
+  tag: "2.0.0"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: "workops-sa"
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/path: "/metrics"
+  prometheus.io/port: "3000"
+
+podSecurityContext:
+  fsGroup: 10001
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 3000
+  targetPort: 3000
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: workops.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: workops-tls-cert
+      hosts:
+        - workops.company.com
+        - workops.local
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  initialDelaySeconds: 15
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /api/ready
+    port: 3000
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+env:
+  NODE_ENV: "production"
+  PORT: "3000"
+  AZURE_DEVOPS_ORG_URL: "https://dev.azure.com/example-org"
+  AZURE_DEVOPS_PROJECT: "ExampleProject"
+  TIMEZONE: "UTC"
+
+secretEnv:
+  AZURE_DEVOPS_PAT: ""
+  GITHUB_TOKEN: ""
+  PLAN_SIGNING_SECRET: ""
+  SESSION_SECRET: ""
+  API_AUTH_TOKEN: ""
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -3,24 +3,34 @@
  * Generates a preview of what tasks would be created without actually creating them
  */
 
-import { WorkItemRepository, AppConfig } from '../../domain/ports/repositories.js';
+import { WorkItemRepository, AppConfig, IPlanTokenRepository } from '../../domain/ports/repositories.js';
 import { Person } from '../../domain/entities/person.js';
 import { DiscoveredTask, extractTitlePrefix } from '../../domain/entities/task.js';
 import { TaskDiscoveryService, DuplicateDetector, DatePlanningService } from '../../domain/services/task-services.js';
 import { validateNotPastDate } from '../../domain/value-objects/date-window.js';
 import { PersonExecutionPlan } from './create-tasks.js';
+import { generatePlanToken, PlanSnapshotItem } from '../../domain/entities/plan-token.js';
 
 export interface PlanTasksInput {
   personKeys?: string[];
   all?: boolean;
   asOf?: string;
   thursdayMode?: 'CURRENT' | 'FOLLOWING';
+  operatorEmail?: string;
 }
 
 export interface PlanTasksOutput {
   todayIso: string;
   nextThursdayIso: string;
   personPlans: PersonExecutionPlan[];
+  planToken: string;
+  expiresAt: number;
+  planHash: string;
+  summary: {
+    totalPlanned: number;
+    personCount: number;
+  };
+  preview: PlanSnapshotItem[];
 }
 
 export class PlanTasksUseCase {
@@ -30,7 +40,8 @@ export class PlanTasksUseCase {
 
   constructor(
     private readonly workItemRepo: WorkItemRepository,
-    private readonly config: AppConfig
+    private readonly config: AppConfig,
+    private readonly planTokenRepo?: IPlanTokenRepository
   ) {
     this.discovery = new TaskDiscoveryService(workItemRepo);
     this.duplicateDetector = new DuplicateDetector();
@@ -79,7 +90,67 @@ export class PlanTasksUseCase {
     // Build plans
     const personPlans = this.buildPlans(people, discoveredTasks, todayIso, thursdayMode);
 
-    return { todayIso, nextThursdayIso, personPlans };
+    // Build immutable snapshot & token
+    const preview: PlanSnapshotItem[] = [];
+    for (const p of personPlans) {
+      const sourceId = p.sourceTask?.workItem?.id;
+      const estimate =
+        p.sourceTask?.workItem?.fields?.['Microsoft.VSTS.Scheduling.OriginalEstimate'] ?? 8;
+      const act =
+        p.sourceTask?.workItem?.fields?.['Microsoft.VSTS.Common.Activity'] ?? 'Development';
+      for (const d of p.plannedDates) {
+        if (d.status === 'PLANNED') {
+          preview.push({
+            personKey: p.person.key,
+            personName: p.person.name,
+            assignedTo: p.person.assignedTo,
+            targetIsoDate: d.isoDate,
+            title: d.fullTitle,
+            sourceTaskId: sourceId,
+            originalEstimate: Number(estimate) || 8,
+            activity: String(act),
+          });
+        }
+      }
+    }
+
+    const summary = {
+      totalPlanned: preview.length,
+      personCount: personPlans.length,
+    };
+
+    const snapshot = {
+      todayIso,
+      nextThursdayIso,
+      createdAt: new Date().toISOString(),
+      totalPlanned: summary.totalPlanned,
+      personCount: summary.personCount,
+      items: preview,
+    };
+
+    const tokenInfo = generatePlanToken(snapshot);
+
+    if (this.planTokenRepo) {
+      await this.planTokenRepo.saveToken({
+        tokenHash: tokenInfo.tokenHash,
+        planToken: tokenInfo.planToken,
+        expiresAt: tokenInfo.expiresAt,
+        isExecuted: false,
+        snapshotJson: JSON.stringify(snapshot),
+        operatorEmail: input.operatorEmail || 'lead@workops.test',
+      });
+    }
+
+    return {
+      todayIso,
+      nextThursdayIso,
+      personPlans,
+      planToken: tokenInfo.planToken,
+      expiresAt: tokenInfo.expiresAt,
+      planHash: tokenInfo.planHash,
+      summary,
+      preview,
+    };
   }
 
   private selectPeople(input: PlanTasksInput): Person[] {

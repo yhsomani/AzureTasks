@@ -81,6 +81,8 @@ export function asyncHandler(
       }
 
       // Build error response
+      const errStatusCode = (err as any)?.statusCode || (err as any)?.status;
+      const finalStatusCode = errStatusCode !== undefined ? Number(errStatusCode) : statusCode;
       const errorResponse = errorResponseBuilder
         ? errorResponseBuilder(err)
         : {
@@ -89,7 +91,7 @@ export function asyncHandler(
           };
 
       // Send response with appropriate status code
-      res.status(statusCode).json(errorResponse);
+      res.status(finalStatusCode).json(errorResponse);
     });
   };
 }

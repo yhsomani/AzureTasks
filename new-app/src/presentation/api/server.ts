@@ -15,6 +15,11 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import { unsafeRequestOriginGuard } from './request-origin.js';
 import { generalLimiter, strictLimiter, authLimiter, bulkOperationsLimiter } from './rate-limiter.js';
 import { validateEnvironmentSecrets, validateGitIgnore, ensureEnvExample } from './env-validation.js';
+import { EntraIdAuthProvider } from '../../infrastructure/auth/entra-id-auth-provider.js';
+import { createAuthRouter } from '../../infrastructure/auth/session-routes.js';
+import { normalizeRole } from '../../infrastructure/auth/rbac.js';
+import { tracingMiddleware } from '../../infrastructure/telemetry/tracer.js';
+import { createMetricsRouter } from './metrics-routes.js';
 
 /**
  * HTTP Basic auth over a single shared secret. The browser supplies the login
@@ -29,18 +34,32 @@ function basicAuth(user: string, token: string, viewerUser?: string, viewerToken
     candidate.length === expected.length && crypto.timingSafeEqual(candidate, expected);
 
   return (req, res, next) => {
-    if (req.path === '/api/health') return next();
+    if (req.user || req.path === '/api/health' || req.path === '/metrics' || req.path.startsWith('/auth/')) return next();
     const [scheme, encoded] = (req.headers.authorization ?? '').split(' ');
     if (scheme === 'Basic' && encoded) {
       const provided = Buffer.from(encoded, 'base64');
       if (matches(provided, operator)) {
         (req as express.Request & { authRole?: string; authUser?: string }).authRole = 'operator';
         (req as express.Request & { authRole?: string; authUser?: string }).authUser = user;
+        req.user = {
+          id: user,
+          email: `${user.toLowerCase()}@workops.test`,
+          name: user === 'admin' ? 'System Admin' : user,
+          roles: ['Admin'],
+          tenantId: 'tenant-enterprise-01',
+        };
         return next();
       }
       if (viewer && matches(provided, viewer)) {
         (req as express.Request & { authRole?: string; authUser?: string }).authRole = 'viewer';
         (req as express.Request & { authRole?: string; authUser?: string }).authUser = viewerUser;
+        req.user = {
+          id: viewerUser || 'viewer',
+          email: `${(viewerUser || 'viewer').toLowerCase()}@workops.test`,
+          name: 'Compliance Auditor',
+          roles: ['Auditor'],
+          tenantId: 'tenant-enterprise-01',
+        };
         // Viewer credentials may read the UI and API but cannot mutate local
         // configuration, credentials, scheduling or remote Azure work items.
         if (['GET', 'HEAD', 'OPTIONS'].includes(req.method.toUpperCase())) return next();
@@ -80,6 +99,12 @@ export class AppServer {
   }
 
   private configure(): void {
+    // Distributed tracing & OpenTelemetry W3C traceparent context propagation
+    this.app.use(tracingMiddleware());
+
+    // Prometheus Metrics endpoint (/metrics)
+    this.app.use(createMetricsRouter());
+
     // Security headers
     this.app.use((_req, res, next) => {
       res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -102,6 +127,43 @@ export class AppServer {
       publicOrigin: process.env.PUBLIC_ORIGIN?.trim(),
       allowedOrigin,
     }));
+
+    // Enterprise OIDC / OAuth2 Authentication Provider
+    const oidcIssuer = process.env.OIDC_ISSUER?.trim() || process.env.ENTRA_ID_ISSUER?.trim();
+    const oidcClientId = process.env.OIDC_CLIENT_ID?.trim() || process.env.AZURE_AD_CLIENT_ID?.trim() || 'workops-client';
+    const oidcAudience = process.env.OIDC_AUDIENCE?.trim() || 'workops-api';
+    const authProvider = new EntraIdAuthProvider({
+      issuer: oidcIssuer,
+      clientId: oidcClientId,
+      audience: oidcAudience,
+      tenantId: process.env.AZURE_AD_TENANT_ID?.trim(),
+      clientSecret: process.env.AZURE_AD_CLIENT_SECRET?.trim(),
+    });
+
+    // JWT verification middleware for OIDC tokens
+    this.app.use(authProvider.createMiddleware());
+
+    // Mount Auth session endpoints (/auth/login, /auth/callback, /auth/logout)
+    this.app.use('/auth', createAuthRouter({ authProvider }));
+
+    // Mock role/identity support for local test headers
+    this.app.use((req, _res, next) => {
+      if (!req.user && process.env.NODE_ENV !== 'production') {
+        const mockRole = (req.headers['x-mock-role'] as string) || (req.headers['x-user-role'] as string);
+        const mockEmail = (req.headers['x-mock-email'] as string) || (req.headers['x-operator-email'] as string);
+        if (mockRole || mockEmail) {
+          const role = mockRole ? normalizeRole(mockRole) : 'Admin';
+          req.user = {
+            id: 'mock-user',
+            email: mockEmail ? mockEmail.trim().toLowerCase() : 'admin@workops.test',
+            name: 'Mock User',
+            roles: [role],
+            tenantId: 'tenant-enterprise-01',
+          };
+        }
+      }
+      next();
+    });
 
     // Production endpoints can mutate remote Azure DevOps items and therefore
     // must never boot without an access-control boundary.

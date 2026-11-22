@@ -1,0 +1,14 @@
+apiVersion: v2
+name: workops
+description: Helm chart for WorkOps Engineering Work Operations Platform on Kubernetes and Azure Container Apps
+type: application
+version: 1.0.0
+appVersion: "2.0.0"
+keywords:
+  - workops
+  - azure-devops
+  - workflow
+  - automation
+maintainers:
+  - name: WorkOps Platform Engineering
+    email: platform@workops.test

@@ -5,7 +5,13 @@ import { ApiDependencies } from '../../src/presentation/api/routes';
 function makeDeps(): ApiDependencies {
   return {
     getStatus: {
-      execute: vi.fn(async () => ({ connected: true, organization: 'Org', project: 'Proj' })),
+      execute: vi.fn(async () => ({
+        connected: true,
+        projectValid: true,
+        workItemTypeValid: true,
+        organization: 'Org',
+        project: 'Proj',
+      })),
     },
     planTasks: {
       execute: vi.fn(async () => ({ todayIso: '2026-10-08', nextThursdayIso: '2026-10-08', personPlans: [] })),
@@ -82,6 +88,9 @@ function makeDeps(): ApiDependencies {
         summaryText: 'PRs found',
       })),
     },
+    checkDatabase: vi.fn(async () => true),
+    checkSecretManager: vi.fn(async () => true),
+    checkLockManager: vi.fn(async () => true),
   } as unknown as ApiDependencies;
 }
 
@@ -572,7 +581,91 @@ describe('API routes', () => {
     });
     const unavailable = await json('/api/ready');
     expect(unavailable.status).toBe(503);
-    expect((await unavailable.json()).data.status).toBe('unavailable');
+    const body = await unavailable.json();
+    expect(body.data.status).toBe('unavailable');
+    expect(body.data.checks.azureApi).toBe('down');
+  });
+
+  it('GET /api/ready returns 200 with all checks up on healthy dependencies', async () => {
+    const res = await json('/api/ready');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.status).toBe('ready');
+    expect(body.data.status).toBe('ready');
+    expect(body.data.azureDevOpsConnected).toBe(true);
+    expect(body.data.checks).toEqual({
+      database: 'up',
+      secretManager: 'up',
+      azureApi: 'up',
+      lockManager: 'up',
+    });
+  });
+
+  it('GET /api/ready returns 503 when database check fails', async () => {
+    (deps.checkDatabase as any).mockResolvedValueOnce(false);
+    const res = await json('/api/ready');
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.success).toBe(false);
+    expect(body.status).toBe('not_ready');
+    expect(body.data.status).toBe('unavailable');
+    expect(body.data.checks.database).toBe('down');
+    expect(body.data.checks.secretManager).toBe('up');
+    expect(body.data.checks.azureApi).toBe('up');
+    expect(body.data.checks.lockManager).toBe('up');
+  });
+
+  it('GET /api/ready returns 503 when database check throws an exception', async () => {
+    (deps.checkDatabase as any).mockRejectedValueOnce(new Error('SQLite connection terminated'));
+    const res = await json('/api/ready');
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.status).toBe('not_ready');
+    expect(body.data.checks.database).toBe('down');
+  });
+
+  it('GET /api/ready returns 503 when secret manager check fails', async () => {
+    (deps.checkSecretManager as any).mockResolvedValueOnce(false);
+    const res = await json('/api/ready');
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.data.checks.secretManager).toBe('down');
+    expect(body.data.checks.database).toBe('up');
+  });
+
+  it('GET /api/ready returns 503 when lock manager check fails', async () => {
+    (deps.checkLockManager as any).mockResolvedValueOnce(false);
+    const res = await json('/api/ready');
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.data.checks.lockManager).toBe('down');
+    expect(body.data.checks.database).toBe('up');
+  });
+
+  it('GET /api/ready returns 503 when Azure DevOps API is disconnected', async () => {
+    (deps.getStatus.execute as any).mockResolvedValueOnce({
+      connected: false,
+      projectValid: false,
+      workItemTypeValid: false,
+    });
+    const res = await json('/api/ready');
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.data.checks.azureApi).toBe('down');
+    expect(body.data.azureDevOpsConnected).toBe(false);
+  });
+
+  it('GET /api/ready reflects multiple simultaneous failures', async () => {
+    (deps.checkDatabase as any).mockResolvedValueOnce(false);
+    (deps.checkSecretManager as any).mockResolvedValueOnce(false);
+    const res = await json('/api/ready');
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.data.checks.database).toBe('down');
+    expect(body.data.checks.secretManager).toBe('down');
+    expect(body.data.checks.lockManager).toBe('up');
+    expect(body.data.checks.azureApi).toBe('up');
   });
 
   it('serves the SPA at /', async () => {

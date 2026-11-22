@@ -117,14 +117,19 @@ export class WorkOpsTestHarness {
     process.env.API_VIEWER_TOKEN = this.viewerToken;
     process.env.GITHUB_API_URL = this.githubMock.getBaseUrl();
     process.env.NODE_ENV = 'test';
+    process.env.SQLITE_PATH = this.dbHelper.getSqlitePath();
 
     // Build the container
-    this.appInstance = await buildApp(this.configFilePath, { autoStartScheduler: false });
+    this.appInstance = await buildApp(this.configFilePath, {
+      autoStartScheduler: false,
+      sqlitePath: this.dbHelper.getSqlitePath(),
+    });
 
     // Prepare API dependencies
     const apiDeps = {
       createTasks: this.appInstance.createTasks,
       planTasks: this.appInstance.planTasks,
+      executeTasks: this.appInstance.executeTasks,
       exploreTasks: this.appInstance.exploreTasks,
       getStatus: this.appInstance.getStatus,
       config: this.appInstance.configUseCases,
@@ -137,6 +142,9 @@ export class WorkOpsTestHarness {
       autoClosureConfigRepo: this.appInstance.autoClosureConfig,
       autoClosureAuditRepo: this.appInstance.autoClosureAudit,
       adminUsers: ['admin@workops.test', 'admin'],
+      db: this.appInstance.db,
+      secretManager: this.appInstance.secretManager,
+      lockManager: this.appInstance.lockManager,
     };
 
     this.serverInstance = new AppServer(apiDeps as any, 0);

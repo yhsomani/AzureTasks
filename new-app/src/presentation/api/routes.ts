@@ -7,6 +7,7 @@ import { Router } from 'express';
 import { asyncHandler, readyHandler } from './async-handler.js';
 import { CreateTasksUseCase } from '../../application/use-cases/create-tasks.js';
 import { PlanTasksUseCase } from '../../application/use-cases/plan-tasks.js';
+import { ExecuteTasksUseCase } from '../../application/use-cases/execute-tasks.js';
 import { GetSystemStatusUseCase } from '../../application/use-cases/get-status.js';
 import { ConfigUseCases } from '../../application/use-cases/config.js';
 import { ExploreTasksUseCase } from '../../application/use-cases/explore-tasks.js';
@@ -19,11 +20,16 @@ import {
   AutoClosureAuditLogRepository,
   JournalRepository,
   SchedulerRepository,
+  ILockManager,
 } from '../../domain/ports/repositories.js';
+import { WorkOpsDb, checkDatabaseHealth } from '../../infrastructure/persistence/database.js';
+import { ISecretManager } from '../../domain/ports/secret-manager.js';
 import { createAutoClosureRouter } from './auto-closure-routes.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { getTodayIso } from '../../domain/value-objects/date-window.js';
 import { ReadCoordinator } from './read-coordinator.js';
+import { hasRole, normalizeRole, Role } from '../../infrastructure/auth/rbac.js';
+import { metricsRegistry } from '../../infrastructure/telemetry/metrics.js';
 
 /** Extract error message from unknown caught value. */
 function getErrorMessage(err: unknown): string {
@@ -36,9 +42,67 @@ function getErrorMessage(err: unknown): string {
   return 'An unknown error occurred';
 }
 
+/**
+ * Enforce RBAC permissions on state-mutating endpoints.
+ * Blocks read-only Auditor role from mutating any state.
+ * Enforces HTTP 401 when authentication is configured but request is unauthenticated.
+ */
+function enforceMutationRole(
+  req: any,
+  res: any,
+  allowedRoles: Role[],
+  isPreview = false
+): boolean {
+  if (req.user) {
+    if (isPreview && req.authRole === 'viewer') {
+      return true;
+    }
+    const isAuditorOnly =
+      req.user.roles.includes('Auditor') &&
+      !req.user.roles.some((r: Role) => ['Admin', 'Lead', 'Developer'].includes(r));
+    if (isAuditorOnly) {
+      res.status(403).json({ success: false, error: "Role 'Auditor' is read-only." });
+      return false;
+    }
+    if (!hasRole(req.user, allowedRoles)) {
+      const error =
+        req.user.roles.includes('Developer') && !allowedRoles.includes('Developer')
+          ? "Role 'Developer' cannot execute team plans."
+          : `Insufficient permissions. Allowed roles: ${allowedRoles.join(', ')}.`;
+      res.status(403).json({ success: false, error });
+      return false;
+    }
+    return true;
+  }
+
+  if (req.authRole === 'viewer') {
+    if (isPreview) return true;
+    res.status(403).json({ success: false, error: "Role 'Auditor' is read-only." });
+    return false;
+  }
+
+  const authConfigured =
+    process.env.NODE_ENV === 'production' ||
+    Boolean(process.env.API_AUTH_TOKEN) ||
+    Boolean(process.env.OIDC_ISSUER) ||
+    Boolean(process.env.ENTRA_ID_ISSUER) ||
+    Boolean(req.headers?.authorization);
+
+  if (authConfigured) {
+    res.status(401).json({
+      success: false,
+      error: 'Authentication required before role verification.',
+    });
+    return false;
+  }
+
+  return true;
+}
+
 export interface ApiDependencies {
   createTasks: CreateTasksUseCase;
   planTasks: PlanTasksUseCase;
+  executeTasks?: ExecuteTasksUseCase;
   exploreTasks: ExploreTasksUseCase;
   getStatus: GetSystemStatusUseCase;
   config: ConfigUseCases;
@@ -51,6 +115,12 @@ export interface ApiDependencies {
   autoClosureConfigRepo?: AutoClosureConfigRepository;
   autoClosureAuditRepo?: AutoClosureAuditLogRepository;
   adminUsers?: string[];
+  db?: WorkOpsDb;
+  secretManager?: ISecretManager;
+  lockManager?: ILockManager;
+  checkDatabase?: () => Promise<boolean>;
+  checkSecretManager?: () => Promise<boolean>;
+  checkLockManager?: () => Promise<boolean>;
 }
 
 /**
@@ -107,31 +177,187 @@ export function createApiRouter(deps: ApiDependencies): Router {
     next();
   });
 
-  // Auth role is set by the server after Basic credential verification, never
-  // accepted from a browser-provided header. Client uses it to hide mutations.
+  // Auth session endpoint: returns user identity, roles, and authorization status
   router.get('/session', (req, res) => {
-    const role = (req as typeof req & { authRole?: string }).authRole === 'viewer' ? 'viewer' : 'operator';
-    res.json({ success: true, data: { role } });
+    const user = req.user;
+    const primaryRole = user?.roles?.[0]
+      ? normalizeRole(user.roles[0])
+      : ((req as typeof req & { authRole?: string }).authRole === 'viewer' ? 'Auditor' : 'Admin');
+    const isViewer = primaryRole === 'Auditor' || (req as typeof req & { authRole?: string }).authRole === 'viewer';
+    const email = user?.email || ((req as typeof req & { authUser?: string }).authUser ? `${(req as typeof req & { authUser?: string }).authUser}@workops.test` : 'operator@workops.test');
+    const name = user?.name || (req as typeof req & { authUser?: string }).authUser || 'WorkOps User';
+    const roles = user?.roles || [primaryRole];
+
+    res.json({
+      success: true,
+      authenticated: Boolean(user || (req as typeof req & { authUser?: string }).authUser),
+      user: email,
+      role: primaryRole.toLowerCase(),
+      roles,
+      tenantId: user?.tenantId || 'tenant-enterprise-01',
+      viewerMode: isViewer,
+      data: {
+        role: isViewer ? 'viewer' : 'operator',
+        user: email,
+        name,
+        roles,
+        authenticated: Boolean(user || (req as typeof req & { authUser?: string }).authUser),
+      },
+    });
   });
 
   // Liveness says only that the web process can answer HTTP requests.
   // It must not pretend that Azure DevOps or GitHub integrations are working.
   router.get('/health', (_req, res) => {
-    res.json({ status: 'alive', dependenciesChecked: false, timestamp: new Date().toISOString() });
+    res.json({
+      status: 'alive',
+      dependenciesChecked: false,
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      version: process.env.npm_package_version || '2.0.0',
+    });
   });
 
-  // Readiness performs live read-only Azure project and work-item type checks.
+  // Readiness performs live dependency checks (Azure DevOps, DB, Secret Manager, Lock Manager).
   // Keep this under normal API authentication (unlike the liveness probe).
   router.get('/ready', readyHandler(async (_req, res) => {
-    const status = await deps.getStatus.execute();
-    if (!status.connected || !status.projectValid || !status.workItemTypeValid) {
+    const checks: Record<string, 'up' | 'down'> = {
+      database: 'down',
+      secretManager: 'down',
+      azureApi: 'down',
+      lockManager: 'down',
+    };
+
+    let allHealthy = true;
+
+    // 1. Azure DevOps API check
+    try {
+      const status = await deps.getStatus.execute();
+      if (status.connected && status.projectValid && status.workItemTypeValid) {
+        checks.azureApi = 'up';
+      } else {
+        allHealthy = false;
+      }
+    } catch {
+      allHealthy = false;
+    }
+
+    // 2. Database check
+    try {
+      if (deps.checkDatabase) {
+        const dbOk = await deps.checkDatabase();
+        if (dbOk) {
+          checks.database = 'up';
+        } else {
+          allHealthy = false;
+        }
+      } else if (deps.db) {
+        const dbOk = await checkDatabaseHealth(deps.db);
+        if (dbOk) {
+          checks.database = 'up';
+        } else {
+          allHealthy = false;
+        }
+      } else if (process.env.NODE_ENV !== 'production') {
+        checks.database = 'up';
+      } else {
+        allHealthy = false;
+      }
+    } catch {
+      allHealthy = false;
+    }
+
+    // 3. Secret Manager check
+    try {
+      if (deps.checkSecretManager) {
+        const smOk = await deps.checkSecretManager();
+        if (smOk) {
+          checks.secretManager = 'up';
+        } else {
+          allHealthy = false;
+        }
+      } else if (deps.secretManager?.checkHealth) {
+        const smHealth = await deps.secretManager.checkHealth();
+        if (smHealth.healthy) {
+          checks.secretManager = 'up';
+        } else {
+          allHealthy = false;
+        }
+      } else if (deps.secretManager) {
+        checks.secretManager = 'up';
+      } else if (process.env.NODE_ENV !== 'production') {
+        checks.secretManager = 'up';
+      } else {
+        allHealthy = false;
+      }
+    } catch {
+      allHealthy = false;
+    }
+
+    // 4. Lock Manager check
+    try {
+      if (deps.checkLockManager) {
+        const lmOk = await deps.checkLockManager();
+        if (lmOk) {
+          checks.lockManager = 'up';
+        } else {
+          allHealthy = false;
+        }
+      } else if (deps.lockManager?.checkHealth) {
+        const lmHealth = await deps.lockManager.checkHealth();
+        if (lmHealth.healthy) {
+          checks.lockManager = 'up';
+        } else {
+          allHealthy = false;
+        }
+      } else if (deps.lockManager) {
+        await deps.lockManager.isLocked('__readiness_probe__');
+        checks.lockManager = 'up';
+      } else if (process.env.NODE_ENV !== 'production') {
+        checks.lockManager = 'up';
+      } else {
+        allHealthy = false;
+      }
+    } catch {
+      allHealthy = false;
+    }
+
+    const timestamp = new Date().toISOString();
+
+    if (!allHealthy) {
       return res.status(503).json({
         success: false,
-        data: { status: 'unavailable', azureDevOpsConnected: false },
+        status: 'not_ready',
+        timestamp,
+        checks,
+        data: {
+          status: 'unavailable',
+          azureDevOpsConnected: checks.azureApi === 'up',
+          checks,
+          timestamp,
+        },
       });
     }
-    return res.json({ success: true, data: { status: 'ready', azureDevOpsConnected: true } });
+
+    return res.json({
+      success: true,
+      status: 'ready',
+      timestamp,
+      checks,
+      data: {
+        status: 'ready',
+        azureDevOpsConnected: true,
+        checks,
+        timestamp,
+      },
+    });
   }));
+
+  // Prometheus Metrics export
+  router.get('/metrics', (_req, res) => {
+    res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    res.send(metricsRegistry.renderPrometheusMetrics());
+  });
 
   // Status
   router.get('/status', asyncHandler(async (_req, res) => {
@@ -157,6 +383,7 @@ export function createApiRouter(deps: ApiDependencies): Router {
   }));
 
   router.post('/calendar', asyncHandler(async (req, res) => {
+    if (!enforceMutationRole(req, res, ['Admin', 'Lead'])) return;
     try {
       const result = await deps.config.saveSettings({ calendar: req.body?.calendar });
       if (!req.body?.calendar) return res.status(400).json({ success: false, error: 'Calendar is required.' });
@@ -168,11 +395,13 @@ export function createApiRouter(deps: ApiDependencies): Router {
   }));
 
   router.post('/config/people', asyncHandler(async (req, res) => {
+    if (!enforceMutationRole(req, res, ['Admin', 'Lead'])) return;
     const data = await deps.config.savePeople(req.body);
           res.json({ success: true, data });
   }));
 
   router.post('/config/settings', asyncHandler(async (req, res) => {
+    if (!enforceMutationRole(req, res, ['Admin', 'Lead'])) return;
     const data = await deps.config.saveSettings(req.body);
           const savedGhToken = typeof req.body?.githubToken === 'string' ? req.body.githubToken.trim() : '';
           if (savedGhToken) logger.registerSecret(savedGhToken);
@@ -180,6 +409,7 @@ export function createApiRouter(deps: ApiDependencies): Router {
   }));
 
   router.post('/config/pat', asyncHandler(async (req, res) => {
+    if (!enforceMutationRole(req, res, ['Admin', 'Lead'])) return;
     const data = await deps.config.savePat(req.body);
           // Scrub the newly saved PAT from all future log output.
           const savedPat = typeof req.body?.pat === 'string' ? req.body.pat.trim() : '';
@@ -198,40 +428,66 @@ export function createApiRouter(deps: ApiDependencies): Router {
     auditRepo: deps.autoClosureAuditRepo,
     adminUsers,
     requestingUser: (req) => (req as any).user?.email || (req as any).authUser || (process.env.API_AUTH_USER || 'admin'),
+    closeDailyTasks: deps.closeDailyTasks,
   }));
 
   // Tasks
   router.post('/tasks/plan', asyncHandler(async (req, res) => {
+    if (!enforceMutationRole(req, res, ['Admin', 'Lead'], true)) return;
     const { asOf, thursdayMode } = req.body || {};
     const scope = resolvePersonScope(req.body, true);
     const data = await deps.planTasks.execute({
       ...scope,
       asOf,
       thursdayMode,
+      operatorEmail: req.user?.email || (req as any).authUser || 'operator@workops.test',
     });
-    res.json({ success: true, data });
+    res.json({
+      success: true,
+      data,
+      planToken: data.planToken,
+      expiresAt: data.expiresAt,
+      planHash: data.planHash,
+      summary: data.summary,
+      preview: data.preview,
+    });
   }, { statusCode: 400 }));
 
   router.post('/tasks/execute', asyncHandler(async (req, res) => {
+    if (!enforceMutationRole(req, res, ['Admin', 'Lead'])) return;
+    if (req.body?.planToken) {
+      if (!deps.executeTasks) {
+        return res.status(500).json({ success: false, error: 'ExecuteTasksUseCase not configured' });
+      }
+      const result = await deps.executeTasks.execute({
+        planToken: req.body.planToken,
+        confirm: req.body.confirm,
+        dryRun: req.body.dryRun,
+        operatorEmail: req.user?.email || (req as any).authUser || 'operator@workops.test',
+      });
+      return res.json({ ...result, data: result });
+    }
+
     const { asOf, thursdayMode, dryRun } = req.body || {};
-          if (dryRun !== true && req.body?.confirm !== true) {
-            return res.status(400).json({ success: false, error: 'Explicit confirm=true is required for Azure task creation.' });
-          }
-          const scope = resolvePersonScope(req.body);
-          const data = await deps.createTasks.execute(
-            {
-              ...scope,
-              asOf,
-              thursdayMode,
-              dryRun: !!dryRun,
-              yes: true,
-            },
-            (event) => logger.info(event.message)
-          );
-          res.json({ success: true, data });
+    if (dryRun !== true && req.body?.confirm !== true) {
+      return res.status(400).json({ success: false, error: 'Explicit confirm=true is required for Azure task creation.' });
+    }
+    const scope = resolvePersonScope(req.body);
+    const data = await deps.createTasks.execute(
+      {
+        ...scope,
+        asOf,
+        thursdayMode,
+        dryRun: !!dryRun,
+        yes: true,
+      },
+      (event) => logger.info(event.message)
+    );
+    res.json({ success: true, data });
   }));
 
   router.post('/tasks/adhoc', asyncHandler(async (req, res) => {
+    if (!enforceMutationRole(req, res, ['Admin', 'Lead', 'Developer'])) return;
     const {
             personKey,
             targetIsoDate,
@@ -273,6 +529,7 @@ export function createApiRouter(deps: ApiDependencies): Router {
   }));
 
   router.post('/tasks/repair', asyncHandler(async (req, res) => {
+    if (!enforceMutationRole(req, res, ['Admin', 'Lead'])) return;
     if (!deps.repairRelations) {
             return res.status(400).json({ success: false, error: 'RepairRelationsUseCase not configured' });
           }
@@ -290,11 +547,12 @@ export function createApiRouter(deps: ApiDependencies): Router {
           }
           const { asOf } = req.body || {};
           const dryRun = req.body?.dryRun === true;
-          if ((req as typeof req & { authRole?: string }).authRole === 'viewer' && !dryRun) {
-            return res.status(403).json({
-              success: false,
-              error: 'Read-only viewer credentials may preview EOD but may not close work items.',
-            });
+          if (!dryRun) {
+            if (!enforceMutationRole(req, res, ['Admin', 'Lead', 'Developer'])) return;
+          } else {
+            if ((req as typeof req & { authRole?: string }).authRole === 'viewer') {
+              // Read-only viewer credentials may preview EOD
+            }
           }
           const runtimeConfig = await deps.config.getConfig();
           const today = getTodayIso(runtimeConfig.timezone || 'UTC');
@@ -313,11 +571,61 @@ export function createApiRouter(deps: ApiDependencies): Router {
           // Closing tasks is a remote write. A missing or empty member scope must
           // never silently close all employees' work items.
           const scope = resolvePersonScope(req.body, dryRun);
+          if (req.user && req.user.roles.includes('Developer') && !req.user.roles.some((r) => ['Admin', 'Lead'].includes(r)) && !dryRun) {
+            const userEmail = req.user.email ? req.user.email.toLowerCase() : '';
+            const userId = req.user.id ? req.user.id.toLowerCase() : '';
+            const ownMember = runtimeConfig.people.find(
+              (p) =>
+                (p.assignedTo && p.assignedTo.toLowerCase() === userEmail) ||
+                ((p as any).email && (p as any).email.toLowerCase() === userEmail) ||
+                (p.key && p.key.toLowerCase() === userId) ||
+                (p.key && p.key.toLowerCase() === userEmail.split('@')[0])
+            );
+
+            if (
+              scope.all ||
+              !scope.personKeys ||
+              scope.personKeys.length === 0 ||
+              !ownMember ||
+              scope.personKeys.some((k) => k.toLowerCase() !== ownMember.key.toLowerCase())
+            ) {
+              return res.status(403).json({
+                success: false,
+                error: 'Developer role may only close their own tasks.',
+              });
+            }
+          }
+
+          const manualOverride = req.body?.manualOverride ? {
+            allowed: Boolean(req.body.manualOverride.allowed),
+            reason: typeof req.body.manualOverride.reason === 'string' ? req.body.manualOverride.reason.trim() : '',
+            operatorUser: req.user,
+            operatorEmail: req.user?.email,
+          } : undefined;
+
+          if (manualOverride && manualOverride.allowed) {
+            if (!req.user || !req.user.roles || !req.user.roles.some((r) => ['Admin', 'Lead'].includes(r))) {
+              return res.status(403).json({
+                success: false,
+                error: "Manual override policy requires role 'Admin' or 'Lead'.",
+              });
+            }
+            if (!manualOverride.reason) {
+              return res.status(400).json({
+                success: false,
+                error: 'Manual override requires an attributed justification reason.',
+              });
+            }
+          }
+
           logger.info(`EOD task closure requested (dryRun=${dryRun}, asOf=${asOf || 'today'})...`);
+          const operatorEmail = req.user?.email || (req as any).authUser || (process.env.API_AUTH_USER || 'admin');
           const result = await deps.closeDailyTasks.execute({
             personKeys: scope.personKeys,
             asOf,
             dryRun,
+            operatorEmail,
+            manualOverride,
           });
           res.json({ success: true, data: result });
   }));
@@ -328,11 +636,12 @@ export function createApiRouter(deps: ApiDependencies): Router {
     }
     const { asOf } = req.body || {};
     const dryRun = req.body?.dryRun === true;
-    if ((req as typeof req & { authRole?: string }).authRole === 'viewer' && !dryRun) {
-      return res.status(403).json({
-        success: false,
-        error: 'Read-only viewer credentials may preview task activation but may not activate work items.',
-      });
+    if (!dryRun) {
+      if (!enforceMutationRole(req, res, ['Admin', 'Lead'])) return;
+    } else {
+      if ((req as typeof req & { authRole?: string }).authRole === 'viewer') {
+        // Read-only viewer credentials may preview task activation
+      }
     }
     const runtimeConfig = await deps.config.getConfig();
     const today = getTodayIso(runtimeConfig.timezone || 'UTC');
@@ -382,6 +691,7 @@ export function createApiRouter(deps: ApiDependencies): Router {
   }));
 
   router.post('/explorer/create-missing', asyncHandler(async (req, res) => {
+    if (!enforceMutationRole(req, res, ['Admin', 'Lead'])) return;
     const { asOf, thursdayMode } = req.body || {};
           if (req.body?.confirm !== true) {
             return res.status(400).json({ success: false, error: 'Explicit confirm=true is required for missing-task creation.' });
@@ -448,6 +758,7 @@ export function createApiRouter(deps: ApiDependencies): Router {
   });
 
   router.post('/scheduler/toggle', asyncHandler(async (req, res) => {
+    if (!enforceMutationRole(req, res, ['Admin', 'Lead'])) return;
     const requestedEnable = req.body?.enabled !== undefined ? req.body.enabled : req.body?.enable;
           if (typeof requestedEnable !== 'boolean' || (req.body?.persist !== undefined &&
             typeof req.body.persist !== 'boolean')) {
@@ -461,6 +772,7 @@ export function createApiRouter(deps: ApiDependencies): Router {
   }));
 
   router.post('/scheduler/config', asyncHandler(async (req, res) => {
+    if (!enforceMutationRole(req, res, ['Admin', 'Lead'])) return;
     const { startTime, timezone, autoStart, autoClose, autoCloseStartTime, autoCloseEndTime, autoActive, autoActiveTime } = req.body || {};
           if ((autoStart !== undefined && typeof autoStart !== 'boolean') ||
             (autoClose !== undefined && typeof autoClose !== 'boolean') ||
@@ -485,6 +797,7 @@ export function createApiRouter(deps: ApiDependencies): Router {
   }));
 
   router.post('/scheduler/run-now', asyncHandler(async (req, res) => {
+    if (!enforceMutationRole(req, res, ['Admin', 'Lead'])) return;
     if (req.body?.confirm !== true || req.body?.all !== true) {
             return res.status(400).json({ success: false, error: 'Scheduler run-now requires confirm=true and all=true.' });
           }
@@ -498,6 +811,7 @@ export function createApiRouter(deps: ApiDependencies): Router {
   }));
 
   router.post('/scheduler/trigger-autoactive', asyncHandler(async (req, res) => {
+    if (!enforceMutationRole(req, res, ['Admin', 'Lead'])) return;
     if (req.body?.confirm !== true || req.body?.all !== true) {
             return res.status(400).json({ success: false, error: 'Scheduler auto-active requires confirm=true and all=true.' });
           }
@@ -510,6 +824,7 @@ export function createApiRouter(deps: ApiDependencies): Router {
   }));
 
   router.post('/scheduler/trigger-autoclose', asyncHandler(async (req, res) => {
+    if (!enforceMutationRole(req, res, ['Admin', 'Lead'])) return;
     if (req.body?.confirm !== true || req.body?.all !== true) {
             return res.status(400).json({ success: false, error: 'Scheduler auto-close requires confirm=true and all=true.' });
           }

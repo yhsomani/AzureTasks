@@ -249,7 +249,7 @@ The current server relies on HTTP Basic Authentication over a single shared secr
      - `Auditor`: Read-only access to audit journals, compliance metrics, and exports.
 
 #### 2.5.2 Repository Sanitization & PII Removal
-The repository currently tracks `people.json` in source control, which exposes real employee names, corporate email addresses (`@bajajfinserv.in`), internal pod names, and GitHub usernames.
+The repository currently tracks `people.json` in source control, which exposes real employee names, corporate email addresses (`@company.com`), internal pod names, and GitHub usernames.
 - *Remediation*:
   1. Add `people.json`, `.task-journal.json`, `.auto-closure-config.json`, and `.work-calendar.json` to `.gitignore`.
   2. Provide sanitized template files: `people.example.json` and `config.example.json` containing synthetic mock data.
