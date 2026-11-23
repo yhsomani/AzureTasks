@@ -5,14 +5,14 @@ describe('Deterministic Canonical Identity Resolution', () => {
   const basePerson: PersonConfig = {
     key: 'yash_somani',
     name: 'Yash Somani',
-    assignedTo: 'yash.somani@bajajfinserv.in',
+    assignedTo: 'yash.somani@workops.test',
   };
 
   it('Scenario 1: Same person + same Azure ID and uniqueName -> matches', () => {
     const azureIdentity = {
       id: 'a269c33b-2b69-628e-a8eb-dbfc5f809fa2',
       displayName: 'Yash Somani',
-      uniqueName: 'yash.somani@bajajfinserv.in',
+      uniqueName: 'yash.somani@workops.test',
       descriptor: 'aad.YTI2OWMzM2ItMmI2OS03MjhlLWE4ZWItZGJmYzVmODA5ZmEy'
     };
     expect(matchesPerson(azureIdentity, basePerson)).toBe(true);
@@ -21,20 +21,20 @@ describe('Deterministic Canonical Identity Resolution', () => {
   it('Scenario 2: Same person + email with casing differences -> matches', () => {
     const azureIdentity = {
       displayName: 'Yash Somani',
-      uniqueName: 'YASH.SOMANI@BAJAJFINSERV.IN',
+      uniqueName: 'YASH.SOMANI@WORKOPS.TEST',
     };
     expect(matchesPerson(azureIdentity, basePerson)).toBe(true);
   });
 
   it('Scenario 3: Same person + angle-bracket formatted string -> matches', () => {
-    const rawString = 'Yash Somani <yash.somani@bajajfinserv.in>';
+    const rawString = 'Yash Somani <yash.somani@workops.test>';
     expect(matchesPerson(rawString, basePerson)).toBe(true);
   });
 
   it('Scenario 4: Same display name + different email/identity -> does NOT match (prevents silent collision)', () => {
     const differentPersonAzure = {
       displayName: 'Yash Somani',
-      uniqueName: 'yash.somani.external@contractor.in',
+      uniqueName: 'yash.somani.external@contractor.test',
     };
     expect(matchesPerson(differentPersonAzure, basePerson)).toBe(false);
   });
@@ -63,12 +63,12 @@ describe('Deterministic Canonical Identity Resolution', () => {
   it('Scenario 8: extractIdentity extracts structured fields properly', () => {
     const raw = {
       displayName: '  Ajinkya Lendikar  ',
-      uniqueName: '  ajinkya.lendikar@bajajfinserv.in  ',
+      uniqueName: '  ajinkya.lendikar@workops.test  ',
       id: 'guid-1234'
     };
     const extracted = extractIdentity(raw);
     expect(extracted).not.toBeNull();
     expect(extracted?.displayName).toBe('Ajinkya Lendikar');
-    expect(extracted?.uniqueName).toBe('ajinkya.lendikar@bajajfinserv.in');
+    expect(extracted?.uniqueName).toBe('ajinkya.lendikar@workops.test');
   });
 });

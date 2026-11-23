@@ -2,11 +2,23 @@
 node_modules/
 dist/
 coverage/
+.build/
+*.tsbuildinfo
+.eslintcache
+.cache/
+
+# Test Reports and Dumps
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
 
 # Environment and Secrets
 .env
 .env.*
 !.env.example
+.vscode/
+.idea/
 
 # Local State, Locks, and Journals
 .execution-lock.json
@@ -23,20 +35,40 @@ data.txt
 data.txt.*
 data.txt.*.tmp
 
-# SQLite Database Snapshots and WAL/SHM Artifacts
+# SQLite Database Snapshots and WAL/SHM Sidecars
 *.db
 *.db-wal
 *.db-shm
+*.db-journal
 *.sqlite
 *.sqlite3
-azure-live-smoke.db
-azure-data-smoke.db
+*.sqlite-wal
+*.sqlite-shm
+azure-data.db*
+azure-live-smoke.db*
+azure-data-smoke.db*
+
+# Archives and Packages
+*.tar.gz
+*.tgz
+*.zip
+*.tar
+*.gz
+*.7z
 
 # Logs and OS Artifacts
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 .DS_Store
+Thumbs.db
 
 # Backups and Editor Temporaries
 *.bak
 *.backup
 *.tmp
+*.temp
+*.swp
+*.swo
+*~
