@@ -1,19 +1,42 @@
+# Dependencies and Build Artifacts
 node_modules/
 dist/
+coverage/
+
+# Environment and Secrets
 .env
+.env.*
+!.env.example
+
+# Local State, Locks, and Journals
 .execution-lock.json
 .task-journal.json
 .journal-archives/
-coverage/
-*.log
-.DS_Store
-people.json
 .auto-closure-config.json
 .work-calendar.json
 .auto-closure-audit.json
+people.json
+data/
+
+# Sensitive Dumps and Temp Data
+data.txt
+data.txt.*
+data.txt.*.tmp
+
+# SQLite Database Snapshots and WAL/SHM Artifacts
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+azure-live-smoke.db
+azure-data-smoke.db
+
+# Logs and OS Artifacts
+*.log
+.DS_Store
+
+# Backups and Editor Temporaries
 *.bak
 *.backup
-data.txt
-data.txt.*.tmp
-data/
-*.db
+*.tmp

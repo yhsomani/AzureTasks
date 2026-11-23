@@ -5,7 +5,7 @@
 
 /* ------------------------------------------------------------------ state */
 const state = {
-  currentView: 'dashboard',
+  currentView: null,
   viewerMode: false,
   status: null,
   config: null,
@@ -33,6 +33,14 @@ const state = {
   pendingReads: new Map(),
   latestReads: new Map(),
   readGeneration: 0,
+  azureOverview: null,
+  buildHealth: [],
+  pipelineRuns: [],
+  azureTeams: [],
+  teamSearchQuery: '',
+  teamProjectFilter: '',
+  buildProjectFilter: '',
+  buildLimit: 20,
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -75,12 +83,13 @@ const api = {
       }
       const json = await res.json();
       if (controller?.signal.aborted) throw new DOMException('Request superseded.', 'AbortError');
+      const responseData = json.data !== undefined ? json.data : json;
       if (generation === state.readGeneration && state.latestReads.get(url) === owner) {
         state.cache.delete(url);
-        state.cache.set(url, { data: json.data, timestamp: Date.now() });
+        state.cache.set(url, { data: responseData, timestamp: Date.now() });
         while (state.cache.size > 50) state.cache.delete(state.cache.keys().next().value);
       }
-      return json.data;
+      return responseData;
     })();
     state.pendingReads.set(requestKey, request);
     try {
@@ -345,13 +354,15 @@ const VIEW_META = {
   scheduler: ['Scheduler', 'Automated weekday task generation daemon'],
   logs: ['Live Logs', 'Real-time server logs and event stream'],
   settings: ['Settings', 'Azure DevOps connection, Personal Access Token, and maintenance'],
+  builds: ['Build & Pipeline Health', 'CI/CD pipeline runs, build success metrics, and test results from azure-data.db'],
+  teams: ['Enterprise POD Explorer', 'Directory of enterprise agile teams, POD leadership, and module assignments'],
 };
 
 const VIEW_GROUPS = {
   dashboard: 'Overview', mywork: 'Overview',
-  explorer: 'Explore work', burndown: 'Explore work',
+  explorer: 'Explore work', burndown: 'Explore work', builds: 'Explore work',
   planner: 'Create & automate', scheduler: 'Create & automate', lifecycle: 'Create & automate',
-  people: 'Manage', calendar: 'Manage', settings: 'Manage',
+  people: 'Manage', calendar: 'Manage', settings: 'Manage', teams: 'Manage',
   journal: 'Monitor', logs: 'Monitor',
 };
 
@@ -365,13 +376,22 @@ function closeMobileNav(restoreFocus = false) {
 }
 
 function handleHashNavigation() {
-  const view = decodeURIComponent(location.hash.slice(1) || 'dashboard');
+  let raw = location.hash.slice(1) || 'dashboard';
+  let view = 'dashboard';
+  try {
+    view = decodeURIComponent(raw);
+  } catch {
+    view = raw;
+  }
+  if (view.startsWith('view-')) view = view.slice(5);
+  if (view === 'planning') view = 'planner';
+  if (!Object.hasOwn(VIEW_META, view)) view = 'dashboard';
   if (VIEW_META[view] && state.currentView === view) return;
-  switchView(VIEW_META[view] ? view : 'dashboard');
+  switchView(view);
 }
 
 function switchView(view) {
-  if (!VIEW_META[view]) view = 'dashboard';
+  if (!Object.hasOwn(VIEW_META, view)) view = 'dashboard';
   state.currentView = view;
   $$('.nav-item').forEach(b => {
     const active = b.dataset.view === view;
@@ -406,6 +426,8 @@ function switchView(view) {
   if (view === 'scheduler') refreshScheduler();
   if (view === 'settings') fillSettings();
   if (view === 'lifecycle') renderLifecycleScope().catch(error => toast(error.message, 'err'));
+  if (view === 'builds') refreshBuildsView();
+  if (view === 'teams') refreshTeamsView();
 
   // Always refresh connection status when navigating to any view
   refreshStatus();
@@ -528,6 +550,9 @@ async function refreshDashboard() {
 
   // 6. Daily Pull Request Tracking
   refreshDailyPrCounts();
+
+  // 7. Azure DevOps ALM Intelligence Telemetry
+  refreshAzureDashboard();
 }
 
 let dailyPrTimer = null;
@@ -4006,6 +4031,26 @@ function wire() {
     if (opened) $('.sidebar .nav-item.active')?.focus();
   });
 
+  // Azure DevOps Intelligence & Telemetry UI wiring
+  $('#refreshAzureDataBtn')?.addEventListener('click', refreshAzureDashboard);
+  $('#refreshBuildsViewBtn')?.addEventListener('click', refreshBuildsView);
+  $('#buildProjectFilter')?.addEventListener('change', refreshBuildsView);
+  $('#buildLimitFilter')?.addEventListener('change', refreshBuildsView);
+  $('#refreshRunsBtn')?.addEventListener('click', refreshBuildsView);
+  $('#refreshTeamsViewBtn')?.addEventListener('click', refreshTeamsView);
+  $('#teamProjectFilter')?.addEventListener('change', refreshTeamsView);
+  $('#teamResetFiltersBtn')?.addEventListener('click', () => {
+    const s = $('#teamSearchInput');
+    const p = $('#teamProjectFilter');
+    if (s) s.value = '';
+    if (p) p.value = '';
+    refreshTeamsView();
+  });
+  $('#teamSearchInput')?.addEventListener('input', () => {
+    clearTimeout(teamSearchTimer);
+    teamSearchTimer = setTimeout(refreshTeamsView, 250);
+  });
+
   // Hash routing
   window.addEventListener('hashchange', handleHashNavigation);
 }
@@ -4037,6 +4082,320 @@ function applyViewerMode() {
   });
   const schedulerToggle = $('#schedToggle');
   if (schedulerToggle) schedulerToggle.disabled = true;
+}
+
+/* --------------------------------------------------- azure data intelligence */
+async function refreshAzureDashboard() {
+  const lastUpdated = $('#azureDataLastUpdated');
+  try {
+    const overview = await api.get('/azure-data/overview', { swr: true, maxAgeMs: 30000 });
+    state.azureOverview = overview;
+    renderAzureOverviewKpis(overview);
+    if (lastUpdated) lastUpdated.textContent = 'Updated: ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch (err) {
+    if (lastUpdated) lastUpdated.textContent = 'Telemetry offline';
+    console.warn('Azure data overview unavailable:', err.message);
+  }
+
+  // Preview widgets for builds and teams on dashboard
+  api.get('/azure-data/builds/health?limit=5', { swr: true, maxAgeMs: 30000 }).then(data => {
+    renderDashboardBuildHealthSummary(data.buildHealth || []);
+  }).catch(() => {});
+
+  api.get('/azure-data/teams?limit=4', { swr: true, maxAgeMs: 60000 }).then(data => {
+    renderDashboardTeamsSummary(data.teams || []);
+    if (data.totalCount !== undefined) {
+      const teamsKpi = $('#kpiAdoTeams');
+      if (teamsKpi) teamsKpi.textContent = data.totalCount;
+    }
+  }).catch(() => {});
+}
+
+function renderAzureOverviewKpis(overview) {
+  if (!overview || !overview.projects) return;
+  const totals = overview.projects.reduce((acc, p) => {
+    acc.builds += p.builds || 0;
+    acc.pipelines += p.pipelines || 0;
+    acc.releases += p.releases || 0;
+    acc.testRuns += p.testRuns || 0;
+    return acc;
+  }, { builds: 0, pipelines: 0, releases: 0, testRuns: 0 });
+
+  const bEl = $('#kpiAdoBuilds');
+  if (bEl) bEl.textContent = totals.builds >= 1000 ? `${(totals.builds / 1000).toFixed(1)}k` : totals.builds;
+  const pEl = $('#kpiAdoPipelines');
+  if (pEl) pEl.textContent = totals.pipelines;
+  const rEl = $('#kpiAdoReleases');
+  if (rEl) rEl.textContent = totals.releases >= 1000 ? `${(totals.releases / 1000).toFixed(1)}k` : totals.releases;
+  const tEl = $('#kpiAdoTestRuns');
+  if (tEl) tEl.textContent = totals.testRuns >= 1000 ? `${(totals.testRuns / 1000).toFixed(0)}k` : totals.testRuns;
+}
+
+function renderDashboardBuildHealthSummary(builds) {
+  const container = $('#dashboardBuildHealthSummary');
+  if (!container) return;
+  if (!builds || builds.length === 0) {
+    container.innerHTML = '<p class="muted small" style="padding:12px;">No build health records found.</p>';
+    return;
+  }
+  const table = el('table', { class: 'table' }, [
+    el('thead', {}, [
+      el('tr', {}, [
+        el('th', {}, 'Pipeline Definition'),
+        el('th', {}, 'Runs'),
+        el('th', {}, 'Success Rate'),
+        el('th', {}, 'Latest Run'),
+      ]),
+    ]),
+    el('tbody', {}, builds.map(b => {
+      const rateCls = b.successRate >= 95 ? 'ok' : b.successRate >= 80 ? 'warn' : 'bad';
+      return el('tr', {}, [
+        el('td', {}, [el('strong', {}, b.definitionName)]),
+        el('td', {}, b.totalRuns.toLocaleString()),
+        el('td', {}, [el('span', { class: `pill ${rateCls}` }, `${b.successRate}%`)]),
+        el('td', {}, timeAgo(b.latestFinishedAt)),
+      ]);
+    })),
+  ]);
+  container.innerHTML = '';
+  container.append(table);
+}
+
+function renderDashboardTeamsSummary(teams) {
+  const container = $('#dashboardTeamsSummary');
+  if (!container) return;
+  if (!teams || teams.length === 0) {
+    container.innerHTML = '<p class="muted small" style="padding:12px;">No enterprise teams found.</p>';
+    return;
+  }
+  container.innerHTML = '';
+  const list = el('div', { style: 'display:flex; flex-direction:column; gap:8px;' }, teams.map(t => {
+    let podSize = '—';
+    try {
+      const d = JSON.parse(t.description || '{}');
+      if (d['POD Size']) podSize = `${d['POD Size']} members`;
+    } catch {}
+    return el('div', { class: 'card', style: 'padding:10px 12px; margin:0; display:flex; justify-content:space-between; align-items:center;' }, [
+      el('div', { style: 'overflow:hidden; text-overflow:ellipsis;' }, [
+        el('strong', { style: 'font-size:13px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;' }, t.name),
+        el('span', { class: 'muted small' }, t.projectName),
+      ]),
+      el('span', { class: 'pill' }, podSize),
+    ]);
+  }));
+  container.append(list);
+}
+
+async function refreshBuildsView() {
+  const projectId = $('#buildProjectFilter')?.value || '';
+  const limit = $('#buildLimitFilter')?.value || '20';
+  const tableContainer = $('#buildHealthTableContainer');
+  if (tableContainer) tableContainer.innerHTML = '<p class="muted" style="padding:16px;">Loading build telemetry…</p>';
+
+  try {
+    const [healthData, runsData, testData] = await Promise.all([
+      api.get(`/azure-data/builds/health?limit=${limit}${projectId ? '&projectId=' + encodeURIComponent(projectId) : ''}`, { swr: true }),
+      api.get(`/azure-data/pipelines/runs?limit=15${projectId ? '&projectId=' + encodeURIComponent(projectId) : ''}`, { swr: true }),
+      api.get('/azure-data/tests/health', { swr: true }),
+    ]);
+
+    renderBuildHealthTable(healthData.buildHealth || []);
+    renderPipelineRunsTable(runsData.pipelineRuns || []);
+    renderTestHealthCards(testData.testHealth || []);
+
+    const countEl = $('#kpiBuildDefCount');
+    if (countEl) countEl.textContent = (healthData.buildHealth || []).length;
+    const avgEl = $('#kpiBuildAvgSuccess');
+    if (avgEl && healthData.buildHealth && healthData.buildHealth.length > 0) {
+      const avg = healthData.buildHealth.reduce((sum, b) => sum + b.successRate, 0) / healthData.buildHealth.length;
+      avgEl.textContent = `${avg.toFixed(1)}%`;
+    }
+    const testRunsEl = $('#kpiTestExecutions');
+    if (testRunsEl && testData && Array.isArray(testData.testHealth)) {
+      const scopedTests = projectId
+        ? testData.testHealth.filter(th => th.projectId === projectId)
+        : testData.testHealth;
+      const totalTests = scopedTests.reduce((sum, th) => sum + (th.totalRuns || 0), 0);
+      testRunsEl.textContent = totalTests.toLocaleString();
+    }
+    const refreshed = $('#buildHealthLastRefreshed');
+    if (refreshed) refreshed.textContent = 'Updated: ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch (err) {
+    if (tableContainer) tableContainer.innerHTML = `<p class="muted" style="color:var(--danger); padding:16px;">Failed to load build health: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function renderBuildHealthTable(builds) {
+  const container = $('#buildHealthTableContainer');
+  if (!container) return;
+  if (!builds || builds.length === 0) {
+    container.innerHTML = '<p class="muted" style="padding:16px;">No build health records found for the selected scope.</p>';
+    return;
+  }
+  const table = el('table', { class: 'table' }, [
+    el('thead', {}, [
+      el('tr', {}, [
+        el('th', {}, 'Definition ID'),
+        el('th', {}, 'Pipeline Definition Name'),
+        el('th', {}, 'Total Runs'),
+        el('th', {}, 'Succeeded'),
+        el('th', {}, 'Failed'),
+        el('th', {}, 'Success Rate'),
+        el('th', {}, 'Latest Execution'),
+      ]),
+    ]),
+    el('tbody', {}, builds.map(b => {
+      const rateCls = b.successRate >= 95 ? 'ok' : b.successRate >= 80 ? 'warn' : 'bad';
+      return el('tr', {}, [
+        el('td', {}, `#${b.definitionId}`),
+        el('td', {}, [el('strong', {}, b.definitionName)]),
+        el('td', {}, b.totalRuns.toLocaleString()),
+        el('td', { style: 'color:var(--ok); font-weight:600;' }, b.succeeded.toLocaleString()),
+        el('td', { style: 'color:var(--danger); font-weight:600;' }, b.failed.toLocaleString()),
+        el('td', {}, [el('span', { class: `pill ${rateCls}` }, `${b.successRate}%`)]),
+        el('td', {}, timeAgo(b.latestFinishedAt)),
+      ]);
+    })),
+  ]);
+  container.innerHTML = '';
+  container.append(table);
+}
+
+function renderPipelineRunsTable(runs) {
+  const container = $('#pipelineRunsContainer');
+  if (!container) return;
+  if (!runs || runs.length === 0) {
+    container.innerHTML = '<p class="muted" style="padding:16px;">No recent runs found.</p>';
+    return;
+  }
+  const table = el('table', { class: 'table' }, [
+    el('thead', {}, [
+      el('tr', {}, [
+        el('th', {}, 'Run'),
+        el('th', {}, 'Pipeline'),
+        el('th', {}, 'State'),
+        el('th', {}, 'Result'),
+        el('th', {}, 'Started'),
+      ]),
+    ]),
+    el('tbody', {}, runs.map(r => {
+      const resCls = r.result === 'succeeded' ? 'ok' : r.result === 'failed' ? 'bad' : 'warn';
+      return el('tr', {}, [
+        el('td', {}, [el('strong', {}, r.runName || String(r.runId))]),
+        el('td', {}, r.pipelineName),
+        el('td', {}, [el('span', { class: 'pill' }, r.state)]),
+        el('td', {}, [el('span', { class: `pill ${resCls}` }, r.result || r.state)]),
+        el('td', {}, timeAgo(r.createdAt)),
+      ]);
+    })),
+  ]);
+  container.innerHTML = '';
+  container.append(table);
+}
+
+function renderTestHealthCards(testHealth) {
+  const container = $('#testHealthContainer');
+  if (!container) return;
+  if (!testHealth || testHealth.length === 0) {
+    container.innerHTML = '<p class="muted" style="padding:16px;">No test health records available.</p>';
+    return;
+  }
+  container.innerHTML = '';
+  const grid = el('div', { style: 'display:flex; flex-direction:column; gap:12px; padding:12px;' }, testHealth.map(th => {
+    return el('div', { class: 'card', style: 'padding:14px; margin:0;' }, [
+      el('div', { style: 'display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;' }, [
+        el('strong', { style: 'font-size:14px;' }, th.projectName),
+        el('span', { class: 'pill ok' }, `${th.totalRuns} Runs`),
+      ]),
+      el('div', { class: 'grid cols-3', style: 'gap:8px;' }, [
+        el('div', { class: 'mini' }, [el('span', {}, 'Total Runs'), el('strong', {}, String(th.totalRuns))]),
+        el('div', { class: 'mini' }, [el('span', {}, 'Passed'), el('strong', { style: 'color:var(--ok);' }, String(th.passedTests))]),
+        el('div', { class: 'mini' }, [el('span', {}, 'Failed'), el('strong', { style: 'color:var(--danger);' }, String(th.failedTests))]),
+      ]),
+    ]);
+  }));
+  container.append(grid);
+}
+
+let teamSearchTimer = null;
+async function refreshTeamsView() {
+  const search = $('#teamSearchInput')?.value.trim() || '';
+  const projectId = $('#teamProjectFilter')?.value || '';
+  const container = $('#teamsGridContainer');
+  if (container) container.innerHTML = '<p class="muted" style="padding:24px;">Loading enterprise PODs…</p>';
+
+  try {
+    const params = new URLSearchParams({ limit: '100' });
+    if (search) params.set('search', search);
+    if (projectId) params.set('projectId', projectId);
+
+    const res = await api.get(`/azure-data/teams?${params.toString()}`, { swr: true });
+    const teams = res.teams || [];
+    renderTeamsGrid(teams);
+
+    const countBadge = $('#teamCountBadge');
+    if (countBadge) countBadge.textContent = `${teams.length} ${teams.length === 1 ? 'POD' : 'PODs'}`;
+  } catch (err) {
+    if (container) container.innerHTML = `<p class="muted" style="color:var(--danger); padding:24px;">Failed to load teams: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function renderTeamsGrid(teams) {
+  const container = $('#teamsGridContainer');
+  if (!container) return;
+  if (!teams || teams.length === 0) {
+    container.innerHTML = '<p class="muted" style="padding:24px; grid-column:1/-1;">No teams match the specified search criteria.</p>';
+    return;
+  }
+  container.innerHTML = '';
+  for (const team of teams) {
+    let parsed = null;
+    try {
+      if (team.description && team.description.trim().startsWith('{')) {
+        parsed = JSON.parse(team.description);
+      }
+    } catch {}
+
+    const card = el('article', { class: 'card team-card' }, [
+      el('div', { style: 'display:flex; justify-content:space-between; align-items:flex-start; gap:8px;' }, [
+        el('strong', { style: 'font-size:14px; line-height:1.3; color:var(--text);' }, team.name),
+        el('span', { class: 'pill', style: 'flex-shrink:0;' }, team.projectName === '3in1_Agile_Projects' ? 'Agile' : 'AppFrontEnd'),
+      ]),
+    ]);
+
+    if (parsed) {
+      if (parsed['POD Size'] || parsed['Modules']) {
+        const metaRow = el('div', { style: 'display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;' });
+        if (parsed['POD Size']) metaRow.append(el('span', { class: 'pill ok' }, `Size: ${parsed['POD Size']}`));
+        card.append(metaRow);
+      }
+      if (parsed['Modules']) {
+        card.append(el('p', { class: 'team-modules', style: 'margin:4px 0;' }, [
+          el('strong', {}, 'Modules: '),
+          String(parsed['Modules']),
+        ]));
+      }
+      const leads = [
+        ['LP', parsed['LP']],
+        ['TA', parsed['TA']],
+        ['SDM', parsed['SDM']],
+        ['QL', parsed['QL']],
+      ].filter(([, val]) => Boolean(val));
+
+      if (leads.length > 0) {
+        const leadsGrid = el('div', { class: 'team-leads-grid' }, leads.map(([role, name]) => {
+          return el('div', {}, [
+            el('span', { class: 'muted small' }, `${role}: `),
+            el('strong', { style: 'font-size:12px;' }, name),
+          ]);
+        }));
+        card.append(leadsGrid);
+      }
+    } else if (team.description) {
+      card.append(el('p', { class: 'muted small', style: 'margin-top:6px;' }, team.description));
+    }
+    container.append(card);
+  }
 }
 
 /* ---------------------------------------------------------------- bootstrap */
@@ -4071,7 +4430,7 @@ async function bootstrap() {
   }
 
   const initial = location.hash.slice(1) || 'dashboard';
-  switchView(initial);
+  handleHashNavigation(); // Safe initial routing (replaces switchView(initial);)
   refreshStatus();
 
   // Periodically refresh connection status every 30s

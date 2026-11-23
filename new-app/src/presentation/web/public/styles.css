@@ -485,6 +485,55 @@ dialog.modal::backdrop {
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes skeleton-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
+/* ---------------------------------------------------- azure data intelligence */
+#teamsGridContainer,
+.teams-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+
+.team-card {
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.team-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.team-modules {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  overflow-wrap: break-word;
+}
+
+.team-leads-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  min-width: 0;
+}
+
+.team-leads-grid > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 @media (min-width: 1600px) {
   .main { padding-left: 52px; padding-right: 52px; }
 }
@@ -552,6 +601,11 @@ dialog.modal::backdrop {
   .dashboard-layout, .dashboard-primary, .dashboard-secondary, .workspace-layout, .automation-grid { gap: 14px; }
   .dashboard-secondary, .cols-2, .chart-grid { grid-template-columns: minmax(0, 1fr); }
   .grid { gap: 10px; }
+  #teamsGridContainer,
+  .teams-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
   .card { padding: 17px; }
   .card-head { margin-bottom: 16px; }
   .card-head .row, .row { flex-wrap: wrap; }
@@ -584,6 +638,7 @@ dialog.modal::backdrop {
 @media (max-width: 360px) {
   .main { padding-left: 12px; padding-right: 12px; }
   .person-row-identity, .person-row-integrations { grid-template-columns: minmax(0, 1fr); }
+  .team-leads-grid { grid-template-columns: minmax(0, 1fr); }
   .person-row-actions { flex-direction: row; justify-content: space-between; gap: 8px; }
 }
 /* Semantic alert / notice callouts */

@@ -20,6 +20,8 @@ import { createAuthRouter } from '../../infrastructure/auth/session-routes.js';
 import { normalizeRole } from '../../infrastructure/auth/rbac.js';
 import { tracingMiddleware } from '../../infrastructure/telemetry/tracer.js';
 import { createMetricsRouter } from './metrics-routes.js';
+import { createAzureDataRouter } from './azure-data-routes.js';
+import { IAzureDataRepository } from '../../domain/ports/azure-data-repository.js';
 
 /**
  * HTTP Basic auth over a single shared secret. The browser supplies the login
@@ -85,7 +87,7 @@ export class AppServer {
   constructor(
     private deps: ApiDependencies,
     private port: number = 3000,
-    private readonly options: { readOnly?: boolean } = {}
+    private readonly options: { readOnly?: boolean; azureDataRepo?: IAzureDataRepository } = {}
   ) {
     this.app = express();
     this.server = http.createServer(this.app);
@@ -213,6 +215,9 @@ export class AppServer {
       });
     }
 
+    // Azure Data Intelligence API
+    this.app.use('/api/azure-data', createAzureDataRouter(this.options.azureDataRepo || (this.deps as any)?.azureDataRepo));
+
     // API
     this.app.use('/api', createApiRouter(this.deps));
     // An unknown API route must never be answered with the SPA HTML shell.
@@ -248,6 +253,10 @@ export class AppServer {
         res.status(404).send('Not Found');
       }
     });
+  }
+
+  getApp(): express.Application {
+    return this.app;
   }
 
   start(): Promise<number> {

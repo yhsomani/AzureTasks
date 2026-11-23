@@ -2,7 +2,16 @@
  * Type-Safe HTTP API Client for WorkOps SPA
  */
 
-interface RequestOptions extends RequestInit {
+import type {
+  AzureOverviewResponse,
+  AzureBuildHealthResponse,
+  AzurePipelineRunsResponse,
+  AzureReleasesResponse,
+  AzureTestHealthResponse,
+  AzureTeamsResponse,
+} from '../types/index.js';
+
+export interface RequestOptions extends RequestInit {
   timeoutMs?: number;
   skipCache?: boolean;
 }
@@ -120,4 +129,49 @@ export const api = {
       }
     }
   },
+  azureData: null as unknown as typeof azureDataApi,
 };
+
+export const azureDataApi = {
+  getOverview: (options?: RequestOptions) =>
+    api.get<AzureOverviewResponse>('/api/azure-data/overview', options),
+
+  getBuildHealth: (params?: { projectId?: string; limit?: number }, options?: RequestOptions) => {
+    const q = new URLSearchParams();
+    if (params?.projectId) q.set('projectId', params.projectId);
+    if (params?.limit !== undefined) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return api.get<AzureBuildHealthResponse>(`/api/azure-data/builds/health${qs ? `?${qs}` : ''}`, options);
+  },
+
+  getPipelineRuns: (params?: { projectId?: string; limit?: number }, options?: RequestOptions) => {
+    const q = new URLSearchParams();
+    if (params?.projectId) q.set('projectId', params.projectId);
+    if (params?.limit !== undefined) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return api.get<AzurePipelineRunsResponse>(`/api/azure-data/pipelines/runs${qs ? `?${qs}` : ''}`, options);
+  },
+
+  getReleases: (params?: { projectId?: string; limit?: number }, options?: RequestOptions) => {
+    const q = new URLSearchParams();
+    if (params?.projectId) q.set('projectId', params.projectId);
+    if (params?.limit !== undefined) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return api.get<AzureReleasesResponse>(`/api/azure-data/releases${qs ? `?${qs}` : ''}`, options);
+  },
+
+  getTestHealth: (options?: RequestOptions) =>
+    api.get<AzureTestHealthResponse>('/api/azure-data/tests/health', options),
+
+  getTeams: (params?: { projectId?: string; search?: string; limit?: number }, options?: RequestOptions) => {
+    const q = new URLSearchParams();
+    if (params?.projectId) q.set('projectId', params.projectId);
+    if (params?.search) q.set('search', params.search);
+    if (params?.limit !== undefined) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return api.get<AzureTeamsResponse>(`/api/azure-data/teams${qs ? `?${qs}` : ''}`, options);
+  },
+};
+
+api.azureData = azureDataApi;
+

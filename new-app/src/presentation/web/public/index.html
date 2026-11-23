@@ -35,6 +35,7 @@
           <span class="nav-group-label">Explore work</span>
           <button type="button" class="nav-item" data-view="explorer"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="6"/><path d="M15 15l6 6M7 10h6M10 7v6"/></svg></span><span>Task explorer</span></button>
           <button type="button" class="nav-item" data-view="burndown"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3v18h18M6 6l5 4 4 6h6"/></svg></span><span>Daily burndown</span></button>
+          <button type="button" class="nav-item" data-view="builds"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/><path d="M9 17l6-5"/></svg></span><span>Build health</span></button>
         </div>
         <div class="nav-group">
           <span class="nav-group-label">Create & automate</span>
@@ -45,6 +46,7 @@
         <div class="nav-group">
           <span class="nav-group-label">Manage</span>
           <button type="button" class="nav-item" data-view="people"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="8" r="3"/><path d="M2 21v-3a7 7 0 0114 0v3M16 5a3 3 0 010 6M19 15a5 5 0 013 4v2"/></svg></span><span>Team</span></button>
+          <button type="button" class="nav-item" data-view="teams"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></svg></span><span>Enterprise PODs</span></button>
           <button type="button" class="nav-item" data-view="calendar"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span><span>Calendar</span></button>
           <button type="button" class="nav-item" data-view="settings"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg></span><span>Settings</span></button>
         </div>
@@ -150,6 +152,76 @@
           </header>
           <div id="dailyPrContainer" class="table-wrap" tabindex="0" role="region" aria-label="Daily pull request activity, scroll horizontally for all columns">
             <p class="muted" style="padding: 16px;">Loading daily pull request counts…</p>
+          </div>
+        </article>
+
+        <!-- AZURE DEVOPS INTELLIGENCE (AZURE-DATA.DB) -->
+        <article class="card" id="dashboardAzureDataCard" style="margin-top: 24px;">
+          <header class="card-head">
+            <div>
+              <p class="section-kicker">AZURE DEVOPS INTELLIGENCE</p>
+              <h2>Enterprise ALM &amp; Telemetry</h2>
+              <p class="muted small">Live analytics and historical telemetry aggregated from azure-data.db</p>
+            </div>
+            <div class="row gap m-0" style="align-items: center;">
+              <span class="muted small" id="azureDataLastUpdated">Updating...</span>
+              <button type="button" class="btn ghost small" id="refreshAzureDataBtn">Refresh Intelligence</button>
+            </div>
+          </header>
+
+          <!-- 5 Summary KPI Cards -->
+          <div class="grid cols-5 mission-metrics" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin-bottom: 20px;">
+            <article class="card kpi">
+              <span class="kpi-label">Total Builds</span>
+              <span class="kpi-value" id="kpiAdoBuilds">&mdash;</span>
+              <span class="kpi-hint" id="kpiAdoBuildsHint">Recorded executions</span>
+            </article>
+            <article class="card kpi">
+              <span class="kpi-label">Pipelines</span>
+              <span class="kpi-value" id="kpiAdoPipelines">&mdash;</span>
+              <span class="kpi-hint" id="kpiAdoPipelinesHint">Active definitions</span>
+            </article>
+            <article class="card kpi">
+              <span class="kpi-label">Total Releases</span>
+              <span class="kpi-value" id="kpiAdoReleases">&mdash;</span>
+              <span class="kpi-hint" id="kpiAdoReleasesHint">Pipeline deployments</span>
+            </article>
+            <article class="card kpi">
+              <span class="kpi-label">Test Runs</span>
+              <span class="kpi-value" id="kpiAdoTestRuns">&mdash;</span>
+              <span class="kpi-hint" id="kpiAdoTestRunsHint">Suite runs recorded</span>
+            </article>
+            <article class="card kpi">
+              <span class="kpi-label">Enterprise Teams</span>
+              <span class="kpi-value" id="kpiAdoTeams">&mdash;</span>
+              <span class="kpi-hint" id="kpiAdoTeamsHint">Agile PODs configured</span>
+            </article>
+          </div>
+
+          <!-- Quick Navigation Teasers -->
+          <div class="dashboard-layout" style="margin-top: 16px;">
+            <div class="dashboard-primary">
+              <div class="card-head" style="padding: 0 0 12px 0;">
+                <div>
+                  <h3 style="font-size: 15px; margin: 0;">Top Build Definitions by Activity</h3>
+                </div>
+                <button type="button" class="btn small ghost" data-view-link="builds">View all builds ↗</button>
+              </div>
+              <div id="dashboardBuildHealthSummary" class="table-wrap">
+                <p class="muted">Loading build health…</p>
+              </div>
+            </div>
+            <div class="dashboard-secondary">
+              <div class="card-head" style="padding: 0 0 12px 0;">
+                <div>
+                  <h3 style="font-size: 15px; margin: 0;">Enterprise POD Directory</h3>
+                </div>
+                <button type="button" class="btn small ghost" data-view-link="teams">Browse 247 PODs ↗</button>
+              </div>
+              <div id="dashboardTeamsSummary">
+                <p class="muted">Loading enterprise teams…</p>
+              </div>
+            </div>
           </div>
         </article>
 
@@ -798,6 +870,145 @@
           <p class="muted small">Re-copies missing parent/related links for tasks created with partial relation status.</p>
         </article>
         </div>
+        </div>
+      </section>
+
+      <!-- 13. BUILD & PIPELINE HEALTH VIEW -->
+      <section class="view" id="view-builds">
+        <div class="workspace-intro">
+          <div>
+            <h2>CI/CD Build Health &amp; Pipeline Telemetry</h2>
+            <p class="muted">Monitor build success rates, pipeline runs, and test execution health across 57k+ records.</p>
+          </div>
+          <div class="row gap">
+            <button type="button" class="btn ghost small" data-view-link="dashboard">&larr; Back to Dashboard</button>
+            <button type="button" class="btn primary small" id="refreshBuildsViewBtn">Refresh Telemetry</button>
+          </div>
+        </div>
+
+        <article class="card" style="margin-bottom: 16px;">
+          <div class="row wrap gap" style="justify-content: space-between; align-items: flex-end;">
+            <div class="row wrap gap" style="margin: 0; align-items: flex-end;">
+              <label class="field" style="margin: 0; min-width: 220px;">
+                <span>Project Scope</span>
+                <select id="buildProjectFilter">
+                  <option value="" selected>All Projects (Combined)</option>
+                  <option value="a2fa1d4a-63a4-4f95-a4e7-01f4c7ce5fbe">3_in_1_AppFrontEnd_Tasks</option>
+                  <option value="d07e3437-8c91-4438-8719-7a9a126582db">3in1_Agile_Projects</option>
+                </select>
+              </label>
+              <label class="field" style="margin: 0; min-width: 140px;">
+                <span>Display Limit</span>
+                <select id="buildLimitFilter">
+                  <option value="10">Top 10 Definitions</option>
+                  <option value="20" selected>Top 20 Definitions</option>
+                  <option value="50">Top 50 Definitions</option>
+                  <option value="100">Top 100 Definitions</option>
+                </select>
+              </label>
+            </div>
+            <div class="row gap m-0" style="align-items: center;">
+              <span id="buildHealthLastRefreshed" class="pill">Updated: Just now</span>
+            </div>
+          </div>
+        </article>
+
+        <div class="grid cols-3" style="gap: 16px; margin-bottom: 16px;">
+          <article class="card kpi">
+            <span class="kpi-label">Build Definitions</span>
+            <span class="kpi-value" id="kpiBuildDefCount">&mdash;</span>
+            <span class="kpi-hint">Tracked definitions</span>
+          </article>
+          <article class="card kpi">
+            <span class="kpi-label">Average Success Rate</span>
+            <span class="kpi-value" id="kpiBuildAvgSuccess">&mdash;</span>
+            <span class="kpi-hint">Weighted success rate</span>
+          </article>
+          <article class="card kpi">
+            <span class="kpi-label">Test Executions</span>
+            <span class="kpi-value" id="kpiTestExecutions">&mdash;</span>
+            <span class="kpi-hint">Suite runs recorded</span>
+          </article>
+        </div>
+
+        <article class="card" style="margin-bottom: 20px;">
+          <header class="card-head">
+            <div>
+              <h2>Build Definition Success &amp; Reliability</h2>
+              <p class="muted small">Aggregated runs, pass/fail distribution, and calculated success rate per pipeline definition</p>
+            </div>
+          </header>
+          <div id="buildHealthTableContainer" class="table-wrap" tabindex="0" role="region" aria-label="Build definition health table">
+            <p class="muted" style="padding: 16px;">Loading build health data…</p>
+          </div>
+        </article>
+
+        <div class="grid cols-2" style="gap: 16px;">
+          <article class="card">
+            <header class="card-head">
+              <div>
+                <h2>Test Run Health by Project</h2>
+                <p class="muted small">Automated test run results and pass rates</p>
+              </div>
+            </header>
+            <div id="testHealthContainer">
+              <p class="muted" style="padding: 16px;">Loading test health data…</p>
+            </div>
+          </article>
+
+          <article class="card">
+            <header class="card-head">
+              <div>
+                <h2>Recent Pipeline Executions</h2>
+                <p class="muted small">Latest CI/CD executions and status</p>
+              </div>
+              <button class="btn small ghost" id="refreshRunsBtn">Refresh</button>
+            </header>
+            <div id="pipelineRunsContainer" class="table-wrap" style="max-height: 400px; overflow-y: auto;">
+              <p class="muted" style="padding: 16px;">Loading recent runs…</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- 14. ENTERPRISE TEAM / POD BROWSER VIEW -->
+      <section class="view" id="view-teams">
+        <div class="workspace-intro">
+          <div>
+            <h2>Enterprise Agile Teams &amp; POD Browser</h2>
+            <p class="muted">Search and inspect 247 enterprise PODs, leadership assignments, and architectural module ownership.</p>
+          </div>
+          <div class="row gap">
+            <button type="button" class="btn ghost small" data-view-link="dashboard">&larr; Back to Dashboard</button>
+            <button type="button" class="btn primary small" id="refreshTeamsViewBtn">Refresh Teams</button>
+          </div>
+        </div>
+
+        <article class="card" style="margin-bottom: 16px;">
+          <div class="row wrap gap" style="justify-content: space-between; align-items: flex-end;">
+            <div class="row wrap gap" style="margin: 0; align-items: flex-end; flex: 1; max-width: 680px;">
+              <label class="field" style="margin: 0; flex: 1; min-width: 240px;">
+                <span>Search PODs, Modules, or Leads</span>
+                <input type="text" id="teamSearchInput" placeholder="Filter by POD name, module (e.g. EMI, Loan), or leader name..." aria-label="Search enterprise teams" />
+              </label>
+              <label class="field" style="margin: 0; min-width: 200px;">
+                <span>Project Scope</span>
+                <select id="teamProjectFilter">
+                  <option value="" selected>All Projects (247 PODs)</option>
+                  <option value="d07e3437-8c91-4438-8719-7a9a126582db">3in1_Agile_Projects</option>
+                  <option value="a2fa1d4a-63a4-4f95-a4e7-01f4c7ce5fbe">3_in_1_AppFrontEnd_Tasks</option>
+                </select>
+              </label>
+            </div>
+            <div class="row gap m-0" style="align-items: center;">
+              <span id="teamCountBadge" class="pill ok">247 Teams</span>
+              <button class="btn ghost small" id="teamResetFiltersBtn" title="Reset filters">Reset</button>
+            </div>
+          </div>
+        </article>
+
+        <div id="teamsGridContainer" class="grid teams-grid">
+          <p class="muted" style="padding: 24px;">Loading enterprise PODs…</p>
         </div>
       </section>
     </main>

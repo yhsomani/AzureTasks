@@ -7,6 +7,7 @@ import { useTheme } from '../../hooks/useTheme.js';
 import { DailyWorkflowWorkspace } from '../workspaces/DailyWorkflowWorkspace.js';
 import { TeamPlanningWorkspace } from '../workspaces/TeamPlanningWorkspace.js';
 import { GovernanceWorkspace } from '../workspaces/GovernanceWorkspace.js';
+import { AzureIntelligenceWorkspace } from '../workspaces/AzureIntelligenceWorkspace.js';
 import type { WorkspaceId, SubViewId } from '../../types/index.js';
 
 export function AppShell() {
@@ -45,6 +46,9 @@ export function AppShell() {
       } else if (['journal', 'scheduler', 'settings'].includes(hash)) {
         setCurrentWorkspace('governance');
         setCurrentSubView(hash as SubViewId);
+      } else if (['azure-overview', 'azure-builds', 'azure-teams'].includes(hash)) {
+        setCurrentWorkspace('intelligence');
+        setCurrentSubView(hash as SubViewId);
       }
     };
 
@@ -57,7 +61,7 @@ export function AppShell() {
     setCurrentWorkspace(ws);
     const view =
       subView ||
-      (ws === 'daily' ? 'mywork' : ws === 'planning' ? 'planner' : 'journal');
+      (ws === 'daily' ? 'mywork' : ws === 'planning' ? 'planner' : ws === 'governance' ? 'journal' : 'azure-overview');
     setCurrentSubView(view);
     window.location.hash = view;
   };
@@ -70,6 +74,8 @@ export function AppShell() {
         return 'Team & Sprint Planning';
       case 'governance':
         return 'Governance & Operations';
+      case 'intelligence':
+        return 'Azure DevOps ALM Intelligence';
       default:
         return 'Task Studio';
     }
@@ -129,6 +135,13 @@ export function AppShell() {
             subView={currentSubView}
             session={session}
             isViewer={isViewer}
+            onNotify={addToast}
+          />
+        )}
+
+        {currentWorkspace === 'intelligence' && (
+          <AzureIntelligenceWorkspace
+            subView={currentSubView}
             onNotify={addToast}
           />
         )}

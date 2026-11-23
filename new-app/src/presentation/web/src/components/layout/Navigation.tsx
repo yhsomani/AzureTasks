@@ -57,6 +57,17 @@ export function Navigation({
         { id: 'settings', label: 'RBAC & Identity' },
       ],
     },
+    {
+      id: 'intelligence',
+      defaultSubView: 'azure-overview',
+      label: 'Azure Intelligence',
+      icon: '📊',
+      subViews: [
+        { id: 'azure-overview', label: 'ALM & KPIs Overview' },
+        { id: 'azure-builds', label: 'Build Health' },
+        { id: 'azure-teams', label: 'Enterprise Teams' },
+      ],
+    },
   ];
 
   return (
