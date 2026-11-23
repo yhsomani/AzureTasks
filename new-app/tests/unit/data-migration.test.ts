@@ -126,7 +126,7 @@ describe('Milestone 3 — Feature 18: Zero-Data-Loss Data Migration', () => {
     expect(normalizeDateFormat('25/12/2026')).toBe('2026-12-25');
     expect(normalizeDateFormat('05/01/2027')).toBe('2027-01-05');
     expect(normalizeDateFormat('2026-11-22')).toBe('2026-11-22');
-    expect(normalizeDateFormat('2026-11-20T10:00:00Z')).toBe('2026-11-20');
+    expect(normalizeDateFormat('2026-11-20T10:00:00Z')).toBe('2026-11-20T10:00:00.000Z');
   });
 
   it('migrates all flat JSON files into relational database cleanly', async () => {

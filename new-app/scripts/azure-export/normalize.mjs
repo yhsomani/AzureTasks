@@ -39,11 +39,24 @@ export function normalizeDatabase(databasePath) {
     const resolveProject = row => projectLookup.get(row.project_name) || projectNameLookup(row.project_name);
     const insertIdentities = (members, teamId) => {
       for (const item of members) {
-        const id = String(safe(item.id, safe(item.identity?.id, safe(item.descriptor, safe(item.uniqueName, item.displayName)))) || '');
+        const identity = (typeof item.identity === 'object' && item.identity !== null) ? item.identity : item;
+        const id = String(
+          safe(identity.id,
+            safe(item.id,
+              safe(identity.descriptor,
+                safe(item.descriptor,
+                  safe(identity.uniqueName,
+                    safe(item.uniqueName,
+                      safe(identity.displayName, item.displayName))))))) || ''
+        );
         if (!id) continue;
+        const displayName = safe(identity.displayName, safe(item.displayName, safe(identity.name, safe(item.name))));
+        const uniqueName = safe(identity.uniqueName, safe(item.uniqueName));
+        const email = safe(identity.mailAddress, safe(identity.email, safe(item.mailAddress, safe(item.email, uniqueName))));
+        const descriptor = safe(identity.descriptor, safe(identity.subjectDescriptor, safe(item.descriptor, safe(item.subjectDescriptor))));
+        const isActive = item.isActive === false || identity.isActive === false ? 0 : 1;
         db.prepare(`INSERT OR REPLACE INTO identities(identity_id,display_name,unique_name,email,subject_descriptor,is_active,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?)`)
-          .run(id, safe(item.displayName, safe(item.name)), safe(item.uniqueName), safe(item.mailAddress, safe(item.email, item.uniqueName)),
-            safe(item.descriptor, item.subjectDescriptor), item.isActive === false ? 0 : 1, runId, syncedAt);
+          .run(id, displayName, uniqueName, email, descriptor, isActive, runId, syncedAt);
         db.prepare('INSERT OR IGNORE INTO team_members(team_id,identity_id,sync_run_id,synced_at) VALUES (?,?,?,?)').run(teamId, id, runId, syncedAt);
       }
     };
@@ -74,17 +87,27 @@ export function normalizeDatabase(databasePath) {
       } else if (row.scope.endsWith('.workItems')) {
         for (const item of values(payload)) {
           const f = item.fields || {};
+          const assignedTo = f['System.AssignedTo'];
+          const assignedIdentityId = typeof assignedTo === 'object' && assignedTo !== null
+            ? safe(assignedTo.id, safe(assignedTo.descriptor, safe(assignedTo.uniqueName, safe(assignedTo.displayName))))
+            : safe(assignedTo);
           db.prepare(`INSERT OR REPLACE INTO work_items(project_id,work_item_id,type,title,state,assigned_identity_id,area_path,iteration_path,created_at,changed_at,closed_at,parent_id,tags,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
             .run(projectId, Number(item.id), safe(f['System.WorkItemType']), safe(f['System.Title']), safe(f['System.State']),
-              safe(f['System.AssignedTo']?.id, f['System.AssignedTo']?.descriptor), safe(f['System.AreaPath']), safe(f['System.IterationPath']),
+              assignedIdentityId, safe(f['System.AreaPath']), safe(f['System.IterationPath']),
               safe(f['System.CreatedDate']), safe(f['System.ChangedDate']), safe(f['Microsoft.VSTS.Common.ClosedDate']), null,
               safe(f['System.Tags']), JSON.stringify(item), runId, syncedAt);
         }
       } else if (/\.workItem\.[^.]+\.revisions$/.test(row.scope)) {
         const workItemId = Number(row.scope.split('.workItem.')[1].split('.')[0]);
-        for (const item of values(payload)) db.prepare(`INSERT OR REPLACE INTO work_item_revisions(project_id,work_item_id,revision,state,changed_by_identity_id,changed_at,fields_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?)`)
-          .run(projectId, workItemId, Number(item.rev), safe(item.fields?.['System.State']), safe(item.fields?.['System.ChangedBy']?.id),
-            safe(item.fields?.['System.ChangedDate']), JSON.stringify(item.fields || item), runId, syncedAt);
+        for (const item of values(payload)) {
+          const changedBy = item.fields?.['System.ChangedBy'];
+          const changedById = typeof changedBy === 'object' && changedBy !== null
+            ? safe(changedBy.id, safe(changedBy.descriptor, safe(changedBy.uniqueName, safe(changedBy.displayName))))
+            : safe(changedBy);
+          db.prepare(`INSERT OR REPLACE INTO work_item_revisions(project_id,work_item_id,revision,state,changed_by_identity_id,changed_at,fields_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?)`)
+            .run(projectId, workItemId, Number(item.rev), safe(item.fields?.['System.State']), changedById,
+              safe(item.fields?.['System.ChangedDate']), JSON.stringify(item.fields || item), runId, syncedAt);
+        }
       } else if (/\.repository\.[^.]+\.pullRequests$/.test(row.scope)) {
         const repositoryKey = row.scope.split('.repository.')[1].split('.pullRequests')[0];
         const repositoryId = db.prepare("SELECT repository_id FROM repositories WHERE project_id=? AND (replace(name,' ','_') LIKE ? OR repository_id=?) LIMIT 1").get(projectId, `%${repositoryKey}%`, repositoryKey)?.repository_id;
@@ -123,6 +146,9 @@ export function normalizeDatabase(databasePath) {
       }
     }
     db.exec('COMMIT');
+    try {
+      db.exec('ANALYZE builds; ANALYZE pipeline_runs; ANALYZE azure_teams;');
+    } catch {}
     const result = {
       projects: db.prepare('SELECT COUNT(*) AS count FROM azure_projects').get().count,
       workItems: db.prepare('SELECT COUNT(*) AS count FROM work_items').get().count,

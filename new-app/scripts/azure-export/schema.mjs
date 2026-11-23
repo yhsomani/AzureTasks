@@ -232,6 +232,10 @@ CREATE INDEX IF NOT EXISTS idx_pull_requests_repo_status ON pull_requests(reposi
 CREATE INDEX IF NOT EXISTS idx_builds_project_finish ON builds(project_id, finish_time);
 CREATE INDEX IF NOT EXISTS idx_releases_project_modified ON releases(project_id, modified_at);
 CREATE INDEX IF NOT EXISTS idx_test_runs_project_started ON test_runs(project_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_builds_def_health ON builds(project_id, definition_id, result, finish_time);
+CREATE INDEX IF NOT EXISTS idx_pipeline_runs_pipe_created ON pipeline_runs(pipeline_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pipeline_runs_proj_created ON pipeline_runs(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_azure_teams_proj_name ON azure_teams(project_id, name);
 
 CREATE VIEW IF NOT EXISTS v_project_overview AS
 SELECT p.project_id, p.name,

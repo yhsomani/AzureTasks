@@ -7,15 +7,41 @@ import rateLimit from 'express-rate-limit';
 import { logger } from '../../infrastructure/logging/logger.js';
 
 /**
+ * Rate Limiting Configuration
+ */
+export const RATE_LIMIT_CONFIG = {
+  general: {
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100,
+    statusCode: 429,
+  },
+  strict: {
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 30,
+    statusCode: 429,
+  },
+  auth: {
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5,
+    statusCode: 429,
+  },
+  bulk: {
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 10,
+    statusCode: 429,
+  },
+} as const;
+
+/**
  * Store for rate limit violations (in-memory)
  * In production, this should be replaced with a persistent store like Redis
  */
-const violationLog = new Map<string, number[]>();
+export const violationLog = new Map<string, number[]>();
 
 /**
  * Log rate limit violations for monitoring and alerting
  */
-function logViolation(ip: string, endpoint: string, limit: number, windowMs: number): void {
+export function logViolation(ip: string, endpoint: string, limit: number, windowMs: number): void {
   const key = `${ip}:${endpoint}`;
   const now = Date.now();
   const windowStart = now - windowMs;
@@ -40,7 +66,7 @@ function logViolation(ip: string, endpoint: string, limit: number, windowMs: num
 /**
  * Cleanup old violation logs every hour to prevent memory leak
  */
-setInterval(() => {
+const cleanupInterval = setInterval(() => {
   const now = Date.now();
   const maxAge = 60 * 60 * 1000; // 1 hour
 
@@ -53,15 +79,16 @@ setInterval(() => {
     }
   }
 }, 60 * 60 * 1000);
+cleanupInterval.unref();
 
 /**
  * General API rate limiter: 100 requests per 15 minutes per IP
  */
 export const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // 100 requests per windowMs
+  windowMs: RATE_LIMIT_CONFIG.general.windowMs,
+  max: RATE_LIMIT_CONFIG.general.max,
   message: 'Too many requests from this IP, please try again later.',
-  statusCode: 429,
+  statusCode: RATE_LIMIT_CONFIG.general.statusCode,
   standardHeaders: false,
   skip: (req) => {
     // Skip rate limiting for health check and session endpoints
@@ -83,10 +110,10 @@ export const generalLimiter = rateLimit({
  * Applied to POST, PUT, PATCH, DELETE endpoints
  */
 export const strictLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 30, // 30 requests per windowMs
+  windowMs: RATE_LIMIT_CONFIG.strict.windowMs,
+  max: RATE_LIMIT_CONFIG.strict.max,
   message: 'Too many requests from this IP, please try again later.',
-  statusCode: 429,
+  statusCode: RATE_LIMIT_CONFIG.strict.statusCode,
   standardHeaders: false,
   skip: (req) => {
     // Only apply to mutation methods
@@ -108,10 +135,10 @@ export const strictLimiter = rateLimit({
  * Prevents brute force attacks on authentication endpoints
  */
 export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 attempts per windowMs
+  windowMs: RATE_LIMIT_CONFIG.auth.windowMs,
+  max: RATE_LIMIT_CONFIG.auth.max,
   message: 'Too many authentication attempts, please try again later.',
-  statusCode: 429,
+  statusCode: RATE_LIMIT_CONFIG.auth.statusCode,
   standardHeaders: false,
   skip: (req) => {
     // Only apply to auth / session requests and never health
@@ -135,10 +162,10 @@ export const authLimiter = rateLimit({
  * Prevents bulk operations from overwhelming the system
  */
 export const bulkOperationsLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 10, // 10 requests per windowMs
+  windowMs: RATE_LIMIT_CONFIG.bulk.windowMs,
+  max: RATE_LIMIT_CONFIG.bulk.max,
   message: 'Too many bulk operations, please try again later.',
-  statusCode: 429,
+  statusCode: RATE_LIMIT_CONFIG.bulk.statusCode,
   standardHeaders: false,
   skip: (req) => {
     // Only apply to bulk operation endpoints

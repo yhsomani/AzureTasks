@@ -1,7 +1,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { AddressInfo } from 'node:net';
-import { UserRole, SEED_PERSONAS } from './fixtures/tenants-teams-users.js';
+import { UserRole } from './fixtures/tenants-teams-users.js';
 
 export interface TokenClaims {
   sub: string;

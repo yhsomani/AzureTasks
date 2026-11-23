@@ -25,9 +25,14 @@ export class SqliteAzureDataRepository implements IAzureDataRepository {
   private db: BetterSqliteDatabase | null = null;
   public readonly dbPath: string;
 
-  constructor(customPath?: string) {
-    this.dbPath = customPath || process.env.AZURE_DATA_DB || path.resolve(process.cwd(), 'azure-data.db');
-    this.init();
+  constructor(customPathOrDb?: string | BetterSqliteDatabase) {
+    if (typeof customPathOrDb === 'object' && customPathOrDb !== null) {
+      this.db = customPathOrDb;
+      this.dbPath = ':memory:';
+    } else {
+      this.dbPath = (customPathOrDb as string) || process.env.AZURE_DATA_DB || path.resolve(process.cwd(), 'azure-data.db');
+      this.init();
+    }
   }
 
   private init(): void {

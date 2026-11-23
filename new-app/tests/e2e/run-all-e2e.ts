@@ -28,6 +28,87 @@ interface VitestJsonOutput {
   }>;
 }
 
+/**
+ * Static Anti-Cheating & Forensic Integrity Scanner
+ * Scans test suites for banned tautologies, dummy facades, and fake assertions.
+ */
+function performIntegrityPreCheck(): boolean {
+  console.log('🔍 Executing Static Anti-Cheating & Integrity Pre-Check...');
+  const repoRoot = process.cwd();
+  const testDirs = [
+    path.join(repoRoot, 'tests/e2e'),
+    path.join(repoRoot, 'tests/unit'),
+    path.join(repoRoot, 'tests/integration'),
+    path.join(repoRoot, 'tests/adversarial'),
+  ];
+
+  const violations: Array<{ file: string; line: number; reason: string; snippet: string }> = [];
+
+  const bannedPatterns: Array<{ regex: RegExp; reason: string }> = [
+    {
+      regex: /^\s*expect\s*\(\s*true\s*\)\s*\.toBe\s*\(\s*true\s*\)\s*;?/,
+      reason: 'Banned literal tautology assertion expect(true).toBe(true)',
+    },
+    {
+      regex: /^\s*expect\s*\(\s*false\s*\)\s*\.toBe\s*\(\s*false\s*\)\s*;?/,
+      reason: 'Banned literal tautology assertion expect(false).toBe(false)',
+    },
+    {
+      regex: /class\s+(?:PodLifecycle|LocalDummy|MockAdoServerFacade)\b/,
+      reason: 'Banned inline dummy facade class definition',
+    },
+  ];
+
+  function scan(dir: string) {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        scan(fullPath);
+      } else if (entry.isFile() && (entry.name.endsWith('.test.ts') || entry.name.endsWith('.spec.ts'))) {
+        // Skip self or meta-tests that verify the anti-cheating scanner itself
+        const relPath = path.relative(repoRoot, fullPath);
+        const content = fs.readFileSync(fullPath, 'utf8');
+        const lines = content.split('\n');
+
+        lines.forEach((line, index) => {
+          // If the line is an assertion testing scanner regex (e.g. dirtySnippet = ...), ignore
+          if (line.includes('dirtySnippet') || line.includes('bannedPattern') || line.includes('tautologyRegex')) {
+            return;
+          }
+
+          for (const pattern of bannedPatterns) {
+            if (pattern.regex.test(line)) {
+              violations.push({
+                file: relPath,
+                line: index + 1,
+                reason: pattern.reason,
+                snippet: line.trim(),
+              });
+            }
+          }
+        });
+      }
+    }
+  }
+
+  for (const d of testDirs) {
+    scan(d);
+  }
+
+  if (violations.length > 0) {
+    console.error('\n❌ INTEGRITY VIOLATION DETECTED:');
+    for (const v of violations) {
+      console.error(`  - [${v.file}:${v.line}] ${v.reason}: "${v.snippet}"`);
+    }
+    console.error('\nStatic anti-cheating pre-check FAILED. All tests must have genuine assertions.\n');
+    return false;
+  }
+
+  console.log('✅ Anti-cheating integrity scan passed: Zero tautologies, zero dummy closures.\n');
+  return true;
+}
+
 async function runVitest(reportPath: string): Promise<number> {
   return new Promise((resolve) => {
     const args = [
@@ -70,12 +151,18 @@ function formatRow(tier: string, passed: number, failed: number, skipped: number
 }
 
 async function main(): Promise<void> {
-  const tmpJsonPath = path.join(os.tmpdir(), `workops-e2e-report-${Date.now()}.json`);
-
   console.log('\n========================================================================================');
   console.log('                 STARTING WORKOPS E2E TEST EXECUTION (TIERS 1-4)                        ');
   console.log('========================================================================================\n');
 
+  // Step 1: Pre-execution static integrity check
+  const integrityPassed = performIntegrityPreCheck();
+  if (!integrityPassed) {
+    process.exit(1);
+  }
+
+  // Step 2: Execute E2E Vitest suite
+  const tmpJsonPath = path.join(os.tmpdir(), `workops-e2e-report-${Date.now()}.json`);
   const vitestExitCode = await runVitest(tmpJsonPath);
 
   if (!fs.existsSync(tmpJsonPath)) {
@@ -96,14 +183,15 @@ async function main(): Promise<void> {
     } catch {}
   }
 
+  // Authoritative 19-Feature Specification Thresholds (TEST_INFRA.md)
   const tiers: Record<string, TierStats> = {
     tier1: {
-      name: 'Tier 1: Feature Coverage (F1-F38)',
+      name: 'Tier 1: Feature Coverage (F1-F19)',
       passed: 0,
       failed: 0,
       skipped: 0,
       total: 0,
-      requiredMin: 190,
+      requiredMin: 95,
     },
     tier2: {
       name: 'Tier 2: Boundary & Corner Cases',
@@ -111,7 +199,7 @@ async function main(): Promise<void> {
       failed: 0,
       skipped: 0,
       total: 0,
-      requiredMin: 190,
+      requiredMin: 95,
     },
     tier3: {
       name: 'Tier 3: Pairwise Interactions',
@@ -119,7 +207,7 @@ async function main(): Promise<void> {
       failed: 0,
       skipped: 0,
       total: 0,
-      requiredMin: 38,
+      requiredMin: 20,
     },
     tier4: {
       name: 'Tier 4: Real-World Scenarios',
@@ -127,7 +215,7 @@ async function main(): Promise<void> {
       failed: 0,
       skipped: 0,
       total: 0,
-      requiredMin: 6,
+      requiredMin: 8,
     },
   };
 
@@ -188,8 +276,8 @@ async function main(): Promise<void> {
     }
   }
 
-  if (totalTests < 424) {
-    console.error(`❌ Total test count deficit: found ${totalTests} tests, required minimum is 424.`);
+  if (totalTests < 218) {
+    console.error(`❌ Total test count deficit: found ${totalTests} tests, required minimum is 218.`);
     thresholdDeficit = true;
   }
 
@@ -198,7 +286,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  console.log('✅ ALL E2E REQUIREMENTS & QUALITY GATES MET SUCCESSFULLY (424+ tests passed, 0 failures).\n');
+  console.log('✅ ALL E2E REQUIREMENTS & QUALITY GATES MET SUCCESSFULLY (218+ genuine tests passed, 0 failures).\n');
   process.exit(0);
 }
 

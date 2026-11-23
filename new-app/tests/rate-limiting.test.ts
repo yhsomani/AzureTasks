@@ -6,7 +6,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express, { Express } from 'express';
 import http from 'http';
-import { generalLimiter, strictLimiter, authLimiter, bulkOperationsLimiter } from '../src/presentation/api/rate-limiter.js';
+import {
+  generalLimiter,
+  strictLimiter,
+  authLimiter,
+  bulkOperationsLimiter,
+  RATE_LIMIT_CONFIG,
+  logViolation,
+  violationLog,
+} from '../src/presentation/api/rate-limiter.js';
+import { logger } from '../src/infrastructure/logging/logger.js';
 
 describe('Rate Limiting Middleware', () => {
   let app: Express;
@@ -111,8 +120,10 @@ describe('Rate Limiting Middleware', () => {
     it('should have lower limit than general limiter', () => {
       // Strict limiter is 30 requests per 15 minutes
       // General limiter is 100 requests per 15 minutes
-      // This test validates the configuration
-      expect(true).toBe(true);
+      expect(RATE_LIMIT_CONFIG.strict.max).toBeLessThan(RATE_LIMIT_CONFIG.general.max);
+      expect(RATE_LIMIT_CONFIG.strict.max).toBe(30);
+      expect(RATE_LIMIT_CONFIG.general.max).toBe(100);
+      expect(RATE_LIMIT_CONFIG.strict.windowMs).toBe(15 * 60 * 1000);
     });
 
     it('should not apply to GET requests', async () => {
@@ -146,7 +157,9 @@ describe('Rate Limiting Middleware', () => {
 
     it('should have 1 hour window for bulk operations', () => {
       // Bulk operations limiter uses 60 minute window vs 15 minute for others
-      expect(true).toBe(true);
+      expect(RATE_LIMIT_CONFIG.bulk.windowMs).toBe(60 * 60 * 1000);
+      expect(RATE_LIMIT_CONFIG.bulk.windowMs).toBe(4 * RATE_LIMIT_CONFIG.general.windowMs);
+      expect(RATE_LIMIT_CONFIG.bulk.max).toBe(10);
     });
 
     it('should return appropriate error for bulk operation rate limit', async () => {
@@ -196,21 +209,49 @@ describe('Rate Limiting Middleware', () => {
   });
 
   describe('Rate Limit Logging', () => {
+    beforeEach(() => {
+      violationLog.clear();
+    });
+
     it('should log rate limit violations', () => {
-      // Logging is handled by the rate limiter
-      // This test validates that the logger is configured
-      const mockLogger = vi.fn();
-      expect(mockLogger).toBeDefined();
+      const warnSpy = vi.spyOn(logger, 'warn');
+      const testIp = '192.0.2.1';
+      const endpoint = '/api/v1/test';
+
+      logViolation(testIp, endpoint, 100, 15 * 60 * 1000);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Rate limit violation: IP ${testIp} hit rate limit on ${endpoint}`)
+      );
+      warnSpy.mockRestore();
     });
 
     it('should include IP address in violation logs', () => {
-      // Violations should include IP for security auditing
-      expect(true).toBe(true);
+      const warnSpy = vi.spyOn(logger, 'warn');
+      const testIp = '198.51.100.42';
+      const endpoint = '/api/v1/sensitive';
+
+      logViolation(testIp, endpoint, 30, 15 * 60 * 1000);
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(`IP ${testIp}`));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(endpoint));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Limit: 30 requests per 15 minutes'));
+      warnSpy.mockRestore();
     });
 
     it('should track repeated violations', () => {
-      // Multiple violations from same IP should escalate warnings
-      expect(true).toBe(true);
+      const errorSpy = vi.spyOn(logger, 'error');
+      const testIp = '203.0.113.19';
+      const endpoint = '/api/v1/auth';
+
+      for (let i = 0; i < 5; i++) {
+        logViolation(testIp, endpoint, 5, 15 * 60 * 1000);
+      }
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Repeated rate limit violation: IP ${testIp} (5 violations in window) on ${endpoint}`)
+      );
+      errorSpy.mockRestore();
     });
   });
 

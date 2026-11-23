@@ -50,6 +50,7 @@ export function extractIdentity(assignedToVal: unknown): { displayName: string; 
   }
   if (typeof assignedToVal === 'string') {
     const raw = assignedToVal.trim();
+    if (!raw) return null;
     const emailMatch = raw.match(/<([^>]+)>/);
     if (emailMatch) {
       return { displayName: raw.replace(/<[^>]+>/, '').trim(), uniqueName: emailMatch[1].trim() };

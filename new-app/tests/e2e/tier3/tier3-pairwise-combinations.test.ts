@@ -923,6 +923,9 @@ describe('Tier 3: Cross-Feature Combinations (38 Pairwise Interactions)', () => 
   // T3-32: Multi-Tenant Architecture (F33) + Relational Database (F16) + Personal Identity Attribution (F25)
   it('T3-32: Multi-Tenant Architecture (F33) + Relational Database (F16) + Personal Identity Attribution (F25)', () => {
     const db = harness.dbHelper.getSqliteDb();
+    db.prepare('INSERT OR IGNORE INTO organizations (id, name, slug) VALUES (?, ?, ?);').run('org_tenant_a', 'Org A', 'org-a');
+    db.prepare('INSERT OR IGNORE INTO departments (id, org_id, name) VALUES (?, ?, ?);').run('dept_tenant_a', 'org_tenant_a', 'Dept A');
+    db.prepare('INSERT OR IGNORE INTO teams (id, dept_id, name) VALUES (?, ?, ?);').run('team_tenant_a', 'dept_tenant_a', 'Team A');
     db.prepare('INSERT OR REPLACE INTO journal_entries (id, team_id, action_type, operator_email, details_json) VALUES (?, ?, ?, ?, ?);').run(
       'j_tenant_32',
       'team_tenant_a',

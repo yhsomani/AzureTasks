@@ -4,7 +4,13 @@
  * Flag unverified tasks for human review and requires Admin/Lead role for manual override.
  */
 
-import { AuthenticatedUser } from '../../infrastructure/auth/rbac.js';
+export interface AuthenticatedUser {
+  id: string;
+  email: string;
+  name: string;
+  roles: string[];
+  tenantId: string;
+}
 
 export interface GitHubPrItem {
   id?: number;

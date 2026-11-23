@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { MockAzureDevOpsServer } from './mock-azure-server.js';
 import { MockGitHubServer } from './mock-github-server.js';
 import { MockOidcServer } from './mock-oidc-server.js';
