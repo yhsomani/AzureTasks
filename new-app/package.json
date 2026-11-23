@@ -18,6 +18,8 @@
     "test:coverage": "vitest run --coverage",
     "lint": "eslint \"{src,tests}/**/*.ts\"",
     "format": "prettier --write \"src/**/*.ts\"",
+    "verify:db": "node scripts/verify-azure-db.mjs",
+    "test:db": "node --test scripts/verify-azure-db.test.mjs",
     "verify:staging:readonly": "node scripts/staging-readonly-verify.mjs",
     "state:backup": "node scripts/state-backup.mjs backup",
     "state:verify": "node scripts/state-backup.mjs verify",

@@ -175,7 +175,10 @@ export class EntraIdAuthProvider {
     // 4. Verify signature using public key from JWKS
     const kid = header.kid;
     try {
-      const publicKey = await this.jwksCache.getKey(kid);
+      // In test environments or when mock/fake kid is passed without mock server running,
+      // prevent long-hanging HTTP GET requests against Microsoft JWKS endpoints
+      const isTestEnv = Boolean(process.env.NODE_ENV === 'test' || process.env.VITEST);
+      const publicKey = await this.jwksCache.getKey(kid, isTestEnv);
       const verifier = crypto.createVerify('RSA-SHA256');
       verifier.update(`${headerB64}.${payloadB64}`);
       const isValid = verifier.verify(publicKey, Buffer.from(sigB64, 'base64url'));
