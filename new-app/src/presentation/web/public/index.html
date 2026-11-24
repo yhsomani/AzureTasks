@@ -10,13 +10,12 @@
   <script src="/vendor/chart.umd.js"></script>
 </head>
 <body>
-  <a class="skip-link" href="#main">Skip to content</a>
-
   <!-- React 19 SPA Mounting Root -->
   <div id="root"></div>
 
   <!-- Legacy Monolithic UI (Retired in Milestone 5; wrapped in hidden container for backwards-compatibility with legacy test selectors) -->
   <template id="legacyUiTemplate" data-legacy-ui="retired">
+  <a class="skip-link" href="#main">Skip to content</a>
   <div class="app">
     <aside class="sidebar" id="sidebar">
       <p class="mission-rail-caption">WORK OPERATIONS / 3IN1</p>
@@ -969,7 +968,8 @@
               <button class="btn small ghost" id="refreshRunsBtn">Refresh</button>
             </header>
             <div id="pipelineRunsContainer" class="table-wrap" style="max-height: 400px; overflow-y: auto;">
-              <p class="muted" style="padding: 16px;">Loading recent runs…</p </div>
+              <p class="muted" style="padding: 16px;">Loading recent runs…</p>
+            </div>
           </article>
         </div>
       </section>

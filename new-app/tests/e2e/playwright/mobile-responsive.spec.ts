@@ -21,4 +21,19 @@ test.describe('Mobile Viewport & Responsive Card Journeys', () => {
     const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
     expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 5);
   });
+
+  test('verifies mobile card accordion is visible and desktop matrix is hidden on mobile viewport', async ({ page }) => {
+    const hamburgerBtn = page.getByRole('button', { name: 'Open primary navigation', exact: true });
+    await expect(hamburgerBtn).toBeVisible();
+    await hamburgerBtn.click();
+    const plannerBtn = page.locator('#view-planner');
+    await expect(plannerBtn).toBeVisible();
+    await plannerBtn.click();
+
+    const accordion = page.locator('#plannerCardAccordion');
+    await expect(accordion).toBeVisible();
+
+    const matrix = page.locator('#plannerMatrix');
+    await expect(matrix).toBeHidden();
+  });
 });

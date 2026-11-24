@@ -20,8 +20,6 @@ export function GovernanceWorkspace({
 }) {
   const {
     journalEntries,
-    totalJournalCount,
-    schedulerJobs,
     schedulerRunning,
     health,
     isLoading,
@@ -67,131 +65,143 @@ export function GovernanceWorkspace({
     }
   };
 
+  const isSettingsOnly = subView === 'settings';
+  const showAll = !subView;
+
+  const showHealthAndSettings = showAll || isSettingsOnly;
+  const showScheduler = showAll || subView === 'scheduler' || subView === 'journal';
+  const showJournal = showAll || subView === 'journal';
+
   return (
     <div className="governance-workspace space-y-6">
       {/* Top Grid: System Health Telemetry & RBAC Identity */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* System Health Telemetry */}
-        <Card
-          title="System Health Telemetry"
-          subtitle="Real-time operational metrics and infrastructure status"
-          className="lg:col-span-2"
-        >
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="kpi p-3 bg-surface-base border border-border rounded-lg space-y-1">
-              <span className="kpi-label text-[11px] text-text-muted font-medium uppercase tracking-wider block">
-                Overall Status
-              </span>
-              <div className="kpi-value text-base font-bold text-text">
-                <Badge variant={health?.status === 'unhealthy' ? 'danger' : 'success'}>
-                  {health?.status ? health.status.toUpperCase() : 'OPERATIONAL'}
-                </Badge>
+      {showHealthAndSettings && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* System Health Telemetry */}
+          <Card
+            title="System Health Telemetry"
+            subtitle="Real-time operational metrics and infrastructure status"
+            className="lg:col-span-2"
+          >
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="kpi p-3 bg-surface-base border border-border rounded-lg space-y-1">
+                <span className="kpi-label text-[11px] text-text-muted font-medium uppercase tracking-wider block">
+                  Overall Status
+                </span>
+                <div className="kpi-value text-base font-bold text-text">
+                  <Badge variant={health?.status === 'unhealthy' ? 'danger' : 'success'}>
+                    {health?.status ? health.status.toUpperCase() : 'OPERATIONAL'}
+                  </Badge>
+                </div>
+              </div>
+
+              <div className="kpi p-3 bg-surface-base border border-border rounded-lg space-y-1">
+                <span className="kpi-label text-[11px] text-text-muted font-medium uppercase tracking-wider block">
+                  Process Uptime
+                </span>
+                <div className="kpi-value text-base font-bold text-text">
+                  {health?.uptime ? `${Math.floor(health.uptime / 60)}m` : 'Active'}
+                </div>
+              </div>
+
+              <div className="kpi p-3 bg-surface-base border border-border rounded-lg space-y-1">
+                <span className="kpi-label text-[11px] text-text-muted font-medium uppercase tracking-wider block">
+                  Azure Connectivity
+                </span>
+                <div className="kpi-value text-base font-bold text-text">
+                  <Badge variant="success">CONNECTED</Badge>
+                </div>
+              </div>
+
+              <div className="kpi p-3 bg-surface-base border border-border rounded-lg space-y-1">
+                <span className="kpi-label text-[11px] text-text-muted font-medium uppercase tracking-wider block">
+                  GitHub API
+                </span>
+                <div className="kpi-value text-base font-bold text-text">
+                  <Badge variant="success">READY</Badge>
+                </div>
               </div>
             </div>
+          </Card>
 
-            <div className="kpi p-3 bg-surface-base border border-border rounded-lg space-y-1">
-              <span className="kpi-label text-[11px] text-text-muted font-medium uppercase tracking-wider block">
-                Process Uptime
-              </span>
-              <div className="kpi-value text-base font-bold text-text">
-                {health?.uptime ? `${Math.floor(health.uptime / 60)}m` : 'Active'}
+          {/* RBAC Identity & Session View */}
+          <Card title="RBAC & Operator Identity" subtitle="Active security context and roles">
+            <div className="space-y-3 text-xs">
+              <div className="flex items-center justify-between p-2.5 bg-surface-base border border-border rounded">
+                <span className="text-text-muted">Authenticated User</span>
+                <span className="font-semibold text-text">{session.user}</span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 bg-surface-base border border-border rounded">
+                <span className="text-text-muted">Assigned Role</span>
+                <span className="font-semibold text-accent uppercase tracking-wider">
+                  {session.role}
+                </span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 bg-surface-base border border-border rounded">
+                <span className="text-text-muted">Mutation Allowed</span>
+                <span className="font-semibold text-text">
+                  {session.viewerMode ? 'No (Read-Only)' : 'Yes (Full Audit)'}
+                </span>
               </div>
             </div>
-
-            <div className="kpi p-3 bg-surface-base border border-border rounded-lg space-y-1">
-              <span className="kpi-label text-[11px] text-text-muted font-medium uppercase tracking-wider block">
-                Azure Connectivity
-              </span>
-              <div className="kpi-value text-base font-bold text-text">
-                <Badge variant="success">CONNECTED</Badge>
-              </div>
-            </div>
-
-            <div className="kpi p-3 bg-surface-base border border-border rounded-lg space-y-1">
-              <span className="kpi-label text-[11px] text-text-muted font-medium uppercase tracking-wider block">
-                GitHub API
-              </span>
-              <div className="kpi-value text-base font-bold text-text">
-                <Badge variant="success">READY</Badge>
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        {/* RBAC Identity & Session View */}
-        <Card title="RBAC & Operator Identity" subtitle="Active security context and roles">
-          <div className="space-y-3 text-xs">
-            <div className="flex items-center justify-between p-2.5 bg-surface-base border border-border rounded">
-              <span className="text-text-muted">Authenticated User</span>
-              <span className="font-semibold text-text">{session.user}</span>
-            </div>
-            <div className="flex items-center justify-between p-2.5 bg-surface-base border border-border rounded">
-              <span className="text-text-muted">Assigned Role</span>
-              <span className="font-semibold text-accent uppercase tracking-wider">
-                {session.role}
-              </span>
-            </div>
-            <div className="flex items-center justify-between p-2.5 bg-surface-base border border-border rounded">
-              <span className="text-text-muted">Mutation Allowed</span>
-              <span className="font-semibold text-text">
-                {session.viewerMode ? 'No (Read-Only)' : 'Yes (Full Audit)'}
-              </span>
-            </div>
-          </div>
-        </Card>
-      </div>
+          </Card>
+        </div>
+      )}
 
       {/* Scheduler Daemon Controls */}
-      <Card
-        title="Scheduler Daemon Controls"
-        subtitle="Automated background task planning, morning activation, and EOD closure"
-        actions={
-          <div className="flex items-center gap-2">
-            <Button
-              variant={schedulerRunning ? 'danger' : 'primary'}
-              size="sm"
-              onClick={handleToggleScheduler}
-              disabled={isViewer}
-            >
-              {schedulerRunning ? 'Disable Scheduler' : 'Enable Scheduler'}
-            </Button>
-            <Button
-              variant="secondary"
-              id="schedRunNowBtn"
-              size="sm"
-              onClick={handleRunNow}
-              isLoading={isTriggering}
-              disabled={isViewer}
-            >
-              Run Now
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          <div className="flex items-center justify-between p-3 bg-surface-base border border-border rounded-lg">
-            <div className="flex items-center gap-3">
-              <span className="text-lg" aria-hidden="true">
-                ⚙️
-              </span>
-              <div>
-                <h4 className="font-semibold text-sm text-text">Background Daemon</h4>
-                <p className="text-xs text-text-muted">
-                  Runs daily morning planning (09:30), task activation (17:30), and EOD closure (18:15).
-                </p>
-              </div>
+      {showScheduler && (
+        <Card
+          title="Scheduler Daemon Controls"
+          subtitle="Automated background task planning, morning activation, and EOD closure"
+          actions={
+            <div className="flex items-center gap-2">
+              <Button
+                variant={schedulerRunning ? 'danger' : 'primary'}
+                size="sm"
+                onClick={handleToggleScheduler}
+                disabled={isViewer}
+              >
+                {schedulerRunning ? 'Disable Scheduler' : 'Enable Scheduler'}
+              </Button>
+              <Button
+                variant="secondary"
+                id="schedRunNowBtn"
+                size="sm"
+                onClick={handleRunNow}
+                isLoading={isTriggering}
+                disabled={isViewer}
+              >
+                Run Now
+              </Button>
             </div>
-            <Badge variant={schedulerRunning ? 'success' : 'neutral'}>
-              {schedulerRunning ? 'DAEMON RUNNING' : 'STOPPED'}
-            </Badge>
+          }
+        >
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-3 bg-surface-base border border-border rounded-lg">
+              <div className="flex items-center gap-3">
+                <span className="text-lg" aria-hidden="true">
+                  ⚙️
+                </span>
+                <div>
+                  <h4 className="font-semibold text-sm text-text">Background Daemon</h4>
+                  <p className="text-xs text-text-muted">
+                    Runs daily morning planning (09:30), task activation (17:30), and EOD closure (18:15).
+                  </p>
+                </div>
+              </div>
+              <Badge variant={schedulerRunning ? 'success' : 'neutral'}>
+                {schedulerRunning ? 'DAEMON RUNNING' : 'STOPPED'}
+              </Badge>
+            </div>
           </div>
-        </div>
-      </Card>
+        </Card>
+      )}
 
       {/* Audit Log Explorer & Recovery */}
-      <Card
-        title="Audit Log Explorer & Attribution"
-        subtitle="Immutable journal records with user attribution and operation history"
+      {showJournal && (
+        <Card
+          title="Audit Log Explorer & Attribution"
+          subtitle="Immutable journal records with user attribution and operation history"
         actions={
           <div className="flex items-center gap-3 flex-wrap">
             <input
@@ -254,6 +264,7 @@ export function GovernanceWorkspace({
           </div>
         )}
       </Card>
+      )}
 
       {/* Entry Detail Modal */}
       <Modal

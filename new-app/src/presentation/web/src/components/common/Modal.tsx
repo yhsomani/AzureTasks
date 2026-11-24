@@ -1,5 +1,4 @@
 import React, { useEffect, useRef } from 'react';
-import { Button } from './Button.js';
 
 export interface ModalProps {
   isOpen: boolean;
@@ -86,7 +85,7 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
+      className="modal-overlay open fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -97,9 +96,9 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
-        className={`bg-surface border border-border rounded-lg shadow-xl w-full ${widthClass} overflow-hidden transform transition-all`}
+        className={`modal-card bg-surface border border-border rounded-lg shadow-xl w-full ${widthClass} overflow-hidden transform transition-all`}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+        <div className="modal-header flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 id="modal-title" className="text-lg font-semibold text-text">
             {title}
           </h2>
@@ -113,10 +112,10 @@ export function Modal({
           </button>
         </div>
 
-        <div className="px-6 py-5 max-h-[70vh] overflow-y-auto">{children}</div>
+        <div className="modal-body px-6 py-5 max-h-[70vh] overflow-y-auto">{children}</div>
 
         {footer && (
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border bg-surface-base">
+          <div className="modal-footer flex items-center justify-end gap-3 px-6 py-4 border-t border-border bg-surface-base">
             {footer}
           </div>
         )}

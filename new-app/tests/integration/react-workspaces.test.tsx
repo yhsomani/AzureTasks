@@ -151,12 +151,19 @@ describe('Modern React 19 UI Shell & Workspaces', () => {
 
   it('verifies Toast dismiss and DailyWorkflow SSE log control buttons meet 44x44px touch targets', async () => {
     const dismissSpy = vi.fn();
-    const { unmount } = render(
+    const { unmount, container } = render(
       <Toast toasts={[{ id: 't1', type: 'info', message: 'Test Notification' }]} onDismiss={dismissSpy} />
     );
     const dismissBtn = screen.getByRole('button', { name: /dismiss notification/i });
     expect(dismissBtn.classList.contains('min-w-[44px]')).toBe(true);
     expect(dismissBtn.classList.contains('min-h-[44px]')).toBe(true);
+
+    const toastStack = container.querySelector('#viewStatus');
+    expect(toastStack).not.toBeNull();
+    expect(toastStack?.classList.contains('items-end')).toBe(true);
+    expect(toastStack?.classList.contains('w-full')).toBe(false);
+    expect(toastStack?.classList.contains('max-w-[calc(100vw-40px)]')).toBe(true);
+
     unmount();
 
     render(<DailyWorkflowWorkspace subView="mywork" isViewer={false} onNotify={vi.fn()} />);

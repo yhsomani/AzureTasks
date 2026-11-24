@@ -40,7 +40,7 @@ export function AppShell() {
       if (['mywork', 'dashboard', 'logs'].includes(hash)) {
         setCurrentWorkspace('daily');
         setCurrentSubView(hash as SubViewId);
-      } else if (['planner', 'explorer', 'people', 'calendar'].includes(hash)) {
+      } else if (['planner', 'explorer', 'burndown', 'lifecycle', 'people', 'calendar'].includes(hash)) {
         setCurrentWorkspace('planning');
         setCurrentSubView(hash as SubViewId);
       } else if (['journal', 'scheduler', 'settings'].includes(hash)) {

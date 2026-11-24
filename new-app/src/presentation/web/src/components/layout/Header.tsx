@@ -32,7 +32,7 @@ export function Header({
           aria-controls="sidebar"
           aria-expanded={mobileNavOpen}
           aria-label="Open primary navigation"
-          className="md:hidden p-2 text-text border border-border rounded min-w-[44px] min-h-[44px] flex items-center justify-center bg-surface hover:bg-surface-card"
+          className="icon-btn menu-btn md:hidden p-2 text-text border border-border rounded min-w-[44px] min-h-[44px] flex items-center justify-center bg-surface hover:bg-surface-card"
         >
           ☰
         </button>

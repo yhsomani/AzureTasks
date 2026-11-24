@@ -68,7 +68,7 @@ export function useDailyWorkflow() {
       .then((res) => {
         if (active) {
           setMyTasks((res.matrix || []).flatMap(row =>
-            Object.values(row.cells).flatMap(cell => cell.tasks || [])
+            (row?.cells ? Object.values(row.cells) : []).flatMap(cell => cell?.tasks || [])
           ));
         }
       })

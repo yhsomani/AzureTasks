@@ -14,6 +14,15 @@ test.describe('Team & Planning Workspace Journeys', () => {
     await plannerBtn.click();
     await expect(plannerBtn).toHaveAttribute('aria-current', 'page');
     await expect(page.locator('main')).toBeVisible();
+
+    const isDesktop = (page.viewportSize()?.width ?? 1024) >= 768;
+    if (isDesktop) {
+      await expect(page.locator('#plannerMatrix')).toBeVisible();
+      await expect(page.locator('#plannerCardAccordion')).toBeHidden();
+    } else {
+      await expect(page.locator('#plannerCardAccordion')).toBeVisible();
+      await expect(page.locator('#plannerMatrix')).toBeHidden();
+    }
   });
 
   test('navigates to Coverage Matrix view', async ({ page }) => {

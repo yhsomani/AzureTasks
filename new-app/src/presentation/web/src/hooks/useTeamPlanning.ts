@@ -72,7 +72,7 @@ export function useTeamPlanning() {
       setMembers(team);
       setCalendar(calRes);
       setMatrixTasks((explorerRes.matrix || []).flatMap(row =>
-        Object.values(row.cells).flatMap(cell => cell.tasks || [])
+        (row?.cells ? Object.values(row.cells) : []).flatMap(cell => cell?.tasks || [])
       ));
 
       setSelectedPersonKeys(team.map((m) => m.key));

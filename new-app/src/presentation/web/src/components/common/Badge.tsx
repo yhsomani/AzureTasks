@@ -26,7 +26,7 @@ export function Badge({ variant = 'neutral', children, icon, className = '' }: B
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${variantStyles} ${className}`}
+      className={`badge pill inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${variantStyles} ${className}`}
     >
       <span aria-hidden="true" className="text-xs">
         {icon || defaultIcon}

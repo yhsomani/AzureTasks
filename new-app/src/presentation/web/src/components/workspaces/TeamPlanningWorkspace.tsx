@@ -31,7 +31,6 @@ export function TeamPlanningWorkspace({
     pendingPlan,
     isPlanning,
     isExecuting,
-    executionResult,
     expandedCards,
     toggleAccordion,
     expandAllAccordions,
@@ -115,13 +114,23 @@ export function TeamPlanningWorkspace({
     }
   };
 
+  const isCalendarView = subView === 'calendar';
+  const isExplorerView = subView === 'explorer' || subView === 'burndown' || subView === 'lifecycle';
+  const isPeopleView = subView === 'people';
+  const isPlannerView = !subView || subView === 'planner';
+
+  const showPlanAndReview = isPlannerView;
+  const showCoverageMatrix = isPlannerView || isExplorerView || isPeopleView;
+  const showCalendar = isPlannerView || isPeopleView || isCalendarView;
+
   return (
     <div className="team-planning-workspace space-y-6">
       {/* Scope & Plan Configuration Bar */}
-      <Card
-        title="Sprint Planning & Immutable Execution Protocol"
-        subtitle="Review rolling sprint tasks, inspect signed plan tokens, and execute safely"
-        actions={
+      {showPlanAndReview && (
+        <Card
+          title="Sprint Planning & Immutable Execution Protocol"
+          subtitle="Review rolling sprint tasks, inspect signed plan tokens, and execute safely"
+          actions={
           <div className="flex items-center gap-3 flex-wrap">
             <label className="flex items-center gap-2 text-xs font-medium cursor-pointer text-text select-none min-h-[44px]">
               <input
@@ -199,11 +208,13 @@ export function TeamPlanningWorkspace({
           </div>
         )}
       </Card>
+      )}
 
       {/* Task Coverage: Desktop Matrix Table vs Mobile Card Accordion */}
-      <Card
-        title="Team Allocation & Coverage"
-        subtitle="Desktop 14-day multi-day matrix and responsive mobile card accordion"
+      {showCoverageMatrix && (
+        <Card
+          title="Team Allocation & Coverage"
+          subtitle="Desktop 14-day multi-day matrix and responsive mobile card accordion"
         actions={
           <div className="flex items-center gap-2">
             <Button
@@ -261,7 +272,6 @@ export function TeamPlanningWorkspace({
                 <tbody className="divide-y divide-border">
                   {members.map((member) => {
                     const isSelected = selectAll || selectedPersonKeys.includes(member.key);
-                    const memberTasks = matrixTasks.filter((t) => t.assignedTo?.includes(member.name));
 
                     return (
                       <tr key={member.key} className="hover:bg-surface-card transition-colors">
@@ -402,37 +412,40 @@ export function TeamPlanningWorkspace({
           </>
         )}
       </Card>
+      )}
 
       {/* Team Roster & Work Calendar Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Work Calendar & Working Days */}
-        <Card title="Work Calendar & Exceptions" subtitle="Standard working days and configured holiday rules">
-          <div className="space-y-3 text-xs">
-            <div className="flex items-center justify-between p-2.5 bg-surface-base border border-border rounded">
-              <span className="font-semibold text-text">Standard Working Days</span>
-              <span className="text-text-muted">Monday – Friday</span>
+      {showCalendar && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Work Calendar & Working Days */}
+          <Card title="Work Calendar & Exceptions" subtitle="Standard working days and configured holiday rules">
+            <div className="space-y-3 text-xs">
+              <div className="flex items-center justify-between p-2.5 bg-surface-base border border-border rounded">
+                <span className="font-semibold text-text">Standard Working Days</span>
+                <span className="text-text-muted">Monday – Friday</span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 bg-surface-base border border-border rounded">
+                <span className="font-semibold text-text">Configured Holidays</span>
+                <span className="text-text-muted">{calendar.holidays?.length || 0} dates</span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 bg-surface-base border border-border rounded">
+                <span className="font-semibold text-text">Member Exceptions</span>
+                <span className="text-text-muted">{calendar.exceptions?.length || 0} exceptions</span>
+              </div>
             </div>
-            <div className="flex items-center justify-between p-2.5 bg-surface-base border border-border rounded">
-              <span className="font-semibold text-text">Configured Holidays</span>
-              <span className="text-text-muted">{calendar.holidays?.length || 0} dates</span>
-            </div>
-            <div className="flex items-center justify-between p-2.5 bg-surface-base border border-border rounded">
-              <span className="font-semibold text-text">Member Exceptions</span>
-              <span className="text-text-muted">{calendar.exceptions?.length || 0} exceptions</span>
-            </div>
-          </div>
-        </Card>
+          </Card>
 
-        {/* Sprint Summary */}
-        <Card title="Planning Guidance" subtitle="Rules enforced during task planning">
-          <ul className="text-xs text-text-muted space-y-2 list-disc list-inside">
-            <li>Tasks are planned within the rolling sprint window for all active team members.</li>
-            <li>Weekends and configured public holidays are automatically skipped.</li>
-            <li>Members marked with 0h daily capacity are flagged as ON LEAVE and skipped.</li>
-            <li>Duplicate tasks for the same member on the same target date are rejected.</li>
-          </ul>
-        </Card>
-      </div>
+          {/* Sprint Summary */}
+          <Card title="Planning Guidance" subtitle="Rules enforced during task planning">
+            <ul className="text-xs text-text-muted space-y-2 list-disc list-inside">
+              <li>Tasks are planned within the rolling sprint window for all active team members.</li>
+              <li>Weekends and configured public holidays are automatically skipped.</li>
+              <li>Members marked with 0h daily capacity are flagged as ON LEAVE and skipped.</li>
+              <li>Duplicate tasks for the same member on the same target date are rejected.</li>
+            </ul>
+          </Card>
+        </div>
+      )}
 
       {/* Add / Edit Member Modal */}
       <Modal

@@ -151,77 +151,10 @@ export function DailyWorkflowWorkspace({
         </p>
       </Card>
 
-      {/* Main Grid: Personal Cockpit & Today's Summary */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Column 1 & 2: Personal Cockpit (My Work) */}
-        <div className="lg:col-span-2 space-y-6">
-          <Card
-            title="Personal Cockpit (My Work)"
-            subtitle="Current active work items, estimates, and daily tasks"
-            actions={
-              <select
-                aria-label="Select team member"
-                value={selectedPersonKey}
-                onChange={(e) => setSelectedPersonKey(e.target.value)}
-                className="bg-surface-base border border-border text-text rounded px-3 py-1.5 text-sm min-h-[44px]"
-              >
-                {members.map((m) => (
-                  <option key={m.key} value={m.key}>
-                    {m.name} ({m.role})
-                  </option>
-                ))}
-              </select>
-            }
-          >
-            {isLoading ? (
-              <Skeleton count={4} />
-            ) : error ? (
-              <p className="text-sm text-danger p-4">{error}</p>
-            ) : myTasks.length === 0 ? (
-              <div className="text-center py-8 text-text-muted">
-                <p className="text-sm font-medium">No tasks recorded for this member today.</p>
-                <p className="text-xs mt-1">Use "+ Ad-Hoc Task" to assign work or run Morning Activation.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {myTasks.map((task) => (
-                  <div
-                    key={task.id}
-                    className="task-card flex items-center justify-between p-3.5 bg-surface-base border border-border rounded-lg hover:border-border-strong transition-colors"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-mono text-text-muted">#{task.id}</span>
-                        <h4 className="font-semibold text-sm text-text task-title">{task.title}</h4>
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-text-muted">
-                        <span>Assigned: {task.assignedTo || selectedMember?.name}</span>
-                        {task.targetDate && <span>Date: {task.targetDate}</span>}
-                        {task.remainingWork !== undefined && (
-                          <span>Remaining: {task.remainingWork}h</span>
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <Badge
-                        variant={
-                          task.state === 'Closed'
-                            ? 'success'
-                            : task.state === 'Active'
-                            ? 'info'
-                            : 'neutral'
-                        }
-                      >
-                        {task.state}
-                      </Badge>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-
-          {/* Today's Summary & PR Deliverable Sync */}
+      {/* Main Content: Filtered by subView (mywork, dashboard, logs) */}
+      {subView === 'dashboard' ? (
+        /* Dashboard Only SubView: Today's Deliverable PR Sync */
+        <div className="w-full space-y-6">
           <Card
             title="Today's Deliverable PR Sync"
             subtitle="Verified GitHub pull requests and commit deliverables"
@@ -264,9 +197,9 @@ export function DailyWorkflowWorkspace({
             )}
           </Card>
         </div>
-
-        {/* Column 3: Live SSE Log Stream */}
-        <div className="lg:col-span-1 space-y-6">
+      ) : subView === 'logs' ? (
+        /* Logs Only SubView: Live SSE Activity Stream Terminal */
+        <div className="w-full space-y-6">
           <Card
             title="Live SSE Activity Stream"
             subtitle="Real-time log stream from /api/logs/stream"
@@ -324,7 +257,182 @@ export function DailyWorkflowWorkspace({
             </div>
           </Card>
         </div>
-      </div>
+      ) : (
+        /* Default / MyWork SubView: Full Cockpit Grid */
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Column 1 & 2: Personal Cockpit (My Work) */}
+          <div className="lg:col-span-2 space-y-6">
+            <Card
+              title="Personal Cockpit (My Work)"
+              subtitle="Current active work items, estimates, and daily tasks"
+              actions={
+                <select
+                  aria-label="Select team member"
+                  value={selectedPersonKey}
+                  onChange={(e) => setSelectedPersonKey(e.target.value)}
+                  className="bg-surface-base border border-border text-text rounded px-3 py-1.5 text-sm min-h-[44px]"
+                >
+                  {members.map((m) => (
+                    <option key={m.key} value={m.key}>
+                      {m.name} ({m.role})
+                    </option>
+                  ))}
+                </select>
+              }
+            >
+              {isLoading ? (
+                <Skeleton count={4} />
+              ) : error ? (
+                <p className="text-sm text-danger p-4">{error}</p>
+              ) : myTasks.length === 0 ? (
+                <div className="text-center py-8 text-text-muted">
+                  <p className="text-sm font-medium">No tasks recorded for this member today.</p>
+                  <p className="text-xs mt-1">Use "+ Ad-Hoc Task" to assign work or run Morning Activation.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {myTasks.map((task) => (
+                    <div
+                      key={task.id}
+                      className="task-card flex items-center justify-between p-3.5 bg-surface-base border border-border rounded-lg hover:border-border-strong transition-colors"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-mono text-text-muted">#{task.id}</span>
+                          <h4 className="font-semibold text-sm text-text task-title">{task.title}</h4>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-text-muted">
+                          <span>Assigned: {task.assignedTo || selectedMember?.name}</span>
+                          {task.targetDate && <span>Date: {task.targetDate}</span>}
+                          {task.remainingWork !== undefined && (
+                            <span>Remaining: {task.remainingWork}h</span>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <Badge
+                          variant={
+                            task.state === 'Closed'
+                              ? 'success'
+                              : task.state === 'Active'
+                              ? 'info'
+                              : 'neutral'
+                          }
+                        >
+                          {task.state}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            {/* Today's Summary & PR Deliverable Sync */}
+            <Card
+              title="Today's Deliverable PR Sync"
+              subtitle="Verified GitHub pull requests and commit deliverables"
+            >
+              {selectedMemberPrs?.pullRequests && selectedMemberPrs.pullRequests.length > 0 ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs text-text-muted mb-2">
+                    <span>
+                      Total: {selectedMemberPrs.totalCount} (Open: {selectedMemberPrs.openCount}, Merged: {selectedMemberPrs.mergedCount})
+                    </span>
+                    <span>Deliverables verified for auto-closure</span>
+                  </div>
+                  <div className="divide-y divide-border">
+                    {selectedMemberPrs.pullRequests.map((pr) => (
+                      <div key={pr.id} className="py-2.5 flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <a
+                            href={pr.htmlUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm font-medium text-accent hover:underline flex items-center gap-1.5"
+                          >
+                            <span>#{pr.number}</span>
+                            <span>{pr.title}</span>
+                            <span aria-hidden="true">↗</span>
+                          </a>
+                          <p className="text-xs text-text-muted">Repo: {pr.repository}</p>
+                        </div>
+                        <Badge variant={pr.state === 'merged' ? 'success' : 'info'}>
+                          {pr.state}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-6 text-text-muted text-xs">
+                  No deliverable pull requests recorded for {selectedMember?.name || 'this member'} today.
+                </div>
+              )}
+            </Card>
+          </div>
+
+          {/* Column 3: Live SSE Log Stream */}
+          <div className="lg:col-span-1 space-y-6">
+            <Card
+              title="Live SSE Activity Stream"
+              subtitle="Real-time log stream from /api/logs/stream"
+              actions={
+                <div className="flex items-center gap-2">
+                  <Badge variant={isConnected ? 'success' : 'warning'}>
+                    {isConnected ? 'LIVE' : 'RECONNECTING'}
+                  </Badge>
+                  <button
+                    type="button"
+                    onClick={() => setIsPaused(!isPaused)}
+                    className="text-xs px-3 py-1.5 rounded bg-surface border border-border text-text min-h-[44px] min-w-[44px] flex items-center justify-center"
+                  >
+                    {isPaused ? 'Resume' : 'Pause'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearLogs}
+                    className="text-xs px-3 py-1.5 rounded bg-surface border border-border text-text min-h-[44px] min-w-[44px] flex items-center justify-center"
+                  >
+                    Clear
+                  </button>
+                </div>
+              }
+            >
+              <div
+                className="log-terminal font-mono text-xs bg-black/80 text-emerald-400 p-3 rounded-lg h-96 overflow-y-auto space-y-1.5 border border-border"
+                role="log"
+                aria-live="polite"
+                aria-label="Application server log terminal"
+              >
+                {logs.length === 0 ? (
+                  <p className="text-neutral-500 italic">Waiting for events from server…</p>
+                ) : (
+                  logs.map((log) => (
+                    <div key={log.id} className="leading-tight flex items-start gap-2">
+                      <span className="text-neutral-500 select-none text-[10px]">
+                        {log.timestamp.slice(11, 19)}
+                      </span>
+                      <span
+                        className={
+                          log.level === 'error'
+                            ? 'text-rose-400'
+                            : log.level === 'warn'
+                            ? 'text-amber-400'
+                            : 'text-emerald-300'
+                        }
+                      >
+                        [{log.level.toUpperCase()}]
+                      </span>
+                      <span className="text-neutral-200">{log.message}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
 
       {/* Ad-Hoc Task Modal */}
       <Modal

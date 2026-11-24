@@ -161,5 +161,13 @@ describe('Empirical Responsive Layout & Collision Contracts (Milestone M1)', () 
       const endOfBlock = block.slice(0, block.indexOf('}') + 1);
       expect(endOfBlock).not.toContain('contain: paint');
     });
+
+    it('orders .hidden before responsive .md:block so desktop viewports display hidden md:block elements', () => {
+      const idxMdBlock = css.indexOf('.md\\:block { display: block !important; }');
+      const idxHidden = css.lastIndexOf('.hidden { display: none !important; }');
+      expect(idxMdBlock).toBeGreaterThan(0);
+      expect(idxHidden).toBeGreaterThan(0);
+      expect(idxHidden).toBeLessThan(idxMdBlock);
+    });
   });
 });

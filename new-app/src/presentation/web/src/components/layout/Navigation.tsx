@@ -77,7 +77,7 @@ export function Navigation({
       {mobileOpen && (
         <div
           id="navBackdrop"
-          className="nav-backdrop fixed inset-0 z-40 bg-black/50 md:hidden"
+          className="nav-backdrop open fixed inset-0 z-40 bg-black/50 md:hidden"
           onClick={onCloseMobile}
           aria-hidden="true"
         />
@@ -110,43 +110,40 @@ export function Navigation({
         </div>
 
         <nav className="nav flex-1 px-3 py-4 space-y-6 overflow-y-auto" aria-label="Primary navigation">
-          {workspaces.map((ws) => {
-            const isActiveWorkspace = currentWorkspace === ws.id;
-            return (
-              <div key={ws.id} className="nav-group">
-                <span className="nav-group-label px-3 text-xs font-semibold text-text-muted uppercase tracking-wider block mb-2">
-                  {ws.label}
-                </span>
+          {workspaces.map((ws) => (
+            <div key={ws.id} className="nav-group">
+              <span className="nav-group-label px-3 text-xs font-semibold text-text-muted uppercase tracking-wider block mb-2">
+                {ws.label}
+              </span>
 
-                <div className="space-y-1">
-                  {ws.subViews.map((sub) => {
-                    const isSelected = currentSubView === sub.id;
-                    return (
-                      <button
-                        key={sub.id}
-                        type="button"
-                        id={`view-${sub.id}`}
-                        data-view={sub.id}
-                        aria-current={isSelected ? 'page' : undefined}
-                        onClick={() => {
-                          onNavigate(ws.id, sub.id);
-                          onCloseMobile();
-                        }}
-                        className={`nav-item w-full flex items-center gap-3 px-3 py-2 text-sm rounded font-medium transition-colors text-left min-h-[44px] ${
-                          isSelected
-                            ? 'bg-accent/15 text-accent font-semibold'
-                            : 'text-text hover:bg-surface-card hover:text-text'
-                        }`}
-                      >
-                        <span aria-hidden="true">{ws.icon}</span>
-                        <span>{sub.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+              <div className="space-y-1">
+                {ws.subViews.map((sub) => {
+                  const isSelected = currentSubView === sub.id;
+                  return (
+                    <button
+                      key={sub.id}
+                      type="button"
+                      id={`view-${sub.id}`}
+                      data-view={sub.id}
+                      aria-current={isSelected ? 'page' : undefined}
+                      onClick={() => {
+                        onNavigate(ws.id, sub.id);
+                        onCloseMobile();
+                      }}
+                      className={`nav-item w-full flex items-center gap-3 px-3 py-2 text-sm rounded font-medium transition-colors text-left min-h-[44px] ${
+                        isSelected
+                          ? 'active bg-accent/15 text-accent font-semibold'
+                          : 'text-text hover:bg-surface-card hover:text-text'
+                      }`}
+                    >
+                      <span aria-hidden="true">{ws.icon}</span>
+                      <span>{sub.label}</span>
+                    </button>
+                  );
+                })}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </nav>
 
         <div className="p-3 border-t border-border text-xs text-text-muted">

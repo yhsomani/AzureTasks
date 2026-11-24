@@ -175,7 +175,7 @@ export function UnassignedTaskManager({
             : 'No unassigned work items found in this project backlog.'}
         </div>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="table-wrap overflow-x-auto">
           <table className="w-full text-left text-sm text-text" aria-label="Unassigned work items table">
             <thead>
               <tr className="border-b border-border text-xs text-text-muted uppercase">

@@ -19,10 +19,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     }[size];
 
     const variantClasses = {
-      primary: 'bg-accent text-on-accent hover:opacity-90 font-semibold shadow-sm',
-      secondary: 'bg-surface border border-border text-text hover:border-border-strong',
-      danger: 'bg-danger text-on-danger hover:opacity-90 font-semibold',
-      ghost: 'bg-transparent text-text hover:bg-surface border border-transparent',
+      primary: 'primary bg-accent text-on-accent hover:opacity-90 font-semibold shadow-sm',
+      secondary: 'secondary bg-surface border border-border text-text hover:border-border-strong',
+      danger: 'danger bg-danger text-on-danger hover:opacity-90 font-semibold',
+      ghost: 'ghost bg-transparent text-text hover:bg-surface border border-transparent',
     }[variant];
 
     const disabledClasses = disabled || isLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer';
