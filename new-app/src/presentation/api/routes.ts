@@ -679,7 +679,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
           const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : undefined;
           const asOf = typeof req.query.asOf === 'string' ? req.query.asOf : undefined;
           const usersParam = typeof req.query.users === 'string' ? req.query.users : undefined;
-          const personKeys = usersParam ? usersParam.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+          const personKeysParam = typeof req.query.personKeys === 'string' ? req.query.personKeys : undefined;
+          const personKeys = (personKeysParam || usersParam)?.split(',').map(s => s.trim()).filter(Boolean);
           const scope = {
             preset,
             startDate,

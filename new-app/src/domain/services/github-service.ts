@@ -37,6 +37,8 @@ export interface GitHubPrDeliverables {
 }
 
 export interface MemberDailyPrSummary {
+  status: 'OK' | 'UNRESOLVED_IDENTITY' | 'UPSTREAM_ERROR';
+  error?: string;
   key: string;
   name: string;
   email: string;

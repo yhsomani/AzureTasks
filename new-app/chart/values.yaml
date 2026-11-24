@@ -75,7 +75,7 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /api/ready
+    path: /api/health
     port: 3000
   initialDelaySeconds: 10
   periodSeconds: 10
@@ -93,8 +93,11 @@ env:
   NODE_ENV: "production"
   PORT: "3000"
   AZURE_DEVOPS_ORG_URL: "https://dev.azure.com/example-org"
+  AZURE_DEVOPS_ORG: "example-org"
   AZURE_DEVOPS_PROJECT: "ExampleProject"
   TIMEZONE: "UTC"
+  AZURE_DEVOPS_TIMEZONE: "UTC"
+  LISTEN_HOST: "0.0.0.0"
 
 secretEnv:
   AZURE_DEVOPS_PAT: ""

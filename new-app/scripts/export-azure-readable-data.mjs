@@ -96,6 +96,7 @@ async function request(url, options = {}) {
         error.status = response.status;
         error.response = sanitizeMessage(bodyText);
         error.url = new URL(url).origin + new URL(url).pathname;
+        error.retryAfter = response.headers.get('retry-after') || '';
         throw error;
       }
       return {
@@ -104,8 +105,14 @@ async function request(url, options = {}) {
       };
     } catch (error) {
       lastError = error;
-      if (error.status || attempt === 10) break;
-      await pause(Math.min(attempt * 500, 3000));
+      const status = Number(error.status || 0);
+      const retryableStatus = status === 429 || status >= 500;
+      const retryAfterSeconds = Number(error.retryAfter || 0);
+      if ((!retryableStatus && status > 0) || attempt === 10) break;
+      const delay = retryAfterSeconds > 0
+        ? Math.min(retryAfterSeconds * 1000, 30_000)
+        : Math.min(attempt * 500 * (1 + Math.random() * 0.25), 10_000);
+      await pause(delay);
     }
   }
   throw lastError;
@@ -365,7 +372,14 @@ export async function exportReadableAzureData(options = {}) {
       const ids = workItemRefs.slice(offset, offset + 200).map(item => item.id).join(',');
       try {
         const batch = await request(`${projectRoot}/_apis/wit/workitems?ids=${ids}&$expand=all&errorPolicy=omit&api-version=${apiVersion}`);
-        workItems.push(...(batch.body?.value || []));
+        const expectedIds = ids.split(',').map(Number);
+        const returned = batch.body?.value || [];
+        const returnedIds = new Set(returned.map(item => Number(item.id)));
+        const missingIds = expectedIds.filter(id => !returnedIds.has(id));
+        if (returned.length !== expectedIds.length || missingIds.length > 0) {
+          throw new Error(`Incomplete Azure work-item batch; missing IDs: ${missingIds.join(',')}`);
+        }
+        workItems.push(...returned);
       } catch (error) {
         addError(`project.${projectKey}.workItems.batch.${offset}`, error);
       }

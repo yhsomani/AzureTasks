@@ -85,7 +85,7 @@ export function Navigation({
 
       <aside
         id="sidebar"
-        className={`sidebar fixed inset-y-0 left-0 z-50 w-64 bg-surface border-r border-border transform transition-transform duration-200 ease-in-out md:translate-x-0 md:static md:w-60 flex flex-col ${
+        className={`sidebar ${mobileOpen ? 'open' : ''} fixed inset-y-0 left-0 z-50 w-64 bg-surface border-r border-border transform transition-transform duration-200 ease-in-out md:translate-x-0 md:static md:w-60 flex flex-col ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >

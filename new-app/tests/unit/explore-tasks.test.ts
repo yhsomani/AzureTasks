@@ -213,4 +213,36 @@ describe('ExploreTasksUseCase', () => {
     expect(bobRow?.cells['2026-10-21'].status).toBe('CREATED');
     expect(bobRow?.cells['2026-10-21'].tasks[0].id).toBe(202);
   });
+
+  it('attributes alias-only identities and reports duplicate-name ambiguity without duplication', async () => {
+    const config = {
+      ...mockConfig,
+      people: [
+        { key: 'user1', name: 'Same Name', assignedTo: 'alice@example.com', aliases: ['aad.alias-alice'], enabled: true },
+        { key: 'user2', name: 'Same Name', assignedTo: 'bob@example.com', enabled: true },
+      ],
+    } satisfies AppConfig;
+    const repo = {
+      findCandidateTasks: vi.fn(async () => [
+        { id: 701, rev: 1, fields: {
+          'System.Title': '3in1_PWA_MyAccount | 12 Oct',
+          'System.AssignedTo': { id: 'guid-alice', descriptor: 'aad.alias-alice', displayName: 'Same Name' },
+          'System.State': 'Active',
+        } },
+        { id: 702, rev: 1, fields: {
+          'System.Title': '3in1_PWA_MyAccount | 12 Oct',
+          'System.AssignedTo': { displayName: 'Same Name' },
+          'System.State': 'Active',
+        } },
+      ]),
+    } as unknown as WorkItemRepository;
+
+    const result = await new ExploreTasksUseCase(repo, config).execute({
+      startDate: '2026-10-12', endDate: '2026-10-12', asOf: '2026-10-12',
+    });
+
+    expect(result.matrix.find(row => row.person.key === 'user1')?.cells['2026-10-12'].tasks.map(task => task.id)).toEqual([701]);
+    expect(result.matrix.find(row => row.person.key === 'user2')?.cells['2026-10-12'].tasks).toEqual([]);
+    expect(result.identityDiagnostics).toContainEqual(expect.objectContaining({ workItemId: 702, status: 'AMBIGUOUS' }));
+  });
 });

@@ -374,6 +374,34 @@ export class GitHubClient implements IGitHubClient {
       new Date(day.getTime() + offset * 86400000).toISOString().slice(0, 10);
 
     const members: MemberDailyPrSummary[] = [];
+    if (process.env.GITHUB_OFFLINE === 'true') {
+      for (const person of people) {
+        if (person.enabled === false) continue;
+        members.push({
+          key: person.key,
+          status: 'UPSTREAM_ERROR',
+          error: 'GitHub external integration is disabled by GITHUB_OFFLINE.',
+          name: person.name,
+          email: person.assignedTo,
+          githubUsername: person.githubUsername || '',
+          prCount: 0,
+          openCount: 0,
+          mergedCount: 0,
+          pullRequests: [],
+          openPrs: [],
+          mergedPrs: [],
+        });
+      }
+      return {
+        targetDate: targetIsoDate,
+        timezone,
+        totalPrsToday: 0,
+        totalOpenPrsToday: 0,
+        totalMergedPrsToday: 0,
+        members,
+      };
+    }
+
     let totalPrsToday = 0;
     let totalOpenPrsToday = 0;
     let totalMergedPrsToday = 0;
@@ -389,6 +417,7 @@ export class GitHubClient implements IGitHubClient {
       if (!ghUsername) {
         members.push({
           key: person.key,
+          status: 'UNRESOLVED_IDENTITY',
           name: person.name,
           email: person.assignedTo,
           githubUsername: '',
@@ -457,6 +486,7 @@ export class GitHubClient implements IGitHubClient {
 
         members.push({
           key: person.key,
+          status: 'OK',
           name: person.name,
           email: person.assignedTo,
           githubUsername: ghUsername,
@@ -472,6 +502,8 @@ export class GitHubClient implements IGitHubClient {
         logger.warn(`Failed to retrieve daily PRs for ${person.name} (${ghUsername}): ${err.message}`);
         members.push({
           key: person.key,
+          status: 'UPSTREAM_ERROR',
+          error: err instanceof Error ? err.message : String(err),
           name: person.name,
           email: person.assignedTo,
           githubUsername: ghUsername,
@@ -511,6 +543,10 @@ export class GitHubClient implements IGitHubClient {
   }
 
   private async request<T>(endpoint: string, init: RequestInit = {}): Promise<T> {
+    if (process.env.GITHUB_OFFLINE === 'true') {
+      throw new Error(`GitHub external integration is disabled for endpoint ${endpoint}.`);
+    }
+
     const url = `${this.apiUrl}${endpoint}`;
     const baseHeaders: Record<string, string> = {
       Accept: 'application/vnd.github.v3+json',

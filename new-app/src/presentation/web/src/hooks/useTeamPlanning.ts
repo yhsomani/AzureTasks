@@ -62,13 +62,18 @@ export function useTeamPlanning() {
           holidays: [],
           exceptions: [],
         })),
-        api.get<{ items?: WorkItemTask[] }>('/api/explorer').catch(() => ({ items: [] })),
+        api.get<{ matrix?: Array<{ cells: Record<string, { tasks?: WorkItemTask[] }> }> }>('/api/explorer').catch(() => ({ matrix: [] })),
       ]);
 
-      const team = configRes.people || [];
+      const team = (configRes.people || []).map(member => ({
+        ...member,
+        email: member.email || member.assignedTo || '',
+      }));
       setMembers(team);
       setCalendar(calRes);
-      setMatrixTasks(explorerRes.items || []);
+      setMatrixTasks((explorerRes.matrix || []).flatMap(row =>
+        Object.values(row.cells).flatMap(cell => cell.tasks || [])
+      ));
 
       setSelectedPersonKeys(team.map((m) => m.key));
     } catch (err: unknown) {
@@ -91,8 +96,8 @@ export function useTeamPlanning() {
     setError(null);
     try {
       const payload = selectAll
-        ? { all: true, thursdayMode }
-        : { personKeys: selectedPersonKeys, all: false, thursdayMode };
+        ? { all: true, thursdayMode: thursdayMode ? 'FOLLOWING' as const : 'CURRENT' as const }
+        : { personKeys: selectedPersonKeys, all: false, thursdayMode: thursdayMode ? 'FOLLOWING' as const : 'CURRENT' as const };
 
       const res = await api.post<PlanTasksResult>('/api/tasks/plan', payload);
       setPendingPlan(res);
@@ -141,7 +146,10 @@ export function useTeamPlanning() {
       ? members.map((m) => (m.key === member.key ? member : m))
       : [...members, member];
 
-    await api.post('/api/config/people', { people: updatedList });
+    await api.post('/api/config/people', { people: updatedList.map(person => ({
+      ...person,
+      assignedTo: person.assignedTo || person.email,
+    })) });
     await loadData();
   };
 

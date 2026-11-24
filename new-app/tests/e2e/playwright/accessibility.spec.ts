@@ -1,12 +1,17 @@
 import { test, expect } from '@playwright/test';
+import { openNavigationIfNeeded } from './helpers.js';
 
 test.describe('WCAG 2.1 AA Accessibility & Keyboard Navigation Journeys', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
+    await openNavigationIfNeeded(page);
   });
 
   test('verifies keyboard Tab focus traversal across navigation items', async ({ page }) => {
+    // Open mobile navigation if needed
+    await openNavigationIfNeeded(page);
+
     // Focus the document body
     await page.locator('body').focus();
     // Press Tab multiple times

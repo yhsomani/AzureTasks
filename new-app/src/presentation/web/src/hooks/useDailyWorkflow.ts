@@ -23,7 +23,10 @@ export function useDailyWorkflow() {
     setError(null);
     try {
       const configRes = await api.get<{ people?: TeamMember[] }>('/api/config');
-      const teamList = configRes.people || [];
+      const teamList = (configRes.people || []).map((member) => ({
+        ...member,
+        email: member.email || member.assignedTo || '',
+      }));
       setMembers(teamList);
 
       if (teamList.length > 0 && !selectedPersonKey) {
@@ -34,7 +37,12 @@ export function useDailyWorkflow() {
       try {
         const prRes = await api.get<{ members?: PersonPrSummary[] }>('/api/github/daily-prs');
         if (prRes.members) {
-          setPrSummaries(prRes.members);
+          setPrSummaries(prRes.members.map(summary => ({
+            ...summary,
+            personKey: summary.personKey || summary.key || '',
+            personName: summary.personName || summary.name || '',
+            totalCount: summary.totalCount ?? summary.prCount,
+          })));
         }
       } catch {
         // Non-blocking PR sync error
@@ -56,10 +64,12 @@ export function useDailyWorkflow() {
     let active = true;
 
     api
-      .get<{ items?: WorkItemTask[] }>(`/api/explorer?personKeys=${encodeURIComponent(selectedPersonKey)}`)
+      .get<{ matrix?: Array<{ cells: Record<string, { tasks?: WorkItemTask[] }> }> }>(`/api/explorer?personKeys=${encodeURIComponent(selectedPersonKey)}`)
       .then((res) => {
-        if (active && res.items) {
-          setMyTasks(res.items);
+        if (active) {
+          setMyTasks((res.matrix || []).flatMap(row =>
+            Object.values(row.cells).flatMap(cell => cell.tasks || [])
+          ));
         }
       })
       .catch(() => {
@@ -103,6 +113,7 @@ export function useDailyWorkflow() {
     const res = await api.post('/api/tasks/close-today', {
       dryRun: false,
       confirm: true,
+      all: true,
       asOf: asOf || new Date().toISOString().slice(0, 10),
     });
     setEodPreview({ ready: false, data: null });

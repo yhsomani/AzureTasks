@@ -47,6 +47,8 @@ jobs:
         run: npm run lint -- --max-warnings=0
       - name: Test
         run: npm run test:coverage
+      - name: E2E tier suite
+        run: npm run test:e2e
       - name: Validate browser and staging verification scripts
         run: |
           node --check src/presentation/web/public/app.js
@@ -91,11 +93,9 @@ jobs:
           grep -q '.nav-backdrop.open' /tmp/azuretasks-styles.css
 
       - name: Install isolated browser test dependencies
-        run: |
-          npm install --no-save --package-lock=false playwright@1.56.1
-          npx playwright install --with-deps chromium
-      - name: Browser user journey tests
-        run: node tests/browser/ui-journeys.mjs
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: React Playwright browser suite
+        run: CI=1 npm run test:playwright
       - name: Upload browser evidence
         if: always()
         uses: actions/upload-artifact@v6
@@ -136,3 +136,7 @@ jobs:
         run: npm run build
       - name: Validate browser script syntax
         run: node --check src/presentation/web/public/app.js
+      - name: Typecheck test suite
+        run: npm run typecheck:tests
+      - name: E2E tier suite
+        run: npm run test:e2e

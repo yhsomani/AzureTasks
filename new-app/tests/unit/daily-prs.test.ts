@@ -298,4 +298,17 @@ describe('Daily PR Tracking by Team Member', () => {
     expect(member.openPrs.map(p => p.number)).toEqual([101, 103]);
     expect(member.mergedPrs.map(p => p.number)).toEqual([102]);
   });
+
+  it('reports upstream errors instead of silent zero PR evidence', async () => {
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: false, status: 503, statusText: 'Unavailable', text: async () => 'upstream down', headers: new Headers(),
+    });
+    const client = new GitHubClient({ fetchFn, token: 'test', maxRetries: 0 });
+    const result = await client.getDailyPullRequestsSummary({
+      people: [{ key: 'dev', name: 'Dev', assignedTo: 'dev@example.com', githubUsername: 'dev-gh' }],
+      targetIsoDate: '2026-11-24', timezone: 'UTC',
+    });
+    expect(result.members[0]).toMatchObject({ status: 'UPSTREAM_ERROR', prCount: 0 });
+    expect(result.members[0].error).toContain('503');
+  });
 });

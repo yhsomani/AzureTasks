@@ -16,7 +16,7 @@
   <div id="root"></div>
 
   <!-- Legacy Monolithic UI (Retired in Milestone 5; wrapped in hidden container for backwards-compatibility with legacy test selectors) -->
-  <div id="legacyUiContainer" class="legacy-ui-retired" style="display: none;" aria-hidden="true">
+  <template id="legacyUiTemplate" data-legacy-ui="retired">
   <div class="app">
     <aside class="sidebar" id="sidebar">
       <p class="mission-rail-caption">WORK OPERATIONS / 3IN1</p>
@@ -781,7 +781,7 @@
           <div class="logs-toolbar action-dock">
             <div style="display:flex; gap:6px; align-items:center;">
               <label class="muted small" for="logLevelFilter">Level</label>
-              <select id="logLevelFilter" class="input">
+              <select id="logLevelFilter" class="input" aria-label="Console log level">
                 <option value="ALL">ALL</option>
                 <option value="INFO">INFO</option>
                 <option value="WARN">WARN</option>
@@ -969,8 +969,7 @@
               <button class="btn small ghost" id="refreshRunsBtn">Refresh</button>
             </header>
             <div id="pipelineRunsContainer" class="table-wrap" style="max-height: 400px; overflow-y: auto;">
-              <p class="muted" style="padding: 16px;">Loading recent runs…</p>
-            </div>
+              <p class="muted" style="padding: 16px;">Loading recent runs…</p </div>
           </article>
         </div>
       </section>
@@ -1291,7 +1290,8 @@
   </div>
 
   <div class="toast-stack" id="toasts" aria-live="polite" aria-atomic="false"></div>
-  </div><!-- /legacyUiContainer -->
+  </div><!-- /legacyUiTemplateContent -->
+  </template>
 
   <!-- Modern React 19 Single Page Application -->
   <script type="module" src="/assets/main.js"></script>

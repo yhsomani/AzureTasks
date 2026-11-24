@@ -370,3 +370,44 @@ export class Person {
     };
   }
 }
+
+/**
+ * Returns all stable/configured identifiers for Azure WIQL prefiltering.
+ * Display names remain useful but are never the only source of identity evidence.
+ */
+export function getPersonIdentityAliases(person: PersonConfig | Person): string[] {
+  return Array.from(new Set([
+    person.assignedTo,
+    person.key,
+    person.githubUsername,
+    person.canonicalId,
+    ...(Array.isArray(person.aliases) ? person.aliases : []),
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .map(value => value.trim())));
+}
+
+/**
+ * Checks whether multiple configured people can match the same Azure identity.
+ */
+export function resolvePersonMatches(identity: unknown, people: Array<PersonConfig | Person>): Array<PersonConfig | Person> {
+  return people.filter(person => matchesPerson(identity, person));
+}
+
+/**
+ * Returns true if the given identity has an authoritative match with the person configuration.
+ * Authoritative matches are based on unique identifiers (email, descriptor, identityId)
+ * and take precedence over display name matches.
+ */
+export function hasAuthoritativePersonMatch(identity: unknown, person: PersonConfig | Person): boolean {
+  const extracted = extractIdentity(identity);
+  if (!extracted) return false;
+  const aliases = getPersonIdentityAliases(person).map(normalizeIdentity);
+  const candidates = [
+    extracted.uniqueName,
+    (extracted as any).email,
+    extracted.descriptor,
+    extracted.identityId,
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .map(normalizeIdentity);
+  return candidates.some(candidate => aliases.includes(candidate));
+}

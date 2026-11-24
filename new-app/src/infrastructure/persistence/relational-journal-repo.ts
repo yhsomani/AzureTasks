@@ -20,15 +20,23 @@ export class RelationalJournalRepository implements JournalRepository {
     if (this.db.engine === 'sqlite') {
       const stmt = this.db.sqlite.prepare(`
         INSERT INTO journal_entries (
-          id, team_id, action_type, operator_email, work_item_id, details_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          id, run_id, team_id, operator_email, action_type, work_item_id,
+          target_iso_date, title, field_copy_status, relation_copy_status,
+          verified, details_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       stmt.run(
         id,
+        entry.runId || null,
         (entry as any).teamId ?? null,
-        actionType,
         operatorEmail,
+        actionType,
         workItemId,
+        entry.targetIsoDate ?? null,
+        entry.title ?? null,
+        entry.fieldCopyStatus ?? null,
+        entry.relationCopyStatus ?? null,
+        entry.verified ? 1 : 0,
         detailsJson,
         entry.timestamp || new Date().toISOString()
       );
@@ -36,15 +44,23 @@ export class RelationalJournalRepository implements JournalRepository {
       await this.db.pool.query(
         `
         INSERT INTO journal_entries (
-          id, team_id, action_type, operator_email, work_item_id, details_json, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+          id, run_id, team_id, operator_email, action_type, work_item_id,
+          target_iso_date, title, field_copy_status, relation_copy_status,
+          verified, details_json, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       `,
         [
           id,
+          entry.runId || null,
           (entry as any).teamId ?? null,
-          actionType,
           operatorEmail,
+          actionType,
           workItemId,
+          entry.targetIsoDate ?? null,
+          entry.title ?? null,
+          entry.fieldCopyStatus ?? null,
+          entry.relationCopyStatus ?? null,
+          entry.verified ? 1 : 0,
           detailsJson,
           entry.timestamp || new Date().toISOString(),
         ]

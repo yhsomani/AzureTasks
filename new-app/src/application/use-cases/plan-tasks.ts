@@ -107,6 +107,13 @@ export class PlanTasksUseCase {
             targetIsoDate: d.isoDate,
             title: d.fullTitle,
             sourceTaskId: sourceId,
+            sourceTask: p.sourceTask ? {
+              id: p.sourceTask.workItem.id,
+              rev: p.sourceTask.workItem.rev,
+              fields: p.sourceTask.workItem.fields,
+              relations: p.sourceTask.workItem.relations,
+              url: p.sourceTask.workItem.url,
+            } : undefined,
             originalEstimate: Number(estimate) || 8,
             activity: String(act),
           });

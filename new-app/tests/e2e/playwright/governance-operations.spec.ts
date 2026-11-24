@@ -1,9 +1,11 @@
 import { test, expect } from '@playwright/test';
+import { openNavigationIfNeeded } from './helpers.js';
 
 test.describe('Governance & Operations Workspace Journeys', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
+    await openNavigationIfNeeded(page);
   });
 
   test('navigates to Audit Log view and displays entries container', async ({ page }) => {

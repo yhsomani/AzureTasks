@@ -1,9 +1,11 @@
 import { test, expect } from '@playwright/test';
+import { openNavigationIfNeeded } from './helpers.js';
 
 test.describe('Team & Planning Workspace Journeys', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
+    await openNavigationIfNeeded(page);
   });
 
   test('navigates to Plan & Review subview', async ({ page }) => {
@@ -27,6 +29,7 @@ test.describe('Team & Planning Workspace Journeys', () => {
     await peopleBtn.click();
     await expect(peopleBtn).toHaveAttribute('aria-current', 'page');
 
+    await openNavigationIfNeeded(page);
     const calendarBtn = page.locator('#view-calendar');
     await expect(calendarBtn).toBeVisible();
     await calendarBtn.click();

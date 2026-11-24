@@ -322,4 +322,40 @@ describe('Milestone 3 — Features 19 & 20: Immutable Plan Generation and Execut
       server.close();
     }
   });
+
+  it('does not fabricate success when Azure creation fails', async () => {
+    const snapshot = {
+      todayIso: '2026-11-25',
+      nextThursdayIso: '2026-11-26',
+      createdAt: new Date().toISOString(),
+      totalPlanned: 1,
+      personCount: 1,
+      items: [
+        {
+          personKey: 'dev1',
+          personName: 'Dev One',
+          assignedTo: 'dev1@workops.test',
+          targetIsoDate: '2026-11-25',
+          title: 'Task failure case',
+          sourceTaskId: 42,
+          sourceTask: { id: 42, rev: 1, fields: {}, relations: [] },
+        },
+      ],
+    };
+    const tokenInfo = generatePlanToken(snapshot);
+    await planTokenRepo.saveToken({
+      tokenHash: tokenInfo.tokenHash,
+      planToken: tokenInfo.planToken,
+      expiresAt: tokenInfo.expiresAt,
+      isExecuted: false,
+      snapshotJson: JSON.stringify(snapshot),
+      operatorEmail: 'lead@workops.test',
+    });
+    mockWorkItemRepo.createWorkItemWithReconciliation.mockRejectedValueOnce(new Error('upstream unavailable'));
+
+    const useCase = new ExecuteTasksUseCase(mockWorkItemRepo, journalRepo, planTokenRepo, lockManager, appConfig);
+    await expect(useCase.execute({ planToken: tokenInfo.planToken })).rejects.toThrow(/upstream unavailable/);
+    expect(await journalRepo.getEntries()).toEqual([]);
+    expect((await planTokenRepo.getTokenByHash(tokenInfo.tokenHash))?.isExecuted).toBe(false);
+  });
 });

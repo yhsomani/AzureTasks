@@ -34,10 +34,12 @@ export interface TeamMember {
   key: string;
   name: string;
   email: string;
+  assignedTo?: string;
   role: string;
   capacityHours: number;
+  aliases?: string[];
+  canonicalId?: string;
   githubUsername?: string;
-  azureIdentityId?: string;
   enabled: boolean;
   avatarUrl?: string;
 }
@@ -69,6 +71,9 @@ export interface DailyPrDeliverable {
 export interface PersonPrSummary {
   personKey: string;
   personName: string;
+  key?: string;
+  name?: string;
+  prCount?: number;
   githubUsername: string;
   pullRequests: DailyPrDeliverable[];
   openCount: number;
@@ -313,6 +318,16 @@ export interface AzureProjectInfo {
 export interface AzureProjectsResponse {
   success: boolean;
   projects: Array<ProjectOverview | AzureProjectInfo>;
+}
+
+export interface GitHubPersonPrSummary {
+  personKey: string;
+  personName: string;
+  key?: string;
+  name?: string;
+  prCount?: number;
+  status?: 'OK' | 'UNRESOLVED_IDENTITY' | 'UPSTREAM_ERROR';
+  error?: string;
 }
 
 

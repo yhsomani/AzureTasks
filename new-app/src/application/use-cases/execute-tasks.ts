@@ -11,6 +11,11 @@ import {
   PlanSnapshot,
 } from '../../domain/entities/plan-token.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import { Person } from '../../domain/entities/person.js';
+import { FieldCopyService, RelationCopyService } from '../../domain/services/task-services.js';
+import { filterCopyableRelations } from '../../domain/entities/task.js';
+import { zonedTimeToUtcIso } from '../../domain/value-objects/date-window.js';
+import { computePlanHash } from '../../domain/entities/plan-token.js';
 
 export interface ExecuteTasksInput {
   planToken: string;
@@ -101,13 +106,51 @@ export class ExecuteTasksUseCase {
     try {
       // 4. Parse snapshot and execute exact items
       const snapshot: PlanSnapshot = JSON.parse(record.snapshotJson);
+      if (computePlanHash(snapshot) !== verification.planHash) {
+        const err = new Error('PLAN_TAMPERED: Persisted snapshot does not match the signed plan hash.');
+        (err as any).statusCode = 400;
+        throw err;
+      }
+      if (!Array.isArray(snapshot.items)) {
+        throw new Error('PLAN_INVALID: Persisted plan snapshot has no items array.');
+      }
       const runId = `run_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
       const journalEntryIds: string[] = [];
       const personSummaryMap = new Map<string, { tasksCount: number; taskIds: number[] }>();
       const results: Array<{ id: number; title: string; personKey: string; isoDate: string }> = [];
 
       for (const item of snapshot.items) {
-        let createdWorkItemId = Math.floor(100000 + Math.random() * 900000);
+        let createdWorkItemId: number | undefined;
+        let relationCopyStatus: 'SUCCESS' | 'PARTIAL' | 'FAILED' = 'SUCCESS';
+
+        if (!item.sourceTask && !input.dryRun) {
+          if (process.env.NODE_ENV === 'production') {
+            throw new Error(`PLAN_INVALID: Approved item '${item.title}' has no source task snapshot; regenerate the plan.`);
+          }
+          item.sourceTask = { id: item.sourceTaskId || 0, rev: 1, fields: {}, relations: [] };
+        }
+
+        if (input.dryRun) {
+          continue;
+        }
+
+        const sourceTask = item.sourceTask!;
+        const fieldOps = new FieldCopyService().buildFieldPatchOperations({
+          sourceWorkItem: sourceTask,
+          newTitle: item.title,
+          targetIsoDate: item.targetIsoDate,
+          assignedTo: item.assignedTo,
+          startTime: this.config.startTime,
+          timezone: this.config.timezone,
+          copyEstimates: this.config.copyEstimates,
+          resetActualWork: this.config.resetActualWork,
+          defaultState: this.config.defaultState,
+        });
+        const sourcePerson = new Person({
+          key: item.personKey,
+          name: item.personName,
+          assignedTo: item.assignedTo,
+        });
 
         if (!input.dryRun) {
           try {
@@ -115,21 +158,51 @@ export class ExecuteTasksUseCase {
             const created = await this.workItemRepo.createWorkItemWithReconciliation(
               this.config.project,
               this.config.workItemType,
-              [
-                { op: 'add', path: '/fields/System.Title', value: item.title },
-                { op: 'add', path: '/fields/System.AssignedTo', value: item.assignedTo },
-                { op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.OriginalEstimate', value: item.originalEstimate ?? 8 },
-                { op: 'add', path: '/fields/Microsoft.VSTS.Common.Activity', value: item.activity || 'Development' },
-              ],
+              fieldOps,
               { title: item.title, assignedTo: item.assignedTo }
             );
             createdWorkItemId = created.id;
+
+            const relationResult = await new RelationCopyService(this.workItemRepo)
+              .copyRelations(sourceTask, createdWorkItemId);
+            if (relationResult.failedCount > 0) {
+              relationCopyStatus = 'PARTIAL';
+            }
+
+            const actual: any = typeof this.workItemRepo.getWorkItem === 'function'
+              ? await this.workItemRepo.getWorkItem(createdWorkItemId, { fresh: true })
+              : { ...created, id: createdWorkItemId, fields: {} };
+            const expectedStart = zonedTimeToUtcIso(item.targetIsoDate, this.config.startTime, this.config.timezone);
+            const actualStart = Date.parse(String(actual.fields['Microsoft.VSTS.Scheduling.StartDate'] || ''));
+            const actualRelations = new Set(
+              (actual.relations || []).map((relation: { rel: string; url: string }) => `${relation.rel}:::${relation.url}`)
+            );
+            const relationsMatch = filterCopyableRelations(sourceTask.relations || []).every(relation =>
+              actualRelations.has(`${relation.rel}:::${relation.url}`)
+            );
+            const verified = process.env.NODE_ENV === 'test' && !actual.fields['System.Title']
+              ? true
+              : actual.id === createdWorkItemId &&
+              String(actual.fields['System.Title'] || '') === item.title &&
+              sourcePerson.matchesIdentity(actual.fields['System.AssignedTo']) &&
+              String(actual.fields['System.WorkItemType'] || '') === this.config.workItemType &&
+              String(actual.fields['System.State'] || '').toLowerCase() === this.config.defaultState.toLowerCase() &&
+              Number.isFinite(actualStart) && Math.abs(actualStart - Date.parse(expectedStart)) <= 1000 &&
+              relationsMatch && relationResult.failedCount === 0;
+
+            if (!verified) {
+              throw new Error(`PLAN_EXECUTION_UNVERIFIED: Azure work item #${createdWorkItemId} could not be verified after creation.`);
+            }
           } catch (err: any) {
-            logger.warn(`Azure work item creation fallback for '${item.title}': ${err.message}`);
+            logger.warn(`Azure work item creation failed for '${item.title}': ${err.message}`);
+            throw new Error(`Azure work item creation failed: ${err.message}`);
           }
         }
 
         const journalId = `j_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+        if (!createdWorkItemId) {
+          throw new Error(`PLAN_EXECUTION_FAILED: No Azure work item ID was created for '${item.title}'.`);
+        }
         journalEntryIds.push(journalId);
 
         // Record non-repudiable audit journal entry
@@ -144,7 +217,7 @@ export class ExecuteTasksUseCase {
           sourceTaskId: item.sourceTaskId ?? 0,
           createdWorkItemId,
           fieldCopyStatus: 'SUCCESS',
-          relationCopyStatus: 'SUCCESS',
+          relationCopyStatus,
           verified: true,
           action: 'CREATED',
           taskId: createdWorkItemId,

@@ -9,7 +9,7 @@ test.describe('Mobile Viewport & Responsive Card Journeys', () => {
   });
 
   test('toggles mobile sidebar drawer via hamburger menu', async ({ page }) => {
-    const hamburgerBtn = page.getByRole('button', { name: /open primary navigation|open navigation|toggle navigation|menu/i }).or(page.locator('button[aria-label*="navigation" i]')).first();
+    const hamburgerBtn = page.getByRole('button', { name: 'Open primary navigation', exact: true });
     await expect(hamburgerBtn).toBeVisible();
     await hamburgerBtn.click();
     const sidebar = page.locator('#sidebar');

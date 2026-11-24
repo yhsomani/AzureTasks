@@ -116,10 +116,16 @@ export function normalizeDatabase(databasePath) {
           } else if (typeof assignedTo === 'string' && assignedTo.trim() !== '') {
             assignedIdentityId = assignedTo.trim();
           }
+          let parentId = null;
+          for (const relation of item.relations || []) {
+            if (relation?.rel !== 'System.LinkTypes.Hierarchy-Reverse' || !relation.url) continue;
+            const match = String(relation.url).match(/workItems\/(\d+)$/i);
+            if (match) parentId = Number(match[1]);
+          }
           db.prepare(`INSERT OR REPLACE INTO work_items(project_id,work_item_id,type,title,state,assigned_identity_id,area_path,iteration_path,created_at,changed_at,closed_at,parent_id,tags,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
             .run(projectId, Number(item.id), safe(f['System.WorkItemType']), safe(f['System.Title']), safe(f['System.State']),
               assignedIdentityId, safe(f['System.AreaPath']), safe(f['System.IterationPath']),
-              safe(f['System.CreatedDate']), safe(f['System.ChangedDate']), safe(f['Microsoft.VSTS.Common.ClosedDate']), null,
+              safe(f['System.CreatedDate']), safe(f['System.ChangedDate']), safe(f['Microsoft.VSTS.Common.ClosedDate']), parentId,
               safe(f['System.Tags']), JSON.stringify(item), runId, syncedAt);
         }
       } else if (/\.workItem\.[^.]+\.revisions$/.test(row.scope)) {

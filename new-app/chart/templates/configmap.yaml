@@ -9,5 +9,8 @@ data:
   NODE_ENV: {{ .Values.env.NODE_ENV | default "production" | quote }}
   PORT: {{ .Values.env.PORT | default "3000" | quote }}
   AZURE_DEVOPS_ORG_URL: {{ .Values.env.AZURE_DEVOPS_ORG_URL | quote }}
+  AZURE_DEVOPS_ORG: {{ .Values.env.AZURE_DEVOPS_ORG | default .Values.env.AZURE_DEVOPS_ORG_URL | quote }}
   AZURE_DEVOPS_PROJECT: {{ .Values.env.AZURE_DEVOPS_PROJECT | quote }}
   TIMEZONE: {{ .Values.env.TIMEZONE | default "UTC" | quote }}
+  AZURE_DEVOPS_TIMEZONE: {{ .Values.env.AZURE_DEVOPS_TIMEZONE | default .Values.env.TIMEZONE | default "UTC" | quote }}
+  LISTEN_HOST: {{ .Values.env.LISTEN_HOST | default "0.0.0.0" | quote }}

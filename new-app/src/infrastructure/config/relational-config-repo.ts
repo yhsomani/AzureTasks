@@ -152,6 +152,7 @@ export class RelationalConfigRepository implements ConfigRepository {
             key: r.upn_key || r.primary_username || (r.canonical_email ? r.canonical_email.split('@')[0] : r.canonical_id),
             name: r.display_name,
             assignedTo: r.canonical_email,
+            canonicalId: r.canonical_id,
             role: r.role || 'Developer',
             enabled: r.enabled !== 0 && r.ci_active !== 0,
             autoCloseEnabled: r.auto_close_enabled !== 0,
@@ -206,6 +207,7 @@ export class RelationalConfigRepository implements ConfigRepository {
             key: r.upn_key || r.primary_username || (r.canonical_email ? r.canonical_email.split('@')[0] : r.canonical_id),
             name: r.display_name,
             assignedTo: r.canonical_email,
+            canonicalId: r.canonical_id,
             role: r.role || 'Developer',
             enabled: r.enabled !== 0 && r.ci_active !== 0,
             autoCloseEnabled: r.auto_close_enabled !== 0,
@@ -219,6 +221,43 @@ export class RelationalConfigRepository implements ConfigRepository {
           return person;
         });
       }
+    }
+
+    // Attach every configured identity alias to each person. This avoids the
+    // previous one-row LEFT JOIN behavior, which silently discarded descriptors
+    // and historical UPNs depending on query order.
+    if (people.length > 0) {
+      const aliasesByCanonicalId = new Map<string, string[]>();
+      const aliasValues = this.db.engine === 'sqlite'
+        ? this.db.sqlite.prepare(`
+            SELECT canonical_id, alias_value
+            FROM identity_aliases
+            ORDER BY created_at ASC
+          `).all() as Array<{ canonical_id: string; alias_value: string }>
+        : (await this.db.pool.query(`
+            SELECT canonical_id, alias_value
+            FROM identity_aliases
+            ORDER BY created_at ASC
+          `)).rows as Array<{ canonical_id: string; alias_value: string }>;
+
+      for (const row of aliasValues) {
+        const values = aliasesByCanonicalId.get(row.canonical_id) || [];
+        if (typeof row.alias_value === 'string' && row.alias_value.trim()) {
+          values.push(row.alias_value.trim());
+        }
+        aliasesByCanonicalId.set(row.canonical_id, values);
+      }
+
+      people = people.map(person => {
+        if (!person.canonicalId) return person;
+        return {
+          ...person,
+          aliases: Array.from(new Set([
+            ...(person.aliases || []),
+            ...(aliasesByCanonicalId.get(person.canonicalId) || []),
+          ])),
+        };
+      });
     }
 
     // Fall back to people cached in settings if relational table has 0 rows
@@ -397,6 +436,12 @@ export class RelationalConfigRepository implements ConfigRepository {
         if (person.key) {
           aliasStmt.run(`ia_${canonicalId}_key`, canonicalId, 'upn_alias', person.key, 1, nowIso);
         }
+        for (const [index, alias] of (person.aliases || []).entries()) {
+          const cleanAlias = alias.trim();
+          if (!cleanAlias) continue;
+          const identityType = cleanAlias.includes('@') ? 'azure_upn' : cleanAlias.includes(':') ? 'azure_descriptor' : 'azure_alias';
+          aliasStmt.run(`ia_${canonicalId}_alias_${index}_${crypto.createHash('sha256').update(cleanAlias.toLowerCase()).digest('hex').slice(0, 12)}`, canonicalId, identityType, cleanAlias, 1, nowIso);
+        }
         aliasStmt.run(`ia_${canonicalId}_disp`, canonicalId, 'display_alias', displayName, 1, nowIso);
 
         this.db.sqlite.prepare(`
@@ -448,6 +493,24 @@ export class RelationalConfigRepository implements ConfigRepository {
             ON CONFLICT (identity_type, alias_value) DO NOTHING
           `, [`ia_${canonicalId}_gh`, canonicalId, 'github_username', githubUsername, 1, nowIso]);
         }
+
+        for (const [index, alias] of (person.aliases || []).entries()) {
+          const cleanAlias = alias.trim();
+          if (!cleanAlias) continue;
+          const identityType = cleanAlias.includes('@') ? 'azure_upn' : cleanAlias.includes(':') ? 'azure_descriptor' : 'azure_alias';
+          const aliasId = `ia_${canonicalId}_alias_${index}_${crypto.createHash('sha256').update(cleanAlias.toLowerCase()).digest('hex').slice(0, 12)}`;
+          await this.db.pool.query(`
+            INSERT INTO identity_aliases (id, canonical_id, identity_type, alias_value, is_verified, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (identity_type, alias_value) DO NOTHING
+          `, [aliasId, canonicalId, identityType, cleanAlias, 1, nowIso]);
+        }
+
+        await this.db.pool.query(`
+          INSERT INTO identity_aliases (id, canonical_id, identity_type, alias_value, is_verified, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT (identity_type, alias_value) DO NOTHING
+        `, [`ia_${canonicalId}_disp`, canonicalId, 'display_alias', displayName, 1, nowIso]);
 
         await this.db.pool.query(`
           INSERT INTO team_members (

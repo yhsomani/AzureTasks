@@ -14,6 +14,7 @@ import {
   parseWorkItemTaskDate,
   extractWorkItemPlannedStartDate,
   extractWorkItemRecordedDate,
+  getPersonIdentityAliases,
   matchesPerson,
   matchesTaskSeries,
   validateSourceTaskOwnership,
@@ -85,13 +86,16 @@ export class AzureWorkItemService implements WorkItemRepository {
     }
 
     // Query candidate work items targeting the person directly in Azure DevOps
+    const identityValues = [personIdentity];
+    const identityList = Array.from(new Set(identityValues.map(value => value.trim()).filter(Boolean)))
+      .map(value => `'${this.escapeWiql(value)}'`).join(', ');
     let wiql = `
       SELECT [System.Id], [System.Title], [System.AssignedTo], [System.CreatedDate]
       FROM WorkItems
       WHERE [System.TeamProject] = '${this.escapeWiql(project)}'
         AND [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
         AND [System.State] <> 'Removed'
-        AND ([System.AssignedTo] = '${this.escapeWiql(personIdentity)}' OR [System.AssignedTo] CONTAINS '${this.escapeWiql(personIdentity)}')
+        AND [System.AssignedTo] IN (${identityList})
       ORDER BY [System.CreatedDate] DESC, [System.Id] DESC
     `;
 
@@ -121,11 +125,9 @@ export class AzureWorkItemService implements WorkItemRepository {
       return null;
     }
 
-    const targetPerson = {
-      assignedTo: personIdentity,
-      name: personIdentity,
-      key: personIdentity.toLowerCase().trim(),
-    };
+    const targetPerson = typeof personIdentity === 'string'
+        ? { assignedTo: personIdentity, name: personIdentity, key: personIdentity.toLowerCase().trim() }
+        : personIdentity;
 
     // CreatedDate order is not the same as the dated task title. A fixed
     // first-100 slice can discard the chronologically latest task.
@@ -245,7 +247,10 @@ export class AzureWorkItemService implements WorkItemRepository {
 
     // Query candidate work items targeting the discovery people directly in Azure DevOps
     const assignedEmails = Array.from(
-      new Set(discoveryPeople.flatMap(p => [p.assignedTo, p.name].filter(Boolean) as string[]))
+      new Set(discoveryPeople.flatMap(person => [
+        ...getPersonIdentityAliases(person),
+        person.name,
+      ]).filter(Boolean) as string[])
     ).map(id => `'${this.escapeWiql(id)}'`).join(', ');
 
     let wiql = `
@@ -399,17 +404,22 @@ export class AzureWorkItemService implements WorkItemRepository {
     project: string,
     workItemType: string,
     titlePrefix: string,
-    personIdentity: string,
+    personIdentity: string | Person,
     startDate: string,
     endDate: string
   ): Promise<Map<string, { id: number; title: string; isoDate: string; count?: number }>> {
+    const identityValues = typeof personIdentity === 'string'
+      ? [personIdentity]
+      : [...getPersonIdentityAliases(personIdentity), personIdentity.name];
+    const identityList = Array.from(new Set(identityValues.map(value => value.trim()).filter(Boolean)))
+      .map(value => `'${this.escapeWiql(value)}'`).join(', ');
     let wiql = `
       SELECT [System.Id], [System.Title], [System.AssignedTo], [System.CreatedDate]
       FROM WorkItems
       WHERE [System.TeamProject] = '${this.escapeWiql(project)}'
         AND [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
         AND [System.State] <> 'Removed'
-        AND ([System.AssignedTo] = '${this.escapeWiql(personIdentity)}' OR [System.AssignedTo] CONTAINS '${this.escapeWiql(personIdentity)}')
+        AND [System.AssignedTo] IN (${identityList})
       ORDER BY [System.CreatedDate] DESC, [System.Id] DESC
     `;
 
@@ -447,11 +457,9 @@ export class AzureWorkItemService implements WorkItemRepository {
     const existingMap = new Map<string, { id: number; title: string; isoDate: string; count?: number }>();
     
     if (result.workItems && result.workItems.length > 0) {
-      const targetPerson = {
-        assignedTo: personIdentity,
-        name: personIdentity,
-        key: personIdentity.toLowerCase().trim(),
-      };
+      const targetPerson = typeof personIdentity === 'string'
+        ? { assignedTo: personIdentity, name: personIdentity, key: personIdentity.toLowerCase().trim() }
+        : personIdentity;
 
       const ids = result.workItems.map(w => w.id);
       const CHUNK_SIZE = 100;

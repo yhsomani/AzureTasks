@@ -37,3 +37,21 @@ docs/
 .vscode/
 *.swp
 *.bak
+
+# Local runtime state and sensitive data
+people.json
+.task-journal.json
+.auto-closure-config.json
+.auto-closure-audit.json
+.work-calendar.json
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data.txt*
+.journal-archives/
+.audit-archives/
+backups/
+artifacts/

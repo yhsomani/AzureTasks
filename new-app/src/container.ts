@@ -124,17 +124,30 @@ export async function buildApp(
         url: options.databaseUrl || process.env.DATABASE_URL,
       });
     } catch (err: any) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error(`Production database initialization failed: ${err.message}`);
+      }
       logger.warn(`Failed to initialize database: ${err.message}.`);
     }
+  }
+
+  if (db?.engine === 'postgres') {
+    const { initPostgresSchema } = await import('./infrastructure/persistence/database.js');
+    await initPostgresSchema(db.pool);
   }
 
   // Dual-mode Config Repository: Relational primary with FileConfigRepository fallback & auto-seeding
   const fileConfigRepo = new FileConfigRepository(configFilePath);
   const relationalConfigRepo = db ? new RelationalConfigRepository(db, configFilePath) : undefined;
   const configRepo: ConfigRepository = relationalConfigRepo
-    ? new DualConfigRepository(relationalConfigRepo, fileConfigRepo)
+    ? (process.env.NODE_ENV === 'production'
+      ? relationalConfigRepo
+      : new DualConfigRepository(relationalConfigRepo, fileConfigRepo))
     : fileConfigRepo;
-  const config = await configRepo.load();
+  const configMigrationRepo = relationalConfigRepo
+    ? new DualConfigRepository(relationalConfigRepo, fileConfigRepo)
+    : undefined;
+  const config = await (configMigrationRepo ? configMigrationRepo.load() : configRepo.load());
 
   const pat = process.env.AZURE_DEVOPS_PAT?.trim() || '';
   if (pat) logger.registerSecret(pat);
@@ -160,7 +173,9 @@ export async function buildApp(
   );
   const relationalJournalRepo = db ? new RelationalJournalRepository(db) : undefined;
   const journalRepo: JournalRepository = relationalJournalRepo
-    ? new DualJournalRepository(relationalJournalRepo, fileJournalRepo)
+    ? (process.env.NODE_ENV === 'production'
+      ? relationalJournalRepo
+      : new DualJournalRepository(relationalJournalRepo, fileJournalRepo))
     : fileJournalRepo;
 
   const planTokenRepo: IPlanTokenRepository =
@@ -178,14 +193,18 @@ export async function buildApp(
   const fileAutoClosureConfigRepo = new FileAutoClosureConfigRepository();
   const relationalAutoClosureConfigRepo = db ? new RelationalAutoClosureConfigRepository(db) : undefined;
   const autoClosureConfigRepo: AutoClosureConfigRepository = relationalAutoClosureConfigRepo
-    ? new DualAutoClosureConfigRepository(relationalAutoClosureConfigRepo, fileAutoClosureConfigRepo)
+    ? (process.env.NODE_ENV === 'production'
+      ? relationalAutoClosureConfigRepo
+      : new DualAutoClosureConfigRepository(relationalAutoClosureConfigRepo, fileAutoClosureConfigRepo))
     : fileAutoClosureConfigRepo;
 
   // Dual-mode Auto-Closure Audit Repository
   const fileAutoClosureAuditRepo = new FileAutoClosureAuditRepository();
   const relationalAutoClosureAuditRepo = db ? new RelationalAutoClosureAuditRepository(db) : undefined;
   const autoClosureAuditRepo: AutoClosureAuditLogRepository = relationalAutoClosureAuditRepo
-    ? new DualAutoClosureAuditRepository(relationalAutoClosureAuditRepo, fileAutoClosureAuditRepo)
+    ? (process.env.NODE_ENV === 'production'
+      ? relationalAutoClosureAuditRepo
+      : new DualAutoClosureAuditRepository(relationalAutoClosureAuditRepo, fileAutoClosureAuditRepo))
     : fileAutoClosureAuditRepo;
 
   const datePlanning = new DatePlanningService();

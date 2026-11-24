@@ -202,4 +202,19 @@ describe('Milestone 3 — Feature 16 & 17: Pluggable Relational Persistence & Sc
     const updated = await tokenRepo.getTokenByHash(tokenHash);
     expect(updated?.isExecuted).toBe(true);
   });
+
+  it('round-trips canonical identity aliases into runtime person configuration', async () => {
+    const { RelationalConfigRepository } = await import('../../src/infrastructure/config/relational-config-repo.js');
+    const repo = new RelationalConfigRepository(db);
+    await repo.savePeople([{
+      key: 'alias-user', name: 'Alias User', assignedTo: 'current@example.com',
+      aliases: ['old@example.com', 'aad.subject', '11111111-1111-1111-1111-111111111111'],
+      enabled: true,
+    }]);
+    const config = await repo.load();
+    expect(config.people[0].canonicalId).toBe('usr_alias-user');
+    expect(config.people[0].aliases).toEqual(expect.arrayContaining([
+      'old@example.com', 'aad.subject', '11111111-1111-1111-1111-111111111111',
+    ]));
+  });
 });

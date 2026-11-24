@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import type { WorkItem } from './task.js';
 
 export interface PlanSnapshotItem {
   personKey: string;
@@ -10,6 +11,7 @@ export interface PlanSnapshotItem {
   originalEstimate?: number;
   activity?: string;
   description?: string;
+  sourceTask?: WorkItem;
 }
 
 export interface PlanSnapshot {
@@ -22,10 +24,12 @@ export interface PlanSnapshot {
 }
 
 export function getPlanSigningSecret(): string {
-  return (
-    process.env.PLAN_SIGNING_SECRET ||
-    'workops-production-plan-signing-secret-32-chars-long-key!'
-  );
+  const configured = process.env.PLAN_SIGNING_SECRET?.trim();
+  if (configured) return configured;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('PLAN_SIGNING_SECRET is required in production.');
+  }
+  return 'workops-development-only-plan-signing-secret';
 }
 
 export function computePlanHash(snapshot: any): string {

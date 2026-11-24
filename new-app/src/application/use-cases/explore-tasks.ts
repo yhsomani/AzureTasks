@@ -4,7 +4,7 @@
  */
 
 import { WorkItemRepository, AppConfig } from '../../domain/ports/repositories.js';
-import { Person, PersonConfig, matchesPerson } from '../../domain/entities/person.js';
+import { Person, PersonConfig, getPersonIdentityAliases, hasAuthoritativePersonMatch, matchesPerson } from '../../domain/entities/person.js';
 import { workdayEligibility } from '../../domain/services/work-calendar.js';
 import {
   WorkItem,
@@ -131,6 +131,12 @@ export interface ExploreTasksOutput {
   }>;
   matrix: UserMatrixRow[];
   detailedTasks: DetailedTaskItem[];
+  identityDiagnostics?: Array<{
+    workItemId: number;
+    status: 'UNRESOLVED' | 'AMBIGUOUS';
+    assignee: string;
+    matchedPersonKeys: string[];
+  }>;
   warnings?: string[];
 }
 
@@ -300,7 +306,10 @@ export class ExploreTasksUseCase {
       this.config.titlePrefix,
       startDate,
       endDate,
-      Array.from(new Set(selectedPeople.flatMap(p => [p.assignedTo, p.name].filter(Boolean) as string[])))
+      Array.from(new Set(selectedPeople.flatMap(person => [
+        ...getPersonIdentityAliases(person),
+        person.name,
+      ]).filter(Boolean) as string[]))
     );
 
     // Index work items by Person Key -> Date ISO -> WorkItem[]
@@ -308,6 +317,13 @@ export class ExploreTasksUseCase {
     for (const p of selectedPeople) {
       personTaskIndex.set(p.key.toLowerCase(), new Map());
     }
+
+    const identityDiagnostics: Array<{
+      workItemId: number;
+      status: 'UNRESOLVED' | 'AMBIGUOUS';
+      assignee: string;
+      matchedPersonKeys: string[];
+    }> = [];
 
     for (const item of candidateWorkItems) {
       // Exclude User Stories and parent containers (which have child links or User Story type)
@@ -317,57 +333,73 @@ export class ExploreTasksUseCase {
       const assignedToVal = item.fields['System.AssignedTo'];
       const title = String(item.fields['System.Title'] || '');
 
-      for (const p of selectedPeople) {
-        if (matchesPerson(assignedToVal, p)) {
-          let itemDate = '';
-          const memberPrefix = p.titlePrefix || this.config.titlePrefix;
+      const matchingPeople = selectedPeople.filter(person => hasAuthoritativePersonMatch(assignedToVal, person));
+      const resolvedPeople = matchingPeople.length > 0
+        ? matchingPeople
+        : selectedPeople.filter(person => matchesPerson(assignedToVal, person));
+      if (resolvedPeople.length !== 1) {
+        const assignee = typeof assignedToVal === 'object'
+          ? String((assignedToVal as Record<string, unknown>)?.uniqueName || (assignedToVal as Record<string, unknown>)?.displayName || '')
+          : String(assignedToVal || '');
+        identityDiagnostics.push({
+          workItemId: item.id,
+          status: resolvedPeople.length === 0 ? 'UNRESOLVED' : 'AMBIGUOUS',
+          assignee,
+          matchedPersonKeys: resolvedPeople.map(person => person.key),
+        });
+        continue;
+      }
 
-          // 1. Prioritize Planned Start Date as primary source of truth
-          const planned = extractWorkItemPlannedStartDate(item, timezone);
-          if (planned && (!title.includes('|') || (memberPrefix && matchesTaskSeries(title, memberPrefix)))) {
-            itemDate = planned.isoDate;
-          }
+      const p = resolvedPeople[0];
+      {
+        let itemDate = '';
+        const memberPrefix = p.titlePrefix || this.config.titlePrefix;
 
-          // 2. If no Planned Start Date, check task title series parsing
-          if (!itemDate) {
-            if (p.titlePrefix) {
-              if (matchesTaskSeries(title, p.titlePrefix)) {
-                const parsed = parseWorkItemTaskDate(item, p.titlePrefix, timezone);
-                if (parsed.isValid) itemDate = parsed.isoDate;
-              }
-            } else {
-              // Check default series prefix
-              if (matchesTaskSeries(title, this.config.titlePrefix)) {
-                const parsed = parseWorkItemTaskDate(item, this.config.titlePrefix, timezone);
-                if (parsed.isValid) itemDate = parsed.isoDate;
-              } else if (!title.includes('|')) {
-                // Non-pipe task formats (e.g. Mukul's "23 Oct 26 - Task", "My Account Task - 21 Oct")
-                const titleParsed = parseTitleDate(title, undefined, true);
-                if (titleParsed.isValid) itemDate = titleParsed.isoDate;
-              }
-            }
-          }
-
-          // 3. Fallback to any remaining Azure recorded dates (ActualStartDate, etc.)
-          if (!itemDate && (!title.includes('|') || (memberPrefix && matchesTaskSeries(title, memberPrefix)))) {
-            const recorded = extractWorkItemRecordedDate(item, timezone);
-            if (recorded) {
-              itemDate = recorded.isoDate;
-            }
-          }
-
-          if (!itemDate) continue;
-
-          const pKey = p.key.toLowerCase();
-          let dateMap = personTaskIndex.get(pKey);
-          if (!dateMap) {
-            dateMap = new Map();
-            personTaskIndex.set(pKey, dateMap);
-          }
-          const list = dateMap.get(itemDate) || [];
-          list.push(item);
-          dateMap.set(itemDate, list);
+        // 1. Prioritize Planned Start Date as primary source of truth
+        const planned = extractWorkItemPlannedStartDate(item, timezone);
+        if (planned && (!title.includes('|') || (memberPrefix && matchesTaskSeries(title, memberPrefix)))) {
+          itemDate = planned.isoDate;
         }
+
+        // 2. If no Planned Start Date, check task title series parsing
+        if (!itemDate) {
+          if (p.titlePrefix) {
+            if (matchesTaskSeries(title, p.titlePrefix)) {
+              const parsed = parseWorkItemTaskDate(item, p.titlePrefix, timezone);
+              if (parsed.isValid) itemDate = parsed.isoDate;
+            }
+          } else {
+            // Check default series prefix
+            if (matchesTaskSeries(title, this.config.titlePrefix)) {
+              const parsed = parseWorkItemTaskDate(item, this.config.titlePrefix, timezone);
+              if (parsed.isValid) itemDate = parsed.isoDate;
+            } else if (!title.includes('|')) {
+              // Non-pipe task formats (e.g. Mukul's "23 Oct 26 - Task", "My Account Task - 21 Oct")
+              const titleParsed = parseTitleDate(title, undefined, true);
+              if (titleParsed.isValid) itemDate = titleParsed.isoDate;
+            }
+          }
+        }
+
+        // 3. Fallback to any remaining Azure recorded dates (ActualStartDate, etc.)
+        if (!itemDate && (!title.includes('|') || (memberPrefix && matchesTaskSeries(title, memberPrefix)))) {
+          const recorded = extractWorkItemRecordedDate(item, timezone);
+          if (recorded) {
+            itemDate = recorded.isoDate;
+          }
+        }
+
+        if (!itemDate) continue;
+
+        const pKey = p.key.toLowerCase();
+        let dateMap = personTaskIndex.get(pKey);
+        if (!dateMap) {
+          dateMap = new Map();
+          personTaskIndex.set(pKey, dateMap);
+        }
+        const list = dateMap.get(itemDate) || [];
+        list.push(item);
+        dateMap.set(itemDate, list);
       }
     }
 
@@ -491,60 +523,47 @@ export class ExploreTasksUseCase {
         };
 
         // Add to detailed task items
-        if (taskSummaries.length > 0) {
-          for (const ts of taskSummaries) {
-            detailedTasks.push({
-              dateIso: cal.dateIso,
-              formattedDate: cal.formattedDate,
-              dayOfWeek: cal.dayOfWeek,
-              isWeekend: cal.isWeekend,
-              person: person.toConfig(),
-              taskId: ts.id,
-              title: ts.title,
-              state: ts.state,
-              createdDate: ts.createdDate,
-              changedDate: ts.changedDate,
-              status,
-              isEligibleForCreation: isEligible,
-              url: ts.url,
-              completedWork: ts.completedWork,
-              remainingWork: ts.remainingWork,
-            });
-          }
-        } else if (!cal.isWeekend) {
+        if (primaryTask) {
           detailedTasks.push({
             dateIso: cal.dateIso,
             formattedDate: cal.formattedDate,
             dayOfWeek: cal.dayOfWeek,
             isWeekend: cal.isWeekend,
-            person: person.toConfig(),
+            person,
+            taskId: primaryTask.id,
+            title: primaryTask.title,
+            state: primaryTask.state,
+            createdDate: primaryTask.createdDate,
+            changedDate: primaryTask.changedDate,
             status,
             isEligibleForCreation: isEligible,
+            url: primaryTask.url,
+            completedWork: primaryTask.completedWork,
+            remainingWork: primaryTask.remainingWork,
           });
         }
       }
 
-      const coveragePercent = eligibleDays > 0
-        ? Math.min(100, Math.round((userCreated / eligibleDays) * 100))
-        : 0;
+      const coveragePercent = eligibleDays > 0 ? (userCreated / eligibleDays) * 100 : 0;
 
       matrix.push({
-        person: person.toConfig(),
+        person,
         cells,
         stats: {
-          totalWorkingDays: eligibleDays,
+          totalWorkingDays: workingDaysCount,
           createdCount: userCreated,
           missingCount: userMissing,
           duplicateCount: userDuplicates,
           coveragePercent,
           stateCounts: userStateCounts,
-          totalCompletedWork: userRecordedCompleted ? userCompletedWork : null,
-          totalRemainingWork: userRecordedRemaining ? userRemainingWork : null,
+          totalCompletedWork: userRecordedCompleted > 0 ? userCompletedWork : null,
+          totalRemainingWork: userRecordedRemaining > 0 ? userRemainingWork : null,
           recordedCompletedWorkTasks: userRecordedCompleted,
           unrecordedCompletedWorkTasks: userUnrecordedCompleted,
         },
       });
 
+      // Aggregate overall stats
       overallCreated += userCreated;
       overallMissing += userMissing;
       overallDuplicates += userDuplicates;
@@ -553,22 +572,17 @@ export class ExploreTasksUseCase {
       overallRecordedCompleted += userRecordedCompleted;
       overallUnrecordedCompleted += userUnrecordedCompleted;
       overallRecordedRemaining += userRecordedRemaining;
-      overallStateCounts.New += userStateCounts.New;
-      overallStateCounts.Active += userStateCounts.Active;
-      overallStateCounts.Closed += userStateCounts.Closed;
-      overallStateCounts.Resolved += userStateCounts.Resolved;
-      overallStateCounts.Other += userStateCounts.Other || 0;
+      for (const [state, count] of Object.entries(userStateCounts)) {
+        overallStateCounts[state as keyof typeof overallStateCounts] += count;
+      }
     }
 
-    const expectedCombinations = matrix.reduce((total, row) => total + row.stats.totalWorkingDays, 0);
-    const overallCoveragePercent = expectedCombinations > 0
-      ? Math.min(100, Math.round((overallCreated / expectedCombinations) * 100))
-      : 0;
+    const overallCoveragePercent = workingDaysCount > 0 ? (overallCreated / workingDaysCount) * 100 : 0;
 
     return {
       dateRange: {
-        startDate,
-        endDate,
+        startDate: startDate!,
+        endDate: endDate!,
         totalDays: calendarDates.length,
         workingDays: workingDaysCount,
         todayIso,
@@ -577,21 +591,25 @@ export class ExploreTasksUseCase {
       summary: {
         totalSelectedUsers: selectedPeople.length,
         totalWorkingDates: workingDaysCount,
-        expectedCombinations,
-        existingCombinations: overallCreated,
+        expectedCombinations: workingDaysCount * selectedPeople.length,
+        existingCombinations: overallCreated + overallMissing + overallDuplicates,
         missingCombinations: overallMissing,
         duplicateCombinations: overallDuplicates,
         overallCoveragePercent,
         stateCounts: overallStateCounts,
-        totalCompletedWork: overallRecordedCompleted ? overallCompletedWork : null,
-        totalRemainingWork: overallRecordedRemaining ? overallRemainingWork : null,
+        totalCompletedWork: overallRecordedCompleted > 0 ? overallCompletedWork : null,
+        totalRemainingWork: overallRecordedRemaining > 0 ? overallRemainingWork : null,
         recordedCompletedWorkTasks: overallRecordedCompleted,
         unrecordedCompletedWorkTasks: overallUnrecordedCompleted,
       },
-      users: selectedPeople.map(p => p.toConfig()),
+      users: selectedPeople,
       dates: calendarDates,
       matrix,
       detailedTasks,
+      identityDiagnostics,
+      warnings: identityDiagnostics.length > 0
+        ? [`${identityDiagnostics.length} work item assignment(s) could not be resolved unambiguously.`]
+        : undefined,
     };
   }
 }

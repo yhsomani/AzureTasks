@@ -19,6 +19,7 @@ playwright/.cache/
 !.env.example
 .vscode/
 .idea/
+.envrc
 
 # Local State, Locks, and Journals
 .execution-lock.json
@@ -72,3 +73,16 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Generated Browser Evidence, Audit Archives, Test Environments, Backups, and Local Private Key Material
+artifacts/
+.test-env/
+.audit-archives/
+backups/
+.secrets/
+*.p12
+*.pfx
+*.key
+
+# Firefox Temp Directory
+.tmp-playwright/
