@@ -4,6 +4,7 @@ import React, { act } from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { AppShell } from '../../src/presentation/web/src/components/layout/AppShell.js';
 import { AzureIntelligenceWorkspace } from '../../src/presentation/web/src/components/workspaces/AzureIntelligenceWorkspace.js';
+import { UnassignedTaskManager } from '../../src/presentation/web/src/components/workspaces/UnassignedTaskManager.js';
 import { api } from '../../src/presentation/web/src/api/client.js';
 
 describe('React 19 Azure DevOps Intelligence Workspace & Data Presentation', () => {
@@ -192,6 +193,33 @@ describe('React 19 Azure DevOps Intelligence Workspace & Data Presentation', () 
           totalCount: 247,
         });
       }
+      if (url.includes('/api/azure-data/work-items/unassigned')) {
+        return makeJsonResponse({
+          count: 14,
+          workItems: [
+            {
+              projectId: 'a2fa1d4a-63a4-4f95-a4e7-01f4c7ce5fbe',
+              workItemId: 501,
+              type: 'User Story',
+              title: 'Migrate Payment Gateway to V2 SDK',
+              state: 'New',
+              assignedIdentityId: null,
+              areaPath: 'Payments\\Core',
+              iterationPath: 'Sprint 42',
+            },
+            {
+              projectId: 'd07e3437-8c91-4438-8719-7a9a126582db',
+              workItemId: 502,
+              type: 'Bug',
+              title: 'Fix EMI calculation rounding issue on Leap Year',
+              state: 'Active',
+              assignedIdentityId: null,
+              areaPath: 'Lending\\EMI',
+              iterationPath: 'Sprint 42',
+            },
+          ],
+        });
+      }
 
       return makeJsonResponse({});
     });
@@ -277,6 +305,7 @@ describe('React 19 Azure DevOps Intelligence Workspace & Data Presentation', () 
     expect(within(nav).getByRole('button', { name: /alm & kpis overview/i })).toBeDefined();
     expect(within(nav).getByRole('button', { name: /build health/i })).toBeDefined();
     expect(within(nav).getByRole('button', { name: /enterprise teams/i })).toBeDefined();
+    expect(within(nav).getByRole('button', { name: /unassigned tasks/i })).toBeDefined();
   });
 
   it('navigates dynamically to Azure Intelligence workspace in AppShell', async () => {
@@ -293,6 +322,155 @@ describe('React 19 Azure DevOps Intelligence Workspace & Data Presentation', () 
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { level: 1, name: /azure devops alm intelligence/i })).toBeDefined();
+    });
+  });
+
+  it('renders Unassigned Tasks view with filtering, search, and work items', async () => {
+    await act(async () => {
+      render(<AzureIntelligenceWorkspace subView="unassigned" />);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Migrate Payment Gateway to V2 SDK')).toBeDefined();
+      expect(screen.getByText('Fix EMI calculation rounding issue on Leap Year')).toBeDefined();
+    });
+
+    // Check presence of interactive search input
+    const searchInput = screen.getByRole('textbox', { name: /search unassigned tasks/i });
+    expect(searchInput).toBeDefined();
+
+    // Check project filter dropdown
+    const projectFilter = screen.getByRole('combobox', { name: /filter unassigned tasks by project/i });
+    expect(projectFilter).toBeDefined();
+
+    // Check table headers and badges
+    const table = screen.getByRole('table', { name: /unassigned work items table/i });
+    expect(within(table).getByText('#501')).toBeDefined();
+    expect(within(table).getByText('User Story')).toBeDefined();
+    expect(within(table).getByText('Bug')).toBeDefined();
+    expect(screen.getByText('14 Total Unassigned')).toBeDefined();
+  });
+
+  it('filters unassigned tasks dynamically via search input', async () => {
+    await act(async () => {
+      render(<AzureIntelligenceWorkspace subView="unassigned" />);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Migrate Payment Gateway to V2 SDK')).toBeDefined();
+    });
+
+    const searchInput = screen.getByRole('textbox', { name: /search unassigned tasks/i });
+    await act(async () => {
+      fireEvent.change(searchInput, { target: { value: 'Payment' } });
+    });
+
+    expect(screen.getByText('Migrate Payment Gateway to V2 SDK')).toBeDefined();
+    expect(screen.queryByText('Fix EMI calculation rounding issue on Leap Year')).toBeNull();
+  });
+
+  it('navigates to Unassigned Tasks view in AppShell', async () => {
+    await act(async () => {
+      render(<AppShell />);
+    });
+
+    const nav = screen.getByRole('navigation', { name: /primary navigation/i });
+    const unassignedBtn = within(nav).getByRole('button', { name: /unassigned tasks/i });
+
+    await act(async () => {
+      fireEvent.click(unassignedBtn);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Migrate Payment Gateway to V2 SDK')).toBeDefined();
+    });
+  });
+
+  describe('UnassignedTaskManager robustness edge cases', () => {
+    it('handles undefined workItems gracefully without crashing and renders empty state', async () => {
+      let renderResult: any;
+      expect(() => {
+        renderResult = render(
+          <UnassignedTaskManager
+            workItems={undefined as any}
+            totalCount={0}
+            isLoading={false}
+            selectedProjectId=""
+            onSelectProject={() => {}}
+            onRefresh={() => {}}
+          />
+        );
+      }).not.toThrow();
+
+      expect(
+        screen.getByText('No unassigned work items found in this project backlog.')
+      ).toBeDefined();
+      expect(screen.getByText('0 Tasks')).toBeDefined();
+      expect(screen.getByText('Showing 0 of 0 loaded')).toBeDefined();
+    });
+
+    it('handles null workItems gracefully without crashing and renders empty state', async () => {
+      let renderResult: any;
+      expect(() => {
+        renderResult = render(
+          <UnassignedTaskManager
+            workItems={null as any}
+            totalCount={0}
+            isLoading={false}
+            selectedProjectId=""
+            onSelectProject={() => {}}
+            onRefresh={() => {}}
+          />
+        );
+      }).not.toThrow();
+
+      expect(
+        screen.getByText('No unassigned work items found in this project backlog.')
+      ).toBeDefined();
+      expect(screen.getByText('0 Tasks')).toBeDefined();
+      expect(screen.getByText('Showing 0 of 0 loaded')).toBeDefined();
+    });
+
+    it('handles work items with null or missing fields without crashing', async () => {
+      const itemsWithNullFields: any[] = [
+        {
+          id: 991,
+          workItemId: 991,
+          title: null,
+          type: null,
+          projectId: null,
+          state: null,
+          areaPath: null,
+          iterationPath: null,
+        },
+        {
+          id: 992,
+          workItemId: 992,
+          title: undefined,
+          type: undefined,
+          projectId: undefined,
+          state: undefined,
+          areaPath: undefined,
+          iterationPath: undefined,
+        },
+      ];
+
+      expect(() => {
+        render(
+          <UnassignedTaskManager
+            workItems={itemsWithNullFields}
+            totalCount={2}
+            isLoading={false}
+            selectedProjectId=""
+            onSelectProject={() => {}}
+            onRefresh={() => {}}
+          />
+        );
+      }).not.toThrow();
+
+      expect(screen.getByText('#991')).toBeDefined();
+      expect(screen.getByText('#992')).toBeDefined();
+      expect(screen.getAllByText('Default Project').length).toBe(2);
     });
   });
 });

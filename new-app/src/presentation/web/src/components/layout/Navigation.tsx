@@ -66,6 +66,7 @@ export function Navigation({
         { id: 'azure-overview', label: 'ALM & KPIs Overview' },
         { id: 'azure-builds', label: 'Build Health' },
         { id: 'azure-teams', label: 'Enterprise Teams' },
+        { id: 'unassigned', label: 'Unassigned Tasks' },
       ],
     },
   ];

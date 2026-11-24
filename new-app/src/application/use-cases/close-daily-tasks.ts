@@ -19,9 +19,9 @@ import {
   extractWorkItemPlannedStartDate,
   extractWorkItemRecordedDate,
   DatePlanningService,
+  IGitHubClient,
 } from '../../domain/index.js';
 import type { FieldPatchOperation } from '../../domain/services/task-services.js';
-import { GitHubClient } from '../../infrastructure/github/github-client.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { VerifiedAutoClosurePolicyEngine, ClosureDecision } from '../../domain/services/policy-engine.js';
 import { Role, AuthenticatedUser } from '../../infrastructure/auth/rbac.js';
@@ -93,7 +93,7 @@ export class CloseDailyTasksUseCase {
     private readonly config: AppConfig,
     private readonly workItemRepo: WorkItemRepository,
     private readonly datePlanning: DatePlanningService,
-    private readonly githubClient: GitHubClient,
+    private readonly githubClient: IGitHubClient,
     private readonly configRepo?: ConfigRepository,
     private readonly journalRepo?: JournalRepository,
     private readonly lockRepo?: LockRepository,

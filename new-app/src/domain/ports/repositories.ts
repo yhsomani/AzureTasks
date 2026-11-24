@@ -6,6 +6,12 @@
 import { WorkItem, DiscoveredTask, CreatedTask } from '../entities/task.js';
 import { Person, PersonConfig } from '../entities/person.js';
 import type { WorkCalendar } from '../services/work-calendar.js';
+import type {
+  GitHubPullRequest,
+  GitHubPrDeliverables,
+  GitHubCommit,
+  DailyPrTrackingResult,
+} from '../services/github-service.js';
 import {
   FilterType,
   RuleType,
@@ -127,6 +133,11 @@ export interface WorkItemRepository {
     fieldOps: any[],
     options?: { bypassRules?: boolean }
   ): Promise<WorkItem>;
+
+  /**
+   * Find unassigned tasks in Azure DevOps for a project and work item type
+   */
+  findUnassignedTasks?(project: string, workItemType: string): Promise<WorkItem[]>;
 }
 
 /**
@@ -371,6 +382,44 @@ export interface IJobScheduler {
   triggerJob(jobId: string): Promise<boolean>;
   cancelJob(jobId: string): void;
   getJobs(): Array<{ id: string; name: string; running: boolean }>;
+}
+
+/**
+ * GitHub Client Port
+ * Abstract contract for resolving identities and retrieving PR deliverables
+ */
+export interface IGitHubClient {
+  resolveUserByEmail(email: string, userSuffix?: string): Promise<string | null>;
+  getUserPullRequests(
+    username: string,
+    options?: {
+      org?: string;
+      limit?: number;
+      createdRange?: { from: string; to: string };
+      updatedRange?: { from: string; to: string };
+      exhaustive?: boolean;
+    }
+  ): Promise<GitHubPullRequest[]>;
+  getUserCommitsForDate(
+    username: string,
+    targetIsoDate: string,
+    timezone: string,
+    repositories: string[],
+    branches?: string[]
+  ): Promise<GitHubCommit[]>;
+  getPrDeliverablesForDate(
+    username: string,
+    targetIsoDate: string,
+    timezone: string,
+    options?: { org?: string; role?: string; repositories?: string[]; branches?: string[] }
+  ): Promise<GitHubPrDeliverables>;
+  getDailyPullRequestsSummary(options: {
+    people: PersonConfig[];
+    targetIsoDate: string;
+    timezone: string;
+    org?: string;
+  }): Promise<DailyPrTrackingResult>;
+  searchCommits?(query: string): Promise<any>;
 }
 
 export * from './secret-manager.js';

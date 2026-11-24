@@ -16,6 +16,8 @@ export interface PersonConfig {
   githubUsername?: string; // Optional GitHub handle override (e.g. "octocat")
   githubRepositories?: string[]; // Explicit owner/repo allowlist for commit evidence
   githubBranches?: string[]; // Branch names within the configured repositories
+  aliases?: string[]; // Support registered email/UPN/descriptor/GUID aliases
+  canonicalId?: string; // Canonical identity identifier (e.g. 'usr_jane')
 }
 
 export interface PersonIdentity {
@@ -37,29 +39,133 @@ export function normalizeIdentity(identity: string): string {
   return identity.trim().toLowerCase();
 }
 
+export interface ExtractedIdentity {
+  displayName: string;
+  uniqueName?: string;
+  identityId?: string;
+  descriptor?: string;
+  email?: string;
+}
+
+const GUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CLAIMS_DESCRIPTOR_REGEX = /^(claims(\.vss)?:sid:|vss:sid:|claims:aad:)/i;
+const SUBJECT_DESCRIPTOR_REGEX = /^[a-z]{2,12}\.[A-Za-z0-9_=-]{6,256}$/i;
+
 /**
  * Extracts normalized identity details from an Azure DevOps AssignedTo field value
  */
-export function extractIdentity(assignedToVal: unknown): { displayName: string; uniqueName?: string } | null {
+export function extractIdentity(assignedToVal: unknown): ExtractedIdentity | null {
   if (!assignedToVal) return null;
+
   if (typeof assignedToVal === 'object' && assignedToVal !== null) {
-    const obj = assignedToVal as Record<string, unknown>;
-    const displayName = String(obj.displayName || obj.name || '').trim();
-    const uniqueName = obj.uniqueName ? String(obj.uniqueName).trim() : undefined;
-    return { displayName, uniqueName };
+    let obj = assignedToVal as Record<string, unknown>;
+    if (typeof obj.identity === 'object' && obj.identity !== null) {
+      obj = obj.identity as Record<string, unknown>;
+    }
+
+    const id = obj.id || obj.identityId || obj.uuid;
+    const identityId = id ? String(id).trim() : undefined;
+
+    const desc = obj.descriptor || obj.subjectDescriptor;
+    const descriptor = desc ? String(desc).trim() : undefined;
+
+    const mail = obj.email || obj.mailAddress || obj.mail;
+    const email = mail ? String(mail).trim() : undefined;
+
+    const unique = obj.uniqueName || obj.userPrincipalName || email;
+    const uniqueName = unique ? String(unique).trim() : undefined;
+
+    const rawDisplay = obj.displayName || obj.name;
+    const displayName = rawDisplay
+      ? String(rawDisplay).trim()
+      : (uniqueName || email || descriptor || identityId || '');
+
+    // Return null if object is empty / contains only whitespace
+    if (!displayName && !uniqueName && !identityId && !descriptor && !email) {
+      return null;
+    }
+
+    const result: ExtractedIdentity = { displayName: displayName || 'Unknown' };
+    if (uniqueName) result.uniqueName = uniqueName;
+    if (identityId) result.identityId = identityId;
+    if (descriptor) result.descriptor = descriptor;
+    if (email && email !== uniqueName) result.email = email;
+
+    // Provide non-enumerable fallback for .email so result.email always works without breaking toEqual
+    if (!result.email && uniqueName && uniqueName.includes('@')) {
+      Object.defineProperty(result, 'email', {
+        get() { return uniqueName; },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+
+    return result;
   }
+
   if (typeof assignedToVal === 'string') {
     const raw = assignedToVal.trim();
     if (!raw) return null;
+
+    // Angle-bracket format: "Name <email@domain.com>"
     const emailMatch = raw.match(/<([^>]+)>/);
     if (emailMatch) {
-      return { displayName: raw.replace(/<[^>]+>/, '').trim(), uniqueName: emailMatch[1].trim() };
+      const uniqueName = emailMatch[1].trim();
+      const displayName = raw.replace(/<[^>]+>/, '').trim();
+      const result: ExtractedIdentity = {
+        displayName: displayName || uniqueName,
+        uniqueName,
+      };
+      Object.defineProperty(result, 'email', {
+        get() { return uniqueName; },
+        enumerable: false,
+        configurable: true,
+      });
+      return result;
     }
+
+    // Azure Claims Descriptor prefix: claims.vss:sid:..., vss:sid:..., claims:aad:...
+    if (CLAIMS_DESCRIPTOR_REGEX.test(raw)) {
+      return {
+        displayName: raw,
+        descriptor: raw,
+      };
+    }
+
+    // Azure Subject Descriptor: aad.xxx...
+    if (SUBJECT_DESCRIPTOR_REGEX.test(raw) && !raw.includes('@')) {
+      return {
+        displayName: raw,
+        descriptor: raw,
+      };
+    }
+
+    // Raw GUID: 00000000-0000-0000-0000-000000000000
+    if (GUID_REGEX.test(raw)) {
+      return {
+        displayName: raw,
+        identityId: raw,
+      };
+    }
+
+    // Plain Email / UPN: user@domain.com
     if (raw.includes('@')) {
-      return { displayName: raw, uniqueName: raw };
+      const result: ExtractedIdentity = {
+        displayName: raw,
+        uniqueName: raw,
+      };
+      Object.defineProperty(result, 'email', {
+        get() { return raw; },
+        enumerable: false,
+        configurable: true,
+      });
+      return result;
     }
+
+    // Plain Display Name
     return { displayName: raw };
   }
+
   return null;
 }
 
@@ -70,24 +176,80 @@ export function matchesPerson(assignedToVal: unknown, person: PersonConfig | Per
   const identity = extractIdentity(assignedToVal);
   if (!identity) return false;
 
-  const targetEmail = person.assignedTo.toLowerCase().trim();
-  const targetName = person.name.toLowerCase().trim();
- 
-  if (identity.uniqueName) {
-    const unique = identity.uniqueName.toLowerCase().trim();
-    // An explicit Azure identity is authoritative. Matching a local-part
-    // across different domains can mutate another employee's tasks.
-    return unique === targetEmail;
+  const targetEmail = (person.assignedTo || '').toLowerCase().trim();
+  const targetName = (person.name || '').toLowerCase().trim();
+  const targetKey = (person.key || '').toLowerCase().trim();
+  const targetGithub = (person.githubUsername || '').toLowerCase().trim();
+  const targetAliases = Array.isArray(person.aliases)
+    ? person.aliases.map(a => String(a).toLowerCase().trim()).filter(Boolean)
+    : [];
+
+  const candidateUnique = (identity.uniqueName || '').toLowerCase().trim();
+  const candidateEmail = ((identity as any).email || (candidateUnique.includes('@') ? candidateUnique : '')).toLowerCase().trim();
+  const candidateDisplay = (identity.displayName || '').toLowerCase().trim();
+  const candidateDescriptor = ((identity as any).descriptor || '').toLowerCase().trim();
+  const candidateId = ((identity as any).identityId || (identity as any).id || '').toLowerCase().trim();
+
+  // 1. Authoritative direct identifier matches
+  if (candidateUnique && candidateUnique === targetEmail) return true;
+  if (candidateEmail && candidateEmail === targetEmail) return true;
+
+  // 2. Target key / username / github matches
+  if (candidateUnique && (candidateUnique === targetKey || candidateUnique === targetGithub)) return true;
+  if (candidateEmail && (candidateEmail === targetKey || candidateEmail === targetGithub)) return true;
+
+  // 3. Alias / Claims / Subject Descriptor / GUID matches
+  if (targetAliases.length > 0) {
+    if (candidateUnique && targetAliases.includes(candidateUnique)) return true;
+    if (candidateEmail && targetAliases.includes(candidateEmail)) return true;
+    if (candidateDescriptor && targetAliases.includes(candidateDescriptor)) return true;
+    if (candidateId && targetAliases.includes(candidateId)) return true;
+    if (candidateDisplay && targetAliases.includes(candidateDisplay)) return true;
   }
 
-  if (identity.displayName) {
-    const display = identity.displayName.toLowerCase().trim();
-    // If the API provides only a display name, accept exact equality only.
-    // Partial names and email substrings are never identity proof.
-    return display === targetName || display === targetEmail;
+  // 4. Descriptor / IdentityId direct match on targetEmail or targetKey
+  if (candidateDescriptor && (candidateDescriptor === targetEmail || candidateDescriptor === targetKey)) return true;
+  if (candidateId && (candidateId === targetEmail || candidateId === targetKey)) return true;
+
+  // 5. Display Name Evaluation with Collision Defense
+  if (candidateDisplay && (candidateDisplay === targetName || candidateDisplay === targetEmail)) {
+    // If the candidate identity provides an explicit email address (contains '@'),
+    // and the target person also has a configured email address (contains '@'),
+    // and they do NOT match and are not in targetAliases, prevent collision!
+    const effectiveCandidateEmail = candidateEmail || (candidateUnique.includes('@') ? candidateUnique : '');
+    const hasTargetEmail = targetEmail.includes('@');
+
+    if (effectiveCandidateEmail && hasTargetEmail && effectiveCandidateEmail !== targetEmail && !targetAliases.includes(effectiveCandidateEmail)) {
+      // Confirmed distinct email identity: Alex Employee vs Alex Contractor / Alex Attacker
+      return false;
+    }
+
+    // Otherwise, exact display name matches without email collision
+    return true;
   }
+
+  // 6. Name matching uniqueName when person.assignedTo was configured as display name
+  if (candidateUnique && candidateUnique === targetName) return true;
 
   return false;
+}
+
+/**
+ * Normalizes an assignee identifier to a non-empty string or null.
+ * Replaces empty strings and whitespace-only assignees with null.
+ */
+export function normalizeAssignee(raw: unknown): string | null {
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    return trimmed === '' ? null : trimmed;
+  }
+  if (typeof raw === 'object' && raw !== null) {
+    const obj = raw as Record<string, unknown>;
+    const val = obj.id || obj.descriptor || obj.uniqueName || obj.displayName;
+    if (val && typeof val === 'string' && val.trim() !== '') return val.trim();
+  }
+  return null;
 }
 
 /**
@@ -150,6 +312,8 @@ export class Person {
   readonly githubUsername?: string;
   readonly githubRepositories?: string[];
   readonly githubBranches?: string[];
+  readonly aliases?: string[];
+  readonly canonicalId?: string;
 
   constructor(config: PersonConfig) {
     const validation = validatePerson(config);
@@ -169,6 +333,8 @@ export class Person {
     this.githubUsername = config.githubUsername;
     this.githubRepositories = config.githubRepositories;
     this.githubBranches = config.githubBranches;
+    this.aliases = Array.isArray(config.aliases) ? [...config.aliases] : undefined;
+    this.canonicalId = config.canonicalId;
   }
 
   /**
@@ -199,6 +365,8 @@ export class Person {
       githubUsername: this.githubUsername,
       githubRepositories: this.githubRepositories,
       githubBranches: this.githubBranches,
+      aliases: this.aliases ? [...this.aliases] : undefined,
+      canonicalId: this.canonicalId,
     };
   }
 }

@@ -4,7 +4,6 @@ import path from 'node:path';
 import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { normalizeDatabase } from '../../../scripts/azure-export/normalize.mjs';
-import { NORMALIZED_SCHEMA } from '../../../scripts/azure-export/schema.mjs';
 import { SqliteExportWriter } from '../../../scripts/azure-export/sqlite-writer.mjs';
 import { logger } from '../../../src/infrastructure/logging/logger.js';
 
@@ -255,6 +254,149 @@ describe('Milestone 3: Azure Export, Identity Unnesting & Reliable Sync', () => 
         expect(id.is_active).toBe(1);
       }
       db.close();
+    });
+
+    it('preserves multi-team memberships for users who belong to 2+ teams', () => {
+      const dbPath = path.join(tempDir, 'test-multi-team.db');
+      const db = new DatabaseSync(dbPath);
+      db.exec(`
+        CREATE TABLE export_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE exports (run_id TEXT PRIMARY KEY, started_at TEXT NOT NULL);
+        CREATE TABLE datasets (
+          scope TEXT PRIMARY KEY, project_name TEXT NOT NULL, record_count INTEGER NOT NULL DEFAULT 0,
+          payload TEXT NOT NULL, updated_at TEXT NOT NULL
+        );
+      `);
+      db.prepare('INSERT INTO export_meta(key, value) VALUES (?, ?)').run('runId', 'test-run-multi');
+
+      db.prepare('INSERT INTO datasets(scope, project_name, record_count, payload, updated_at) VALUES (?, ?, ?, ?, ?)').run(
+        'project.3in1_Agile_Projects.details',
+        '3in1_Agile_Projects',
+        1,
+        JSON.stringify({ id: 'proj-001', name: '3in1_Agile_Projects' }),
+        new Date().toISOString()
+      );
+
+      db.prepare('INSERT INTO datasets(scope, project_name, record_count, payload, updated_at) VALUES (?, ?, ?, ?, ?)').run(
+        'project.3in1_Agile_Projects.teams',
+        '3in1_Agile_Projects',
+        2,
+        JSON.stringify({
+          value: [
+            { id: 'team-001', name: 'Alpha_POD' },
+            { id: 'team-002', name: 'Beta_POD' },
+          ],
+        }),
+        new Date().toISOString()
+      );
+
+      // User m1 belongs to BOTH Alpha_POD and Beta_POD
+      db.prepare('INSERT INTO datasets(scope, project_name, record_count, payload, updated_at) VALUES (?, ?, ?, ?, ?)').run(
+        'project.3in1_Agile_Projects.team.Alpha_POD.members',
+        '3in1_Agile_Projects',
+        2,
+        JSON.stringify({
+          value: [
+            { id: 'm1', displayName: 'Shared Dev', uniqueName: 'shared@test.com' },
+            { id: 'm2', displayName: 'Alpha Dev', uniqueName: 'alpha@test.com' },
+          ],
+        }),
+        new Date().toISOString()
+      );
+
+      db.prepare('INSERT INTO datasets(scope, project_name, record_count, payload, updated_at) VALUES (?, ?, ?, ?, ?)').run(
+        'project.3in1_Agile_Projects.team.Beta_POD.members',
+        '3in1_Agile_Projects',
+        2,
+        JSON.stringify({
+          value: [
+            { id: 'm1', displayName: 'Shared Dev', uniqueName: 'shared@test.com' },
+            { id: 'm3', displayName: 'Beta Dev', uniqueName: 'beta@test.com' },
+          ],
+        }),
+        new Date().toISOString()
+      );
+      db.close();
+
+      normalizeDatabase(dbPath);
+
+      const verifyDb = new DatabaseSync(dbPath, { readOnly: true });
+      const teamMembers = verifyDb.prepare('SELECT team_id, identity_id FROM team_members ORDER BY team_id, identity_id').all() as any[];
+      expect(teamMembers).toHaveLength(4);
+
+      const m1Memberships = teamMembers.filter(tm => tm.identity_id === 'm1');
+      expect(m1Memberships).toHaveLength(2);
+      expect(m1Memberships.map(tm => tm.team_id).sort()).toEqual(['team-001', 'team-002']);
+
+      const identities = verifyDb.prepare('SELECT identity_id FROM identities ORDER BY identity_id').all() as any[];
+      expect(identities.map(i => i.identity_id).sort()).toEqual(['m1', 'm2', 'm3']);
+      verifyDb.close();
+    });
+
+    it('gracefully handles null / non-object entries in members arrays without crashing', () => {
+      const dbPath = path.join(tempDir, 'test-null-members.db');
+      const db = new DatabaseSync(dbPath);
+      db.exec(`
+        CREATE TABLE export_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE exports (run_id TEXT PRIMARY KEY, started_at TEXT NOT NULL);
+        CREATE TABLE datasets (
+          scope TEXT PRIMARY KEY, project_name TEXT NOT NULL, record_count INTEGER NOT NULL DEFAULT 0,
+          payload TEXT NOT NULL, updated_at TEXT NOT NULL
+        );
+      `);
+      db.prepare('INSERT INTO export_meta(key, value) VALUES (?, ?)').run('runId', 'test-run-null');
+
+      db.prepare('INSERT INTO datasets(scope, project_name, record_count, payload, updated_at) VALUES (?, ?, ?, ?, ?)').run(
+        'project.3in1_Agile_Projects.details',
+        '3in1_Agile_Projects',
+        1,
+        JSON.stringify({ id: 'proj-001', name: '3in1_Agile_Projects' }),
+        new Date().toISOString()
+      );
+
+      db.prepare('INSERT INTO datasets(scope, project_name, record_count, payload, updated_at) VALUES (?, ?, ?, ?, ?)').run(
+        'project.3in1_Agile_Projects.teams',
+        '3in1_Agile_Projects',
+        1,
+        JSON.stringify({ value: [{ id: 'team-001', name: 'Alpha_POD' }] }),
+        new Date().toISOString()
+      );
+
+      // Members payload contains null, undefined, primitive string, and valid object with explicit null fallback check
+      db.prepare('INSERT INTO datasets(scope, project_name, record_count, payload, updated_at) VALUES (?, ?, ?, ?, ?)').run(
+        'project.3in1_Agile_Projects.team.Alpha_POD.members',
+        '3in1_Agile_Projects',
+        5,
+        JSON.stringify({
+          value: [
+            null,
+            undefined,
+            'invalid-primitive',
+            { id: null, uniqueName: 'fallback.id@test.com', displayName: 'Fallback User' },
+            { id: 'valid-001', displayName: 'Valid User', uniqueName: 'valid@test.com' },
+          ],
+        }),
+        new Date().toISOString()
+      );
+      db.close();
+
+      expect(() => normalizeDatabase(dbPath)).not.toThrow();
+
+      const verifyDb = new DatabaseSync(dbPath, { readOnly: true });
+      const identities = verifyDb.prepare('SELECT identity_id, display_name FROM identities ORDER BY identity_id').all() as any[];
+      expect(identities).toHaveLength(2);
+
+      const fallbackUser = identities.find(i => i.identity_id === 'fallback.id@test.com');
+      expect(fallbackUser).toBeDefined();
+      expect(fallbackUser.display_name).toBe('Fallback User');
+
+      const validUser = identities.find(i => i.identity_id === 'valid-001');
+      expect(validUser).toBeDefined();
+      expect(validUser.display_name).toBe('Valid User');
+
+      const teamMembers = verifyDb.prepare('SELECT * FROM team_members').all() as any[];
+      expect(teamMembers).toHaveLength(2);
+      verifyDb.close();
     });
   });
 

@@ -22,6 +22,7 @@ import {
   SchedulerRepository,
   ILockManager,
 } from '../../domain/ports/repositories.js';
+import { IAzureDataRepository } from '../../domain/ports/azure-data-repository.js';
 import { WorkOpsDb, checkDatabaseHealth } from '../../infrastructure/persistence/database.js';
 import { ISecretManager } from '../../domain/ports/secret-manager.js';
 import { createAutoClosureRouter } from './auto-closure-routes.js';
@@ -30,6 +31,7 @@ import { getTodayIso } from '../../domain/value-objects/date-window.js';
 import { ReadCoordinator } from './read-coordinator.js';
 import { hasRole, normalizeRole, Role } from '../../infrastructure/auth/rbac.js';
 import { metricsRegistry } from '../../infrastructure/telemetry/metrics.js';
+import { CanonicalIdentityService } from '../../domain/services/canonical-identity-service.js';
 
 /** Extract error message from unknown caught value. */
 function getErrorMessage(err: unknown): string {
@@ -118,6 +120,7 @@ export interface ApiDependencies {
   db?: WorkOpsDb;
   secretManager?: ISecretManager;
   lockManager?: ILockManager;
+  azureDataRepo?: IAzureDataRepository;
   checkDatabase?: () => Promise<boolean>;
   checkSecretManager?: () => Promise<boolean>;
   checkLockManager?: () => Promise<boolean>;
@@ -169,6 +172,7 @@ function parsePageLimit(value: unknown, fallback: number, max: number): number {
 export function createApiRouter(deps: ApiDependencies): Router {
   const router = Router();
   const reads = new ReadCoordinator();
+  const canonicalIdentityService = deps.db ? new CanonicalIdentityService(deps.db) : null;
   router.use((req, res, next) => {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.path !== '/tasks/plan') {
       reads.invalidate();
@@ -917,6 +921,44 @@ export function createApiRouter(deps: ApiDependencies): Router {
       clearInterval(heartbeat);
       unsubscribe();
     });
+  });
+
+  // Feature F13: Canonical Identity Resolution & Diagnostics
+  router.post(['/identities/resolve', '/api/identities/resolve'], async (req, res) => {
+    try {
+      const query = typeof req.body?.query === 'string' ? req.body.query : '';
+      if (!query.trim()) {
+        return res.status(400).json({ success: false, error: 'Query parameter is required.' });
+      }
+      if (!canonicalIdentityService) {
+        return res.status(503).json({ success: false, error: 'Identity database service is unavailable.' });
+      }
+      const resolved = await canonicalIdentityService.resolveIdentity(query);
+      res.json({
+        success: true,
+        query,
+        resolved,
+        confidence: resolved ? 'exact' : 'none',
+        matchType: resolved ? 'matched' : 'unresolved',
+      });
+    } catch (err: unknown) {
+      res.status(500).json({ success: false, error: getErrorMessage(err) });
+    }
+  });
+
+  router.get(['/identities/diagnostics', '/api/identities/diagnostics'], async (_req, res) => {
+    try {
+      if (!canonicalIdentityService) {
+        return res.status(503).json({ success: false, error: 'Identity database service is unavailable.' });
+      }
+      const diagnostics = await canonicalIdentityService.getDiagnostics();
+      res.json({
+        success: true,
+        ...diagnostics,
+      });
+    } catch (err: unknown) {
+      res.status(500).json({ success: false, error: getErrorMessage(err) });
+    }
   });
 
   return router;

@@ -13,6 +13,7 @@ import {
   deriveGitHubUsernameFromEmail,
 } from '../../domain/services/github-service.js';
 import { PersonConfig } from '../../domain/entities/person.js';
+import { IGitHubClient } from '../../domain/ports/repositories.js';
 import { logger } from '../logging/logger.js';
 
 export interface GitHubClientOptions {
@@ -26,7 +27,7 @@ export interface GitHubClientOptions {
   initialRetryDelayMs?: number; // default 1000 ms
 }
 
-export class GitHubClient {
+export class GitHubClient implements IGitHubClient {
   private readonly options: GitHubClientOptions;
   private readonly apiUrl: string;
   private readonly fetchFn: typeof fetch;

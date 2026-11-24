@@ -12,7 +12,7 @@ export default defineConfig({
         main: path.resolve(process.cwd(), 'src/presentation/web/src/main.tsx'),
       },
       output: {
-        entryFileNames: 'assets/[name]-[hash].js',
+        entryFileNames: 'assets/[name].js',
         chunkFileNames: 'assets/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash].[ext]',
       },

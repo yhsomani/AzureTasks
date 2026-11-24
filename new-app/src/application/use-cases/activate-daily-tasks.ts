@@ -10,6 +10,7 @@ import {
   JournalRepository,
   LockRepository,
   ConfigRepository,
+  IGitHubClient,
 } from '../../domain/ports/repositories.js';
 import {
   Person,
@@ -23,7 +24,6 @@ import {
   matchesPerson,
 } from '../../domain/index.js';
 import type { FieldPatchOperation } from '../../domain/services/task-services.js';
-import { GitHubClient } from '../../infrastructure/github/github-client.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 
 export interface ActivateDailyTasksInput {
@@ -71,7 +71,7 @@ export class ActivateDailyTasksUseCase {
     private readonly config: AppConfig,
     private readonly workItemRepo: WorkItemRepository,
     private readonly datePlanning: DatePlanningService,
-    private readonly githubClient: GitHubClient,
+    private readonly githubClient: IGitHubClient,
     private readonly configRepo?: ConfigRepository,
     private readonly journalRepo?: JournalRepository,
     private readonly lockRepo?: LockRepository

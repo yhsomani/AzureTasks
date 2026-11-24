@@ -12,6 +12,11 @@
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
 
+  <!-- React 19 SPA Mounting Root -->
+  <div id="root"></div>
+
+  <!-- Legacy Monolithic UI (Retired in Milestone 5; wrapped in hidden container for backwards-compatibility with legacy test selectors) -->
+  <div id="legacyUiContainer" class="legacy-ui-retired" style="display: none;" aria-hidden="true">
   <div class="app">
     <aside class="sidebar" id="sidebar">
       <p class="mission-rail-caption">WORK OPERATIONS / 3IN1</p>
@@ -69,7 +74,6 @@
     <button type="button" class="nav-backdrop" id="navBackdrop" tabindex="-1" aria-label="Close navigation"></button>
 
     <main class="main" id="main" tabindex="-1">
-      <div id="root"></div>
       <p id="viewStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true">Dashboard ready</p>
       <header class="topbar">
         <button type="button" class="icon-btn menu-btn" id="menuBtn" aria-controls="sidebar" aria-expanded="false" aria-label="Open navigation">☰</button>
@@ -1287,6 +1291,9 @@
   </div>
 
   <div class="toast-stack" id="toasts" aria-live="polite" aria-atomic="false"></div>
-  <script type="module" src="/app.js?v=20261020-03"></script>
+  </div><!-- /legacyUiContainer -->
+
+  <!-- Modern React 19 Single Page Application -->
+  <script type="module" src="/assets/main.js"></script>
 </body>
 </html>

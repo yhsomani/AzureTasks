@@ -15,6 +15,8 @@ import {
   GetRecentReleasesUseCase,
   GetTestHealthUseCase,
   GetAzureTeamsUseCase,
+  GetUnassignedWorkItemsUseCase,
+  GetAzureProjectsUseCase,
 } from '../../application/use-cases/azure-data/index.js';
 
 export interface AzureDataRouterOptions {
@@ -36,6 +38,8 @@ export function createAzureDataRouter(repoOrOptions?: IAzureDataRepository | Azu
   const releasesUseCase = new GetRecentReleasesUseCase(repo);
   const testHealthUseCase = new GetTestHealthUseCase(repo);
   const teamsUseCase = new GetAzureTeamsUseCase(repo);
+  const unassignedUseCase = new GetUnassignedWorkItemsUseCase(repo);
+  const projectsUseCase = new GetAzureProjectsUseCase(repo);
 
   const router = Router();
 
@@ -51,6 +55,16 @@ export function createAzureDataRouter(repoOrOptions?: IAzureDataRepository | Azu
   };
 
   router.use(checkAvailability);
+
+  // GET /api/azure-data/projects
+  router.get('/projects', async (_req: Request, res: Response) => {
+    try {
+      const projects = await projectsUseCase.execute();
+      res.json({ success: true, projects });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message || 'Failed to retrieve projects.' });
+    }
+  });
 
   // GET /api/azure-data/overview
   router.get('/overview', async (_req: Request, res: Response) => {
@@ -170,6 +184,38 @@ export function createAzureDataRouter(repoOrOptions?: IAzureDataRepository | Azu
         return res.status(400).json({ success: false, error: err.message });
       }
       res.status(500).json({ success: false, error: err.message || 'Failed to retrieve teams.' });
+    }
+  });
+
+  // GET /api/azure-data/work-items/unassigned
+  router.get('/work-items/unassigned', async (req: Request, res: Response) => {
+    try {
+      const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : undefined;
+      let limit = 50;
+      if (req.query.limit !== undefined) {
+        limit = parseInt(req.query.limit as string, 10);
+        if (isNaN(limit) || limit < 0) {
+          return res.status(400).json({ success: false, error: 'Invalid limit parameter' });
+        }
+      }
+
+      const { count, workItems } = await unassignedUseCase.execute({ projectId, limit });
+      res.json({ success: true, count, workItems });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message || 'Failed to retrieve unassigned work items.' });
+    }
+  });
+
+  // GET /api/azure-data/sprints
+  router.get('/sprints', async (req: Request, res: Response) => {
+    try {
+      const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : undefined;
+      const sprints = typeof repo.getActiveSprintIterations === 'function'
+        ? await repo.getActiveSprintIterations(projectId)
+        : [];
+      res.json({ success: true, sprints });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message || 'Failed to retrieve sprints.' });
     }
   });
 

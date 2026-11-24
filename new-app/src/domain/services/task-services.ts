@@ -118,6 +118,7 @@ export interface BuildFieldOpsInput {
   copyEstimates: boolean;
   resetActualWork: boolean;
   defaultState: string;
+  activeIterationPath?: string;
 }
 
 export class FieldCopyService {
@@ -188,8 +189,8 @@ export class FieldCopyService {
       ops.push({ op: 'add', path: '/fields/System.AreaPath', value: areaPath });
     }
 
-    // Copy Iteration Path
-    const iterationPath = sourceWorkItem.fields['System.IterationPath'];
+    // Copy Iteration Path: use dynamic active iteration path if provided, else fall back to source or project root
+    const iterationPath = input.activeIterationPath || sourceWorkItem.fields['System.IterationPath'];
     if (iterationPath) {
       ops.push({ op: 'add', path: '/fields/System.IterationPath', value: iterationPath });
     }

@@ -26,6 +26,8 @@ import { FileAutoClosureAuditRepository } from "./infrastructure/journal/file-au
 import { createDatabase, WorkOpsDb } from './infrastructure/persistence/database.js';
 import { RelationalPlanTokenRepository } from './infrastructure/persistence/relational-plan-token-repo.js';
 import { RelationalJournalRepository } from './infrastructure/persistence/relational-journal-repo.js';
+import { SqliteAzureDataRepository } from './infrastructure/persistence/sqlite-azure-data-repo.js';
+import { IAzureDataRepository } from './domain/ports/azure-data-repository.js';
 import { createLockManager } from './infrastructure/lock/distributed-lock-manager.js';
 import { DatePlanningService } from './domain/index.js';
 import {
@@ -117,6 +119,7 @@ export interface App {
   lockManager?: ILockManager;
   policyEngine?: VerifiedAutoClosurePolicyEngine;
   secretManager?: ISecretManager;
+  azureDataRepo: IAzureDataRepository;
 }
 
 export interface BuildAppOptions {
@@ -128,6 +131,7 @@ export interface BuildAppOptions {
   databaseUrl?: string;
   secretManager?: ISecretManager;
   policyEngine?: VerifiedAutoClosurePolicyEngine;
+  azureDataRepo?: IAzureDataRepository;
 }
 
 /**
@@ -219,6 +223,7 @@ export async function buildApp(
   const repairRelations = new RepairRelationsUseCase(workItemRepo, journalRepo, lockRepo);
   const secretManager = options.secretManager || createSecretManager();
   const policyEngine = options.policyEngine || new VerifiedAutoClosurePolicyEngine();
+  const azureDataRepo: IAzureDataRepository = options.azureDataRepo || new SqliteAzureDataRepository();
 
   const closeDailyTasks = new CloseDailyTasksUseCase(
     config,
@@ -304,6 +309,7 @@ export async function buildApp(
     lockManager,
     policyEngine,
     secretManager,
+    azureDataRepo,
   };
 }
 

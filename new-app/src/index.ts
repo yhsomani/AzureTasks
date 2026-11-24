@@ -178,6 +178,7 @@ async function main(): Promise<void> {
         db: app.db,
         secretManager: app.secretManager,
         lockManager: app.lockManager,
+        azureDataRepo: app.azureDataRepo,
       }, opts.port ?? parseInt(process.env.PORT || '3000', 10));
       await server.start();
       return;

@@ -216,7 +216,7 @@ export class AppServer {
     }
 
     // Azure Data Intelligence API
-    this.app.use('/api/azure-data', createAzureDataRouter(this.options.azureDataRepo || (this.deps as any)?.azureDataRepo));
+    this.app.use('/api/azure-data', createAzureDataRouter(this.options.azureDataRepo || this.deps.azureDataRepo));
 
     // API
     this.app.use('/api', createApiRouter(this.deps));

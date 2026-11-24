@@ -340,13 +340,14 @@ describe('Milestone 2: Relational Database Schema & Safe Zero-Data-Loss Migratio
       expect(report.errors.length).toBe(0);
 
       // Assert source and migrated count parity
-      expect(report.sourceJournalEntries).toBe(246);
-      expect(report.migratedJournalEntries).toBe(246);
-      expect(report.dbJournalCount).toBe(246);
+      const expectedJournalCount = JSON.parse(fs.readFileSync(realJournalPath, 'utf-8')).length;
+      expect(report.sourceJournalEntries).toBe(expectedJournalCount);
+      expect(report.migratedJournalEntries).toBe(expectedJournalCount);
+      expect(report.dbJournalCount).toBe(expectedJournalCount);
 
       // Direct DB count query verification
       const dbCount = (db.sqlite.prepare('SELECT count(*) as count FROM journal_entries').get() as { count: number }).count;
-      expect(dbCount).toBe(246);
+      expect(dbCount).toBe(expectedJournalCount);
 
       // Verify Schema A legacy records migrated properly
       const legacyRow = db.sqlite
@@ -382,8 +383,9 @@ describe('Milestone 2: Relational Database Schema & Safe Zero-Data-Loss Migratio
         journalPath: realJournalPath,
         autoClosureConfigPath: realAutoClosurePath,
       });
+      const expectedJournalCount = JSON.parse(fs.readFileSync(realJournalPath, 'utf-8')).length;
       expect(report1.success).toBe(true);
-      expect(report1.dbJournalCount).toBe(246);
+      expect(report1.dbJournalCount).toBe(expectedJournalCount);
 
       // Run 2
       const report2 = await migration.migrate({
@@ -394,9 +396,9 @@ describe('Milestone 2: Relational Database Schema & Safe Zero-Data-Loss Migratio
       expect(report2.success).toBe(true);
       expect(report2.errors.length).toBe(0);
 
-      // Direct DB count query verification — MUST REMAIN EXACTLY 246
+      // Direct DB count query verification — MUST REMAIN EXACTLY expectedJournalCount
       const dbCount = (db.sqlite.prepare('SELECT count(*) as count FROM journal_entries').get() as { count: number }).count;
-      expect(dbCount).toBe(246);
+      expect(dbCount).toBe(expectedJournalCount);
     });
   });
 });

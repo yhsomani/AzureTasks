@@ -1,6 +1,14 @@
 /**
- * Azure DevOps 3in1 Task Automation Studio — Modern Frontend Controller
- * Complete feature parity, reactive rendering, interactive charts, and live telemetry.
+ * @deprecated
+ * Azure DevOps 3in1 Task Automation Studio — Legacy Frontend Controller (Milestone 5 Retired)
+ * 
+ * RETIREMENT NOTICE:
+ * This monolithic legacy controller has been retired in favor of the modern React 19 Single Page
+ * Application located in `src/presentation/web/src/`. All primary UI workflows (Personal Cockpit,
+ * Team Planning, Governance & Ops, and Azure ALM Intelligence) are now rendered reactively using React 19.
+ * 
+ * This file is retained exclusively as an archived compatibility layer for legacy integration test
+ * assertions and headless vm sandboxes.
  */
 
 /* ------------------------------------------------------------------ state */

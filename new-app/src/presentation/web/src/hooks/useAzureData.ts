@@ -7,6 +7,7 @@ import type {
   ReleaseRecord,
   TestHealthRecord,
   AzureTeamSummary,
+  WorkItemSummary,
 } from '../types/index.js';
 
 export interface UseAzureDataOptions {
@@ -21,6 +22,9 @@ export function useAzureData(options: UseAzureDataOptions = { autoFetch: true })
   const [testHealth, setTestHealth] = useState<TestHealthRecord[]>([]);
   const [teams, setTeams] = useState<AzureTeamSummary[]>([]);
   const [totalTeamsCount, setTotalTeamsCount] = useState<number>(0);
+  const [unassignedWorkItems, setUnassignedWorkItems] = useState<WorkItemSummary[]>([]);
+  const [unassignedCount, setUnassignedCount] = useState<number>(0);
+  const [unassignedSearchQuery, setUnassignedSearchQuery] = useState<string>('');
 
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [buildLimit, setBuildLimit] = useState<number>(20);
@@ -109,17 +113,39 @@ export function useAzureData(options: UseAzureDataOptions = { autoFetch: true })
     [selectedProjectId]
   );
 
+  const fetchUnassignedWorkItems = useCallback(
+    async (projectId?: string, limit: number = 50) => {
+      try {
+        const res = await azureDataApi.getUnassignedWorkItems({
+          projectId: projectId !== undefined ? projectId : (selectedProjectId || undefined),
+          limit,
+        });
+        setUnassignedWorkItems(res.workItems || []);
+        setUnassignedCount(res.count || 0);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Failed to fetch unassigned work items';
+        setError(msg);
+      }
+    },
+    [selectedProjectId]
+  );
+
   // refreshAll does NOT depend on teamSearchQuery!
   const refreshAll = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     api.invalidateCache('/api/azure-data');
     try {
-      await Promise.all([fetchOverview(), fetchBuildsAndTelemetry(), fetchTeams()]);
+      await Promise.all([
+        fetchOverview(),
+        fetchBuildsAndTelemetry(),
+        fetchTeams(),
+        fetchUnassignedWorkItems(),
+      ]);
     } finally {
       setIsLoading(false);
     }
-  }, [fetchOverview, fetchBuildsAndTelemetry, fetchTeams]);
+  }, [fetchOverview, fetchBuildsAndTelemetry, fetchTeams, fetchUnassignedWorkItems]);
 
   // Mount effect: only fires on mount or when refreshAll identity changes (e.g. projectId changes)
   useEffect(() => {
@@ -159,6 +185,10 @@ export function useAzureData(options: UseAzureDataOptions = { autoFetch: true })
     testHealth,
     teams,
     totalTeamsCount,
+    unassignedWorkItems,
+    unassignedCount,
+    unassignedSearchQuery,
+    setUnassignedSearchQuery,
     selectedProjectId,
     setSelectedProjectId,
     buildLimit,
@@ -169,5 +199,6 @@ export function useAzureData(options: UseAzureDataOptions = { autoFetch: true })
     error,
     refreshAll,
     fetchTeams,
+    fetchUnassignedWorkItems,
   };
 }

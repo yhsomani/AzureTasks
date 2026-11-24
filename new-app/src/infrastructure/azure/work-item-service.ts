@@ -749,6 +749,39 @@ export class AzureWorkItemService implements WorkItemRepository {
     }
   }
 
+  async findUnassignedTasks(project: string, workItemType: string): Promise<WorkItem[]> {
+    const wiql = `
+      SELECT [System.Id]
+      FROM WorkItems
+      WHERE [System.TeamProject] = '${this.escapeWiql(project)}'
+        AND [System.WorkItemType] = '${this.escapeWiql(workItemType)}'
+        AND ([System.AssignedTo] = '' OR [System.AssignedTo] IS EMPTY)
+        AND [System.State] <> 'Removed'
+      ORDER BY [System.CreatedDate] DESC, [System.Id] DESC
+    `;
+
+    const result = await this.client.post<WiqlQueryResult>(
+      `/${project}/_apis/wit/wiql?api-version=7.0`,
+      { query: wiql }
+    );
+
+    if (!Array.isArray(result.workItems) || result.workItems.length === 0) {
+      return [];
+    }
+
+    const CHUNK_SIZE = 100;
+    const items: WorkItem[] = [];
+    for (let i = 0; i < result.workItems.length; i += CHUNK_SIZE) {
+      const ids = result.workItems.slice(i, i + CHUNK_SIZE).map(w => w.id).join(',');
+      const batch = await this.client.get<WorkItemBatchResult>(
+        `/${project}/_apis/wit/workitems?ids=${ids}&$expand=relations&api-version=7.0`
+      );
+      items.push(...this.requireCompleteBatch(batch, result.workItems.slice(i, i + CHUNK_SIZE).map(w => w.id), 'unassigned work-item batch'));
+    }
+
+    return items;
+  }
+
   private escapeWiql(value: string): string {
     return value.replace(/'/g, "''");
   }

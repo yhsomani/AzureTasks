@@ -89,6 +89,28 @@ export interface ExportStatus {
   errorCount: number;
 }
 
+export interface WorkItemSummary {
+  projectId: string;
+  workItemId: number;
+  type: string;
+  title: string;
+  state: string;
+  assignedIdentityId: string | null;
+  areaPath: string;
+  iterationPath: string;
+  createdDate: string;
+  changedDate: string;
+}
+
+export interface SprintIteration {
+  id?: string;
+  name: string;
+  path: string;
+  startDate?: string;
+  endDate?: string;
+  timeframe?: 'past' | 'current' | 'future';
+}
+
 export interface IAzureDataRepository {
   /**
    * Checks whether the underlying database is available and accessible.
@@ -144,6 +166,21 @@ export interface IAzureDataRepository {
    * Retrieves classified export errors if any.
    */
   getExportErrors?(): Promise<any[]>;
+
+  /**
+   * Retrieves unassigned work items (AssignedTo IS NULL or empty).
+   */
+  getUnassignedWorkItems?(projectId?: string, limit?: number): Promise<WorkItemSummary[]>;
+
+  /**
+   * Counts unassigned work items (AssignedTo IS NULL or empty).
+   */
+  countUnassignedWorkItems?(projectId?: string): Promise<number>;
+
+  /**
+   * Retrieves active sprint iteration paths.
+   */
+  getActiveSprintIterations?(projectId?: string): Promise<SprintIteration[]>;
 
   /**
    * Gracefully closes the underlying database connection.

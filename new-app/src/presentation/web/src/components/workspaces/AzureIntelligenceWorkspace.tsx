@@ -4,6 +4,7 @@ import { Badge } from '../common/Badge.js';
 import { Button } from '../common/Button.js';
 import { Skeleton } from '../common/Skeleton.js';
 import { type ToastMessage } from '../common/Toast.js';
+import { UnassignedTaskManager } from './UnassignedTaskManager.js';
 import { useAzureData } from '../../hooks/useAzureData.js';
 import type { SubViewId, AzureTeamSummary, BuildHealthRecord } from '../../types/index.js';
 
@@ -23,6 +24,8 @@ export function AzureIntelligenceWorkspace({
     testHealth,
     teams,
     totalTeamsCount,
+    unassignedWorkItems,
+    unassignedCount,
     selectedProjectId,
     setSelectedProjectId,
     buildLimit,
@@ -32,6 +35,7 @@ export function AzureIntelligenceWorkspace({
     isLoading,
     error,
     refreshAll,
+    fetchUnassignedWorkItems,
   } = useAzureData();
 
   // Compute aggregated totals from overview if available
@@ -85,9 +89,11 @@ export function AzureIntelligenceWorkspace({
     return null;
   };
 
-  const showAll = subView === 'azure-overview' || (!['azure-builds', 'azure-teams'].includes(subView));
-  const showBuilds = showAll || subView === 'azure-builds';
-  const showTeams = showAll || subView === 'azure-teams';
+  const isUnassignedOnly = subView === 'unassigned';
+  const showAll = subView === 'azure-overview' || (!['azure-builds', 'azure-teams', 'unassigned'].includes(subView));
+  const showBuilds = (showAll || subView === 'azure-builds') && !isUnassignedOnly;
+  const showTeams = (showAll || subView === 'azure-teams') && !isUnassignedOnly;
+  const showUnassigned = showAll || isUnassignedOnly;
 
   return (
     <div className="space-y-6">
@@ -468,6 +474,21 @@ export function AzureIntelligenceWorkspace({
             </div>
           )}
         </Card>
+      )}
+
+      {/* Section 4: Unassigned Tasks & Backlog Discovery */}
+      {showUnassigned && (
+        <UnassignedTaskManager
+          workItems={unassignedWorkItems}
+          totalCount={unassignedCount}
+          isLoading={isLoading}
+          selectedProjectId={selectedProjectId}
+          onSelectProject={(pId) => {
+            setSelectedProjectId(pId);
+            fetchUnassignedWorkItems(pId);
+          }}
+          onRefresh={() => fetchUnassignedWorkItems(selectedProjectId)}
+        />
       )}
     </div>
   );

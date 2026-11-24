@@ -19,7 +19,9 @@ export type SubViewId =
   | 'settings'
   | 'azure-overview'
   | 'azure-builds'
-  | 'azure-teams';
+  | 'azure-teams'
+  | 'unassigned'
+  | 'sprint-progress';
 
 export interface UserSession {
   authenticated: boolean;
@@ -274,4 +276,43 @@ export interface AzureTeamsResponse {
   teams: AzureTeamSummary[];
   totalCount: number;
 }
+
+export interface WorkItemSummary {
+  projectId: string;
+  workItemId: number;
+  type: string;
+  title: string;
+  state: string;
+  assignedIdentityId?: string | null;
+  areaPath?: string;
+  iterationPath?: string;
+  createdDate?: string;
+  changedDate?: string;
+  id?: number;
+}
+
+export interface AzureUnassignedResponse {
+  success: boolean;
+  count: number;
+  workItems: WorkItemSummary[];
+}
+
+export interface AzureProjectInfo {
+  id: string;
+  projectId: string;
+  name: string;
+  workItems?: number;
+  repositories?: number;
+  pipelines?: number;
+  builds?: number;
+  releases?: number;
+  testRuns?: number;
+  syncedAt?: string;
+}
+
+export interface AzureProjectsResponse {
+  success: boolean;
+  projects: Array<ProjectOverview | AzureProjectInfo>;
+}
+
 

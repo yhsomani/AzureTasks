@@ -46,7 +46,7 @@ export function AppShell() {
       } else if (['journal', 'scheduler', 'settings'].includes(hash)) {
         setCurrentWorkspace('governance');
         setCurrentSubView(hash as SubViewId);
-      } else if (['azure-overview', 'azure-builds', 'azure-teams'].includes(hash)) {
+      } else if (['azure-overview', 'azure-builds', 'azure-teams', 'unassigned', 'sprint-progress'].includes(hash)) {
         setCurrentWorkspace('intelligence');
         setCurrentSubView(hash as SubViewId);
       }

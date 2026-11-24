@@ -19,6 +19,8 @@ import {
   PipelineRunRecord,
   SyncFreshness,
   ExportStatus,
+  WorkItemSummary,
+  SprintIteration,
 } from '../../domain/ports/azure-data-repository.js';
 
 export class SqliteAzureDataRepository implements IAzureDataRepository {
@@ -294,6 +296,70 @@ export class SqliteAzureDataRepository implements IAzureDataRepository {
       ORDER BY id DESC
       LIMIT 50
     `).all();
+  }
+
+  public async getUnassignedWorkItems(projectId?: string, limit = 50): Promise<WorkItemSummary[]> {
+    if (!this.db) throw new Error('Database is not available.');
+    let createdCol = 'created_at';
+    let changedCol = 'changed_at';
+    try {
+      const columns = (this.db.pragma('table_info(work_items)') as any[]).map(c => c.name);
+      if (columns.includes('created_date')) createdCol = 'created_date';
+      if (columns.includes('changed_date')) changedCol = 'changed_date';
+    } catch {}
+
+    let sql = `
+      SELECT project_id as projectId, work_item_id as workItemId, type, title, state,
+             assigned_identity_id as assignedIdentityId, area_path as areaPath,
+             iteration_path as iterationPath, ${createdCol} as createdDate, ${changedCol} as changedDate
+      FROM work_items
+      WHERE (assigned_identity_id IS NULL OR trim(assigned_identity_id) = '')
+    `;
+    const params: any[] = [];
+    if (projectId && projectId.trim() !== '') {
+      sql += ' AND project_id = ?';
+      params.push(projectId.trim());
+    }
+    sql += ` ORDER BY ${changedCol} DESC LIMIT ?`;
+    params.push(Math.max(1, Math.min(limit, 500)));
+    return this.db.prepare(sql).all(...params) as WorkItemSummary[];
+  }
+
+  public async countUnassignedWorkItems(projectId?: string): Promise<number> {
+    if (!this.db) throw new Error('Database is not available.');
+    let sql = `SELECT count(*) as count FROM work_items WHERE (assigned_identity_id IS NULL OR trim(assigned_identity_id) = '')`;
+    const params: any[] = [];
+    if (projectId && projectId.trim() !== '') {
+      sql += ' AND project_id = ?';
+      params.push(projectId.trim());
+    }
+    const row: any = this.db.prepare(sql).get(...params);
+    return row?.count || 0;
+  }
+
+  public async getActiveSprintIterations(projectId?: string): Promise<SprintIteration[]> {
+    if (!this.db) throw new Error('Database is not available.');
+    let sql = `
+      SELECT DISTINCT iteration_path as path
+      FROM work_items
+      WHERE iteration_path LIKE '%Sprint%'
+    `;
+    const params: any[] = [];
+    if (projectId && projectId.trim() !== '') {
+      sql += ' AND project_id = ?';
+      params.push(projectId.trim());
+    }
+    sql += ' ORDER BY iteration_path ASC';
+    const rows = this.db.prepare(sql).all(...params) as Array<{ path: string }>;
+    return rows.map(r => {
+      const parts = r.path.split('\\');
+      const name = parts[parts.length - 1] || r.path;
+      return {
+        name,
+        path: r.path,
+        timeframe: 'current',
+      };
+    });
   }
 
   public close(): void {

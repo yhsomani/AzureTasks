@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { NORMALIZED_SCHEMA } from './schema.mjs';
 
 const values = payload => Array.isArray(payload?.value) ? payload.value : Array.isArray(payload) ? payload : payload ? [payload] : [];
-const safe = (value, fallback = null) => value === undefined || value === '' ? fallback : value;
+const safe = (value, fallback = null) => value === undefined || value === null || (typeof value === 'string' && value.trim() === '') ? fallback : value;
 
 export function normalizeDatabase(databasePath) {
   const db = new DatabaseSync(databasePath);
@@ -39,6 +39,7 @@ export function normalizeDatabase(databasePath) {
     const resolveProject = row => projectLookup.get(row.project_name) || projectNameLookup(row.project_name);
     const insertIdentities = (members, teamId) => {
       for (const item of members) {
+        if (!item || typeof item !== 'object') continue;
         const identity = (typeof item.identity === 'object' && item.identity !== null) ? item.identity : item;
         const id = String(
           safe(identity.id,
@@ -55,8 +56,18 @@ export function normalizeDatabase(databasePath) {
         const email = safe(identity.mailAddress, safe(identity.email, safe(item.mailAddress, safe(item.email, uniqueName))));
         const descriptor = safe(identity.descriptor, safe(identity.subjectDescriptor, safe(item.descriptor, safe(item.subjectDescriptor))));
         const isActive = item.isActive === false || identity.isActive === false ? 0 : 1;
-        db.prepare(`INSERT OR REPLACE INTO identities(identity_id,display_name,unique_name,email,subject_descriptor,is_active,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?)`)
-          .run(id, displayName, uniqueName, email, descriptor, isActive, runId, syncedAt);
+        db.prepare(`
+          INSERT INTO identities(identity_id, display_name, unique_name, email, subject_descriptor, is_active, sync_run_id, synced_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(identity_id) DO UPDATE SET
+            display_name = COALESCE(excluded.display_name, identities.display_name),
+            unique_name = COALESCE(excluded.unique_name, identities.unique_name),
+            email = COALESCE(excluded.email, identities.email),
+            subject_descriptor = COALESCE(excluded.subject_descriptor, identities.subject_descriptor),
+            is_active = excluded.is_active,
+            sync_run_id = excluded.sync_run_id,
+            synced_at = excluded.synced_at
+        `).run(id, displayName, uniqueName, email, descriptor, isActive, runId, syncedAt);
         db.prepare('INSERT OR IGNORE INTO team_members(team_id,identity_id,sync_run_id,synced_at) VALUES (?,?,?,?)').run(teamId, id, runId, syncedAt);
       }
     };
@@ -68,6 +79,7 @@ export function normalizeDatabase(databasePath) {
 
       if (row.scope.endsWith('.teams')) {
         for (const item of values(payload)) {
+          if (!item || typeof item !== 'object') continue;
           if (!safe(item.id, item.name) || !item.name) continue;
           db.prepare(`INSERT OR REPLACE INTO azure_teams(team_id,project_id,name,description,sync_run_id,synced_at) VALUES (?,?,?,?,?,?)`)
             .run(String(safe(item.id, item.name)), projectId, item.name, safe(item.description), runId, syncedAt);
@@ -77,20 +89,33 @@ export function normalizeDatabase(databasePath) {
         const teamId = db.prepare("SELECT team_id FROM azure_teams WHERE project_id=? AND (replace(name,' ','_')=? OR team_id=?) LIMIT 1").get(projectId, teamKey, teamKey)?.team_id;
         if (teamId) insertIdentities(values(payload), teamId);
       } else if (row.scope.endsWith('.repositories')) {
-        for (const item of values(payload)) db.prepare(`INSERT OR REPLACE INTO repositories(repository_id,project_id,name,default_branch,remote_url,web_url,is_disabled,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?)`)
-          .run(String(item.id), projectId, item.name, safe(item.defaultBranch), safe(item.remoteUrl), safe(item.webUrl), item.isDisabled ? 1 : 0, runId, syncedAt);
+        for (const item of values(payload)) {
+          if (!item || typeof item !== 'object') continue;
+          db.prepare(`INSERT OR REPLACE INTO repositories(repository_id,project_id,name,default_branch,remote_url,web_url,is_disabled,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?)`)
+            .run(String(item.id), projectId, item.name, safe(item.defaultBranch), safe(item.remoteUrl), safe(item.webUrl), item.isDisabled ? 1 : 0, runId, syncedAt);
+        }
       } else if (/\.repository\.[^.]+\.refs$/.test(row.scope)) {
         const repositoryKey = row.scope.split('.repository.')[1].split('.')[0];
         const repositoryId = db.prepare("SELECT repository_id FROM repositories WHERE project_id=? AND (replace(name,' ','_') LIKE ? OR repository_id=?) LIMIT 1").get(projectId, `%${repositoryKey}%`, repositoryKey)?.repository_id;
-        if (repositoryId) for (const item of values(payload)) db.prepare(`INSERT OR REPLACE INTO repository_refs(repository_id,ref_name,object_id,peeled_object_id,sync_run_id,synced_at) VALUES (?,?,?,?,?,?)`)
-          .run(repositoryId, item.name, safe(item.objectId), safe(item.peeledObjectId), runId, syncedAt);
+        if (repositoryId) {
+          for (const item of values(payload)) {
+            if (!item || typeof item !== 'object') continue;
+            db.prepare(`INSERT OR REPLACE INTO repository_refs(repository_id,ref_name,object_id,peeled_object_id,sync_run_id,synced_at) VALUES (?,?,?,?,?,?)`)
+              .run(repositoryId, item.name, safe(item.objectId), safe(item.peeledObjectId), runId, syncedAt);
+          }
+        }
       } else if (row.scope.endsWith('.workItems')) {
         for (const item of values(payload)) {
+          if (!item || typeof item !== 'object') continue;
           const f = item.fields || {};
           const assignedTo = f['System.AssignedTo'];
-          const assignedIdentityId = typeof assignedTo === 'object' && assignedTo !== null
-            ? safe(assignedTo.id, safe(assignedTo.descriptor, safe(assignedTo.uniqueName, safe(assignedTo.displayName))))
-            : safe(assignedTo);
+          let assignedIdentityId = null;
+          if (typeof assignedTo === 'object' && assignedTo !== null) {
+            assignedIdentityId = safe(assignedTo.id, safe(assignedTo.descriptor, safe(assignedTo.uniqueName, safe(assignedTo.displayName))));
+            if (typeof assignedIdentityId === 'string' && assignedIdentityId.trim() === '') assignedIdentityId = null;
+          } else if (typeof assignedTo === 'string' && assignedTo.trim() !== '') {
+            assignedIdentityId = assignedTo.trim();
+          }
           db.prepare(`INSERT OR REPLACE INTO work_items(project_id,work_item_id,type,title,state,assigned_identity_id,area_path,iteration_path,created_at,changed_at,closed_at,parent_id,tags,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
             .run(projectId, Number(item.id), safe(f['System.WorkItemType']), safe(f['System.Title']), safe(f['System.State']),
               assignedIdentityId, safe(f['System.AreaPath']), safe(f['System.IterationPath']),
@@ -100,6 +125,7 @@ export function normalizeDatabase(databasePath) {
       } else if (/\.workItem\.[^.]+\.revisions$/.test(row.scope)) {
         const workItemId = Number(row.scope.split('.workItem.')[1].split('.')[0]);
         for (const item of values(payload)) {
+          if (!item || typeof item !== 'object') continue;
           const changedBy = item.fields?.['System.ChangedBy'];
           const changedById = typeof changedBy === 'object' && changedBy !== null
             ? safe(changedBy.id, safe(changedBy.descriptor, safe(changedBy.uniqueName, safe(changedBy.displayName))))
@@ -111,38 +137,67 @@ export function normalizeDatabase(databasePath) {
       } else if (/\.repository\.[^.]+\.pullRequests$/.test(row.scope)) {
         const repositoryKey = row.scope.split('.repository.')[1].split('.pullRequests')[0];
         const repositoryId = db.prepare("SELECT repository_id FROM repositories WHERE project_id=? AND (replace(name,' ','_') LIKE ? OR repository_id=?) LIMIT 1").get(projectId, `%${repositoryKey}%`, repositoryKey)?.repository_id;
-        if (repositoryId) for (const item of values(payload)) db.prepare(`INSERT OR REPLACE INTO pull_requests(pull_request_id,repository_id,project_id,title,description,status,source_branch,target_branch,creator_identity_id,created_at,closed_at,merge_status,is_draft,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-          .run(Number(item.pullRequestId), repositoryId, projectId, safe(item.title), safe(item.description), safe(item.status), safe(item.sourceRefName), safe(item.targetRefName),
-            safe(item.createdBy?.id), safe(item.creationDate), safe(item.closedDate), safe(item.mergeStatus), item.isDraft ? 1 : 0, JSON.stringify(item), runId, syncedAt);
+        if (repositoryId) {
+          for (const item of values(payload)) {
+            if (!item || typeof item !== 'object') continue;
+            db.prepare(`INSERT OR REPLACE INTO pull_requests(pull_request_id,repository_id,project_id,title,description,status,source_branch,target_branch,creator_identity_id,created_at,closed_at,merge_status,is_draft,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+              .run(Number(item.pullRequestId), repositoryId, projectId, safe(item.title), safe(item.description), safe(item.status), safe(item.sourceRefName), safe(item.targetRefName),
+                safe(item.createdBy?.id), safe(item.creationDate), safe(item.closedDate), safe(item.mergeStatus), item.isDraft ? 1 : 0, JSON.stringify(item), runId, syncedAt);
+          }
+        }
       } else if (row.scope.endsWith('.pipelines')) {
-        for (const item of values(payload)) db.prepare(`INSERT OR REPLACE INTO pipelines(pipeline_id,project_id,name,folder,revision,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?)`)
-          .run(Number(item.id), projectId, safe(item.name), safe(item.folder), safe(item.revision), JSON.stringify(item), runId, syncedAt);
+        for (const item of values(payload)) {
+          if (!item || typeof item !== 'object') continue;
+          db.prepare(`INSERT OR REPLACE INTO pipelines(pipeline_id,project_id,name,folder,revision,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?)`)
+            .run(Number(item.id), projectId, safe(item.name), safe(item.folder), safe(item.revision), JSON.stringify(item), runId, syncedAt);
+        }
       } else if (/\.pipeline\.[^.]+\.runs$/.test(row.scope)) {
         const pipelineId = Number(row.scope.split('.pipeline.')[1].split('.')[0]);
-        for (const item of values(payload)) db.prepare(`INSERT OR REPLACE INTO pipeline_runs(run_id,pipeline_id,project_id,name,state,result,created_at,finished_at,source_branch,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
-          .run(Number(item.id), pipelineId, projectId, safe(item.name), safe(item.state), safe(item.result), safe(item.createdDate), safe(item.finishedDate),
-            safe(item.resources?.repositories?.self?.refName), JSON.stringify(item), runId, syncedAt);
+        for (const item of values(payload)) {
+          if (!item || typeof item !== 'object') continue;
+          db.prepare(`INSERT OR REPLACE INTO pipeline_runs(run_id,pipeline_id,project_id,name,state,result,created_at,finished_at,source_branch,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+            .run(Number(item.id), pipelineId, projectId, safe(item.name), safe(item.state), safe(item.result), safe(item.createdDate), safe(item.finishedDate),
+              safe(item.resources?.repositories?.self?.refName), JSON.stringify(item), runId, syncedAt);
+        }
       } else if (row.scope.endsWith('.builds')) {
-        for (const item of values(payload)) db.prepare(`INSERT OR REPLACE INTO builds(build_id,project_id,definition_id,build_number,status,result,reason,queue_time,start_time,finish_time,source_branch,source_version,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-          .run(Number(item.id), projectId, safe(item.definition?.id), safe(item.buildNumber), safe(item.status), safe(item.result), safe(item.reason), safe(item.queueTime),
-            safe(item.startTime), safe(item.finishTime), safe(item.sourceBranch), safe(item.sourceVersion), JSON.stringify(item), runId, syncedAt);
+        for (const item of values(payload)) {
+          if (!item || typeof item !== 'object') continue;
+          db.prepare(`INSERT OR REPLACE INTO builds(build_id,project_id,definition_id,build_number,status,result,reason,queue_time,start_time,finish_time,source_branch,source_version,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+            .run(Number(item.id), projectId, safe(item.definition?.id), safe(item.buildNumber), safe(item.status), safe(item.result), safe(item.reason), safe(item.queueTime),
+              safe(item.startTime), safe(item.finishTime), safe(item.sourceBranch), safe(item.sourceVersion), JSON.stringify(item), runId, syncedAt);
+        }
       } else if (row.scope.endsWith('.releases')) {
-        for (const item of values(payload)) db.prepare(`INSERT OR REPLACE INTO releases(release_id,project_id,definition_id,name,status,reason,created_at,modified_at,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-          .run(Number(item.id), projectId, safe(item.releaseDefinition?.id), safe(item.name), safe(item.status), safe(item.reason), safe(item.createdOn),
-            safe(item.modifiedOn), JSON.stringify(item), runId, syncedAt);
+        for (const item of values(payload)) {
+          if (!item || typeof item !== 'object') continue;
+          db.prepare(`INSERT OR REPLACE INTO releases(release_id,project_id,definition_id,name,status,reason,created_at,modified_at,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+            .run(Number(item.id), projectId, safe(item.releaseDefinition?.id), safe(item.name), safe(item.status), safe(item.reason), safe(item.createdOn),
+              safe(item.modifiedOn), JSON.stringify(item), runId, syncedAt);
+        }
       } else if (row.scope.endsWith('.testPlans')) {
-        for (const item of values(payload)) db.prepare(`INSERT OR REPLACE INTO test_plans(plan_id,project_id,name,description,state,owner_identity_id,start_date,end_date,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-          .run(Number(item.id), projectId, safe(item.name), safe(item.description), safe(item.state), safe(item.owner?.id), safe(item.startDate), safe(item.endDate), JSON.stringify(item), runId, syncedAt);
+        for (const item of values(payload)) {
+          if (!item || typeof item !== 'object') continue;
+          db.prepare(`INSERT OR REPLACE INTO test_plans(plan_id,project_id,name,description,state,owner_identity_id,start_date,end_date,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+            .run(Number(item.id), projectId, safe(item.name), safe(item.description), safe(item.state), safe(item.owner?.id), safe(item.startDate), safe(item.endDate), JSON.stringify(item), runId, syncedAt);
+        }
       } else if (/\.testPlan\.[^.]+\.suites$/.test(row.scope)) {
         const planId = Number(row.scope.split('.testPlan.')[1].split('.')[0]);
-        for (const item of values(payload)) db.prepare(`INSERT OR REPLACE INTO test_suites(suite_id,plan_id,parent_suite_id,project_id,name,suite_type,state,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?)`)
-          .run(Number(item.id), planId, safe(item.parentSuite?.id), projectId, safe(item.name), safe(item.suiteType), safe(item.state), JSON.stringify(item), runId, syncedAt);
+        for (const item of values(payload)) {
+          if (!item || typeof item !== 'object') continue;
+          db.prepare(`INSERT OR REPLACE INTO test_suites(suite_id,plan_id,parent_suite_id,project_id,name,suite_type,state,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?)`)
+            .run(Number(item.id), planId, safe(item.parentSuite?.id), projectId, safe(item.name), safe(item.suiteType), safe(item.state), JSON.stringify(item), runId, syncedAt);
+        }
       } else if (row.scope.endsWith('.testRuns')) {
-        for (const item of values(payload)) db.prepare(`INSERT OR REPLACE INTO test_runs(run_id,project_id,plan_id,name,state,outcome,started_at,completed_at,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-          .run(Number(item.id), projectId, safe(item.plan?.id), safe(item.name), safe(item.state), safe(item.outcome), safe(item.startedDate), safe(item.completedDate), JSON.stringify(item), runId, syncedAt);
+        for (const item of values(payload)) {
+          if (!item || typeof item !== 'object') continue;
+          db.prepare(`INSERT OR REPLACE INTO test_runs(run_id,project_id,plan_id,name,state,outcome,started_at,completed_at,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+            .run(Number(item.id), projectId, safe(item.plan?.id), safe(item.name), safe(item.state), safe(item.outcome), safe(item.startedDate), safe(item.completedDate), JSON.stringify(item), runId, syncedAt);
+        }
       } else if (row.scope.endsWith('.wikis')) {
-        for (const item of values(payload)) db.prepare(`INSERT OR REPLACE INTO wikis(wiki_id,project_id,name,type,mapped_path,repository_id,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?)`)
-          .run(String(item.id), projectId, safe(item.name), safe(item.type), safe(item.mappedPath), safe(item.repositoryId), JSON.stringify(item), runId, syncedAt);
+        for (const item of values(payload)) {
+          if (!item || typeof item !== 'object') continue;
+          db.prepare(`INSERT OR REPLACE INTO wikis(wiki_id,project_id,name,type,mapped_path,repository_id,payload_json,sync_run_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?)`)
+            .run(String(item.id), projectId, safe(item.name), safe(item.type), safe(item.mappedPath), safe(item.repositoryId), JSON.stringify(item), runId, syncedAt);
+        }
       }
     }
     db.exec('COMMIT');

@@ -9,6 +9,8 @@ import type {
   AzureReleasesResponse,
   AzureTestHealthResponse,
   AzureTeamsResponse,
+  AzureUnassignedResponse,
+  AzureProjectsResponse,
 } from '../types/index.js';
 
 export interface RequestOptions extends RequestInit {
@@ -171,6 +173,17 @@ export const azureDataApi = {
     const qs = q.toString();
     return api.get<AzureTeamsResponse>(`/api/azure-data/teams${qs ? `?${qs}` : ''}`, options);
   },
+
+  getUnassignedWorkItems: (params?: { projectId?: string; limit?: number }, options?: RequestOptions) => {
+    const q = new URLSearchParams();
+    if (params?.projectId) q.set('projectId', params.projectId);
+    if (params?.limit !== undefined) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return api.get<AzureUnassignedResponse>(`/api/azure-data/work-items/unassigned${qs ? `?${qs}` : ''}`, options);
+  },
+
+  getProjects: (options?: RequestOptions) =>
+    api.get<AzureProjectsResponse>('/api/azure-data/projects', options),
 };
 
 api.azureData = azureDataApi;

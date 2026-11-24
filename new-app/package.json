@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "NODE_EXTRA_CA_CERTS=\"${NODE_EXTRA_CA_CERTS:-$(pwd)/certs/zscaler.pem}\" tsx watch src/index.ts",
     "start": "NODE_EXTRA_CA_CERTS=\"${NODE_EXTRA_CA_CERTS:-$(pwd)/certs/zscaler.pem}\" node dist/index.js",
-    "build": "rm -rf dist && tsc && node -e \"import('fs').then(fs => fs.cpSync('src/presentation/web/public', 'dist/presentation/web/public', { recursive: true }))\" && vite build",
+    "build": "rm -rf dist && tsc && node -e \"import('fs').then(fs => fs.cpSync('src/presentation/web/public', 'dist/presentation/web/public', { recursive: true }))\" && vite build && node -e \"import('fs').then(fs => fs.cpSync('dist/presentation/web/public/assets', 'src/presentation/web/public/assets', { recursive: true }))\"",
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run",
