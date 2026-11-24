@@ -239,7 +239,8 @@ export const SQLITE_DDL = `
     pr_evidence_json TEXT,
     decision_reason TEXT NOT NULL,
     operator_override_id TEXT REFERENCES canonical_identities(id) ON DELETE SET NULL,
-    evaluated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    evaluated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    details_json TEXT
   );
 
   CREATE TABLE IF NOT EXISTS distributed_locks (
@@ -480,7 +481,8 @@ export const POSTGRES_DDL = `
     pr_evidence_json TEXT,
     decision_reason TEXT NOT NULL,
     operator_override_id VARCHAR(255) REFERENCES canonical_identities(id) ON DELETE SET NULL,
-    evaluated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    evaluated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    details_json TEXT
   );
 
   CREATE TABLE IF NOT EXISTS distributed_locks (
@@ -573,6 +575,7 @@ export function initSqliteSchema(sqlite: BetterSqliteDatabase): void {
   ensureColumnExists(sqlite, 'auto_closure_rules', 'require_git_commits', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumnExists(sqlite, 'auto_closure_rules', 'is_active', 'INTEGER NOT NULL DEFAULT 1');
   ensureColumnExists(sqlite, 'auto_closure_rules', 'updated_at', "TEXT NOT NULL DEFAULT (datetime('now'))");
+  ensureColumnExists(sqlite, 'auto_closure_audit_logs', 'details_json', 'TEXT');
 
   ensureColumnExists(sqlite, 'distributed_locks', 'pid', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumnExists(sqlite, 'distributed_locks', 'hostname', "TEXT NOT NULL DEFAULT ''");
@@ -598,7 +601,18 @@ export async function initPostgresSchema(pool: pg.Pool): Promise<void> {
 }
 
 export function createDatabase(config: DatabaseConfig = {}): WorkOpsDb {
-  const envEngine = process.env.DATABASE_ENGINE as DatabaseEngine | undefined;
+  if (process.env.DB_DISABLED === 'true') {
+    throw new Error('Database is disabled by DB_DISABLED environment variable');
+  }
+
+  const rawEngine = (config.engine || process.env.DB_ENGINE || process.env.DATABASE_ENGINE)?.toLowerCase();
+  const envEngine: DatabaseEngine | undefined =
+    rawEngine === 'postgres' || rawEngine === 'postgresql'
+      ? 'postgres'
+      : rawEngine === 'sqlite'
+        ? 'sqlite'
+        : undefined;
+
   const dbUrl = config.url || process.env.DATABASE_URL;
 
   const engine: DatabaseEngine =

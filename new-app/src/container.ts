@@ -23,6 +23,13 @@ import { ExecuteTasksUseCase, ExecuteTasksInput, ExecuteTasksOutput } from './ap
 import { GitHubClient } from './infrastructure/github/github-client.js';
 import { FileAutoClosureConfigRepository } from "./infrastructure/config/file-auto-closure-config-repo.js";
 import { FileAutoClosureAuditRepository } from "./infrastructure/journal/file-auto-closure-audit-repo.js";
+import { RelationalConfigRepository } from './infrastructure/config/relational-config-repo.js';
+import { DualConfigRepository } from './infrastructure/config/dual-config-repo.js';
+import { RelationalAutoClosureConfigRepository } from './infrastructure/config/relational-auto-closure-config-repo.js';
+import { DualAutoClosureConfigRepository } from './infrastructure/config/dual-auto-closure-config-repo.js';
+import { RelationalAutoClosureAuditRepository } from './infrastructure/journal/relational-auto-closure-audit-repo.js';
+import { DualAutoClosureAuditRepository } from './infrastructure/journal/dual-auto-closure-audit-repo.js';
+import { DualJournalRepository } from './infrastructure/persistence/dual-journal-repo.js';
 import { createDatabase, WorkOpsDb } from './infrastructure/persistence/database.js';
 import { RelationalPlanTokenRepository } from './infrastructure/persistence/relational-plan-token-repo.js';
 import { RelationalJournalRepository } from './infrastructure/persistence/relational-journal-repo.js';
@@ -36,67 +43,21 @@ import {
   ILockManager,
   JournalRepository,
   JournalEntry,
+  ConfigRepository,
+  AutoClosureConfigRepository,
+  AutoClosureAuditLogRepository,
 } from './domain/ports/repositories.js';
 import { logger } from './infrastructure/logging/logger.js';
 import { assertTlsSafety } from './infrastructure/security/tls-safety.js';
 import { createSecretManager, ISecretManager } from './infrastructure/security/secret-manager.js';
 import { VerifiedAutoClosurePolicyEngine } from './domain/services/policy-engine.js';
 
-export class DualJournalRepository implements JournalRepository {
-  constructor(
-    public readonly relational: RelationalJournalRepository,
-    public readonly file: FileJournalRepository
-  ) {}
-
-  async record(entry: JournalEntry): Promise<void> {
-    await Promise.allSettled([
-      this.relational.record(entry),
-      this.file.record(entry),
-    ]);
-  }
-
-  async getEntries(limit?: number): Promise<JournalEntry[]> {
-    try {
-      const relEntries = await this.relational.getEntries(limit);
-      if (relEntries.length > 0) return relEntries;
-    } catch {
-      // fallback to file
-    }
-    return this.file.getEntries(limit);
-  }
-
-  async getUnfinishedRelations(): Promise<JournalEntry[]> {
-    try {
-      return await this.relational.getUnfinishedRelations();
-    } catch {
-      return this.file.getUnfinishedRelations();
-    }
-  }
-
-  async markRepaired(
-    entry: JournalEntry,
-    status: JournalEntry['relationCopyStatus'],
-    note: string,
-    verified = false
-  ): Promise<boolean> {
-    const [relResult, fileResult] = await Promise.allSettled([
-      this.relational.markRepaired(entry, status, note, verified),
-      this.file.markRepaired(entry, status, note, verified),
-    ]);
-    return (
-      (relResult.status === 'fulfilled' && relResult.value) ||
-      (fileResult.status === 'fulfilled' && fileResult.value)
-    );
-  }
-
-  async exportCsv(): Promise<string> {
-    return this.relational.exportCsv();
-  }
-
-  async exportJson(): Promise<string> {
-    return this.relational.exportJson();
-  }
-}
+export {
+  DualJournalRepository,
+  DualConfigRepository,
+  DualAutoClosureConfigRepository,
+  DualAutoClosureAuditRepository,
+};
 
 export interface App {
   config: AppConfig;
@@ -112,14 +73,15 @@ export interface App {
   githubClient: GitHubClient;
   journal: JournalRepository;
   scheduler: NodeSchedulerRepository;
-  autoClosureConfig: FileAutoClosureConfigRepository;
-  autoClosureAudit: FileAutoClosureAuditRepository;
+  autoClosureConfig: AutoClosureConfigRepository;
+  autoClosureAudit: AutoClosureAuditLogRepository;
   db?: WorkOpsDb;
   planTokenRepo?: IPlanTokenRepository;
   lockManager?: ILockManager;
   policyEngine?: VerifiedAutoClosurePolicyEngine;
   secretManager?: ISecretManager;
   azureDataRepo: IAzureDataRepository;
+  configRepo?: ConfigRepository;
 }
 
 export interface BuildAppOptions {
@@ -153,7 +115,25 @@ export async function buildApp(
   // Defense-in-depth: enforce strict TLS safety regardless of invocation pathway
   assertTlsSafety();
 
-  const configRepo = new FileConfigRepository(configFilePath);
+  // Initialize relational database (supporting DB_ENGINE / DATABASE_ENGINE, with DB_DISABLED=true support)
+  let db: WorkOpsDb | undefined = options.db;
+  if (!db && process.env.DB_DISABLED !== 'true') {
+    try {
+      db = createDatabase({
+        sqlitePath: options.sqlitePath || process.env.SQLITE_PATH,
+        url: options.databaseUrl || process.env.DATABASE_URL,
+      });
+    } catch (err: any) {
+      logger.warn(`Failed to initialize database: ${err.message}.`);
+    }
+  }
+
+  // Dual-mode Config Repository: Relational primary with FileConfigRepository fallback & auto-seeding
+  const fileConfigRepo = new FileConfigRepository(configFilePath);
+  const relationalConfigRepo = db ? new RelationalConfigRepository(db, configFilePath) : undefined;
+  const configRepo: ConfigRepository = relationalConfigRepo
+    ? new DualConfigRepository(relationalConfigRepo, fileConfigRepo)
+    : fileConfigRepo;
   const config = await configRepo.load();
 
   const pat = process.env.AZURE_DEVOPS_PAT?.trim() || '';
@@ -171,18 +151,8 @@ export async function buildApp(
   const client = new AzureDevOpsClient(config);
 
   const workItemRepo = new AzureWorkItemService(client, () => config.timezone);
-  let db: WorkOpsDb | undefined = options.db;
-  if (!db) {
-    try {
-      db = createDatabase({
-        sqlitePath: options.sqlitePath || process.env.SQLITE_PATH,
-        url: options.databaseUrl || process.env.DATABASE_URL,
-      });
-    } catch (err: any) {
-      logger.warn(`Failed to initialize database: ${err.message}.`);
-    }
-  }
 
+  // Dual-mode Journal Repository
   const fileJournalRepo = new FileJournalRepository(
     configFilePath
       ? path.join(path.dirname(path.resolve(process.cwd(), configFilePath)), '.task-journal.json')
@@ -203,8 +173,21 @@ export async function buildApp(
 
   const lockRepo = new FileLockRepository();
   const schedulerRepo = new NodeSchedulerRepository(config, configRepo);
-  const autoClosureConfigRepo = new FileAutoClosureConfigRepository();
-  const autoClosureAuditRepo = new FileAutoClosureAuditRepository();
+
+  // Dual-mode Auto-Closure Config Repository
+  const fileAutoClosureConfigRepo = new FileAutoClosureConfigRepository();
+  const relationalAutoClosureConfigRepo = db ? new RelationalAutoClosureConfigRepository(db) : undefined;
+  const autoClosureConfigRepo: AutoClosureConfigRepository = relationalAutoClosureConfigRepo
+    ? new DualAutoClosureConfigRepository(relationalAutoClosureConfigRepo, fileAutoClosureConfigRepo)
+    : fileAutoClosureConfigRepo;
+
+  // Dual-mode Auto-Closure Audit Repository
+  const fileAutoClosureAuditRepo = new FileAutoClosureAuditRepository();
+  const relationalAutoClosureAuditRepo = db ? new RelationalAutoClosureAuditRepository(db) : undefined;
+  const autoClosureAuditRepo: AutoClosureAuditLogRepository = relationalAutoClosureAuditRepo
+    ? new DualAutoClosureAuditRepository(relationalAutoClosureAuditRepo, fileAutoClosureAuditRepo)
+    : fileAutoClosureAuditRepo;
+
   const datePlanning = new DatePlanningService();
 
   const githubClient = new GitHubClient({
@@ -310,6 +293,7 @@ export async function buildApp(
     policyEngine,
     secretManager,
     azureDataRepo,
+    configRepo,
   };
 }
 
