@@ -8,6 +8,7 @@ import {
   WorkItemRepository,
   ConfigRepository,
   JournalRepository,
+  AutoClosureAuditLogRepository,
   LockRepository,
   AppConfig,
   Person,
@@ -76,6 +77,7 @@ export interface CloseDailyTasksOutput {
   totalFound: number;
   totalClosed: number;
   totalAlreadyClosed: number;
+  totalNeedsReview?: number;
   totalFailed: number;
   results: ClosedTaskResult[];
 }
@@ -84,6 +86,19 @@ function readRecordedWorkHours(value: unknown): number | null {
   if (value === undefined || value === null || value === '') return null;
   const hours = Number(value);
   return Number.isFinite(hours) && hours >= 0 ? hours : NaN;
+}
+
+function getAzureRequiredEvidenceError(error: unknown): string | null {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  if (!/TF401320/i.test(message)) return null;
+  const field = message.match(/Rule Error for field\s+(.+?)\.\s+Error code:/i)?.[1]?.trim();
+  return field
+    ? `REQUIRED_EVIDENCE_MISSING: Azure requires a verified value for "${field}" before task closure.`
+    : `REQUIRED_EVIDENCE_MISSING: Azure process rules blocked task closure. ${message}`;
+}
+
+function getClosureTriggerSource(operatorEmail?: string): 'scheduled' | 'manual' {
+  return operatorEmail?.startsWith('system-') ? 'scheduled' : 'manual';
 }
 
 export class CloseDailyTasksUseCase {
@@ -98,7 +113,7 @@ export class CloseDailyTasksUseCase {
     private readonly journalRepo?: JournalRepository,
     private readonly lockRepo?: LockRepository,
     private readonly autoClosureConfigRepo?: any,
-    private readonly autoClosureAuditRepo?: any,
+    private readonly autoClosureAuditRepo?: AutoClosureAuditLogRepository,
     policyEngine?: VerifiedAutoClosurePolicyEngine
   ) {
     this.policyEngine = policyEngine || new VerifiedAutoClosurePolicyEngine();
@@ -154,6 +169,7 @@ export class CloseDailyTasksUseCase {
           totalFound: 0,
           totalClosed: 0,
           totalAlreadyClosed: 0,
+          totalNeedsReview: 0,
           totalFailed: 0,
           results: [],
         };
@@ -229,6 +245,7 @@ export class CloseDailyTasksUseCase {
     const results: ClosedTaskResult[] = [];
     let totalClosed = 0;
     let totalAlreadyClosed = 0;
+    let totalNeedsReview = 0;
     let totalFailed = 0;
 
     for (const { person, item } of matchedTasks) {
@@ -274,6 +291,90 @@ export class CloseDailyTasksUseCase {
       }
 
       try {
+        const plannedStart =
+          item.fields['Custom.PlannedStartdate'] ||
+          item.fields['Custom.PlannedStartDate'] ||
+          item.fields['Microsoft.VSTS.Scheduling.StartDate'] || '';
+        const actualStart = item.fields['Custom.ActualStartdate'] ||
+          item.fields['Custom.ActualStartDate'] || '';
+        const actualEnd = item.fields['Custom.ActualEnddate'] ||
+          item.fields['Custom.ActualEndDate'] || '';
+
+        const existingCompleted = readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.CompletedWork']);
+        const closureCompletedWork = existingCompleted;
+        const closureRemainingWork = 0;
+        const ops: FieldPatchOperation[] = [
+          { op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.RemainingWork', value: closureRemainingWork },
+          {
+            op: 'add',
+            path: '/fields/System.History',
+            value: `EOD closure requested at ${nowUtc}. Remaining Work set to ${closureRemainingWork}h. Recorded completed work and actual dates preserved.`,
+          },
+          { op: 'add', path: '/fields/System.State', value: 'Closed' },
+        ];
+
+        // Ask Azure to apply process rules without persisting the transition.
+        // This prevents a remote mutation attempt when required evidence is absent.
+        if (this.workItemRepo.validateWorkItemPatch) {
+          try {
+            await this.workItemRepo.validateWorkItemPatch(taskId, ops, { bypassRules: false });
+          } catch (preflightError) {
+            const requiredEvidenceError = getAzureRequiredEvidenceError(preflightError);
+            if (!requiredEvidenceError) throw preflightError;
+
+            totalNeedsReview++;
+            logger.warn(`Task #${taskId} for ${person.name} requires Azure closure evidence: ${requiredEvidenceError}`);
+            results.push({
+              personKey: person.key,
+              personName: person.name,
+              taskId,
+              taskTitle,
+              previousState: currentState,
+              newState: currentState,
+              plannedStartDate: String(plannedStart),
+              actualStartDate: String(actualStart),
+              actualEndDate: recordedActualEnd,
+              remainingWork: readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.RemainingWork']),
+              completedWork: closureCompletedWork,
+              prCount: 0,
+              prSourceDate: targetDate,
+              isTodayPr: false,
+              htmlDescription: String(item.fields['System.Description'] || ''),
+              summaryText: requiredEvidenceError,
+              patchOperations: [],
+              status: 'needs_review',
+              policyStatus: 'NEEDS_REVIEW',
+              error: requiredEvidenceError,
+              auditWarning: requiredEvidenceError,
+            });
+            if (!isDryRun && this.autoClosureAuditRepo) {
+              try {
+                let configurationVersion = 1;
+                if (this.autoClosureConfigRepo?.getVersion) {
+                  configurationVersion = await this.autoClosureConfigRepo.getVersion();
+                }
+                await this.autoClosureAuditRepo.record({
+                  id: `${runId}:${taskId}:required-evidence`,
+                  taskId,
+                  assignedUser: person.assignedTo,
+                  closedAt: nowUtc,
+                  triggerSource: getClosureTriggerSource(input.operatorEmail),
+                  closureReason: requiredEvidenceError,
+                  automationDetails: { matchedFilters: [person.key, targetDate] },
+                  configurationVersion,
+                  validationResults: { passed: false, reason: requiredEvidenceError },
+                  patchOperations: [],
+                  status: 'rejected',
+                  error: requiredEvidenceError,
+                });
+              } catch (auditError) {
+                logger.warn(`Could not record required-evidence audit for #${taskId}: ${auditError instanceof Error ? auditError.message : String(auditError)}`);
+              }
+            }
+            continue;
+          }
+        }
+
         // Resolve GitHub username
         let githubUser = person.githubUsername;
         if (!githubUser) {
@@ -324,7 +425,7 @@ export class CloseDailyTasksUseCase {
             }
           );
 
-          if (decision.status === 'NEEDS_REVIEW' || input.manualOverride?.allowed) {
+          if (!decision.taskClosed || input.manualOverride?.allowed) {
             let overrideDecision: ClosureDecision | null = null;
             if (input.manualOverride?.allowed) {
               const operatorUser: AuthenticatedUser | undefined =
@@ -353,6 +454,7 @@ export class CloseDailyTasksUseCase {
             }
 
             if (!overrideDecision || !overrideDecision.taskClosed) {
+              totalNeedsReview++;
               results.push({
                 personKey: person.key,
                 personName: person.name,
@@ -371,38 +473,39 @@ export class CloseDailyTasksUseCase {
                 summaryText: `Task requires review: ${decision.reason}`,
                 patchOperations: [],
                 status: 'needs_review',
-                policyStatus: 'NEEDS_REVIEW',
+                policyStatus: decision.status,
                 auditWarning: decision.reason,
               });
+              if (this.autoClosureAuditRepo) {
+                try {
+                  let configurationVersion = 1;
+                  if (this.autoClosureConfigRepo?.getVersion) {
+                    configurationVersion = await this.autoClosureConfigRepo.getVersion();
+                  }
+                  await this.autoClosureAuditRepo.record({
+                    id: `${runId}:${taskId}:review`,
+                    taskId,
+                    assignedUser: person.assignedTo,
+                    closedAt: nowUtc,
+                    triggerSource: getClosureTriggerSource(input.operatorEmail),
+                    closureReason: decision.reason,
+                    automationDetails: { matchedFilters: [person.key, targetDate] },
+                    configurationVersion,
+                    validationResults: { passed: false, reason: decision.reason },
+                    patchOperations: [],
+                    status: 'rejected',
+                    error: decision.reason,
+                  });
+                } catch (auditError) {
+                  logger.warn(`Could not record auto-closure review decision for #${taskId}: ${auditError instanceof Error ? auditError.message : String(auditError)}`);
+                }
+              }
               continue;
             } else {
               decision = overrideDecision;
             }
           }
         }
-
-        const plannedStart =
-          item.fields['Custom.PlannedStartdate'] ||
-          item.fields['Custom.PlannedStartDate'] ||
-          item.fields['Microsoft.VSTS.Scheduling.StartDate'] || '';
-        const actualStart = item.fields['Custom.ActualStartdate'] ||
-          item.fields['Custom.ActualStartDate'] || '';
-        const actualEnd = item.fields['Custom.ActualEnddate'] ||
-          item.fields['Custom.ActualEndDate'] || '';
-
-        const existingCompleted = readRecordedWorkHours(item.fields['Microsoft.VSTS.Scheduling.CompletedWork']);
-        const closureCompletedWork = existingCompleted;
-        const closureRemainingWork = 0;
-
-        const ops: any[] = [
-          { op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.RemainingWork', value: closureRemainingWork },
-          {
-            op: 'add',
-            path: '/fields/System.History',
-            value: `EOD closure requested at ${nowUtc}. Remaining Work set to ${closureRemainingWork}h. Recorded completed work and actual dates preserved.`,
-          },
-          { op: 'add', path: '/fields/System.State', value: 'Closed' },
-        ];
 
         let auditWarning: string | undefined;
         let verified = false;
@@ -454,6 +557,41 @@ export class CloseDailyTasksUseCase {
               const journalWarning = `Azure task #${taskId} was closed, but recording the local audit journal failed: ${jErr instanceof Error ? jErr.message : String(jErr)}`;
               auditWarning = auditWarning ? `${auditWarning} ${journalWarning}` : journalWarning;
               logger.warn(auditWarning);
+            }
+          }
+
+          if (this.autoClosureAuditRepo) {
+            try {
+              let configurationVersion = 1;
+              if (this.autoClosureConfigRepo?.getVersion) {
+                configurationVersion = await this.autoClosureConfigRepo.getVersion();
+              }
+              await this.autoClosureAuditRepo.record({
+                id: `${runId}:${taskId}`,
+                taskId,
+                assignedUser: person.assignedTo,
+                closedAt: nowUtc,
+                triggerSource: input.operatorEmail?.startsWith('system-') ? 'scheduled' : 'manual',
+                closureReason: decision?.manualOverride?.allowed
+                  ? `Manual override: ${decision.manualOverride.reason}`
+                  : (decision?.reason || prDeliverables.summaryText),
+                automationDetails: {
+                  matchedFilters: [person.key, targetDate],
+                },
+                configurationVersion,
+                validationResults: {
+                  passed: verified,
+                  reason: auditWarning,
+                  warnings: auditWarning ? [auditWarning] : undefined,
+                },
+                patchOperations: ops,
+                status: verified ? 'success' : 'rejected',
+                error: auditWarning,
+              });
+            } catch (auditError) {
+              const auditWriteWarning = `Azure task #${taskId} was closed, but recording the auto-closure audit failed: ${auditError instanceof Error ? auditError.message : String(auditError)}`;
+              auditWarning = auditWarning ? `${auditWarning} ${auditWriteWarning}` : auditWriteWarning;
+              logger.warn(auditWriteWarning);
             }
           }
         }
@@ -513,8 +651,11 @@ export class CloseDailyTasksUseCase {
       timezone: activeConfig.timezone,
       dryRun: isDryRun,
       totalFound: matchedTasks.length,
-      totalClosed: isDryRun ? matchedTasks.length - totalAlreadyClosed - totalFailed : totalClosed,
+      totalClosed: isDryRun
+        ? matchedTasks.length - totalAlreadyClosed - totalNeedsReview - totalFailed
+        : totalClosed,
       totalAlreadyClosed,
+      totalNeedsReview,
       totalFailed,
       results,
     };

@@ -117,13 +117,15 @@ describe('Tier 1: Feature Coverage - Group 5: Clean Architecture & UI Modernizat
       expect(fs.existsSync(navFile)).toBe(true);
     });
 
-    it('T1-F16-05: index.html is valid HTML5 document with title, viewport, and accessibility tags', () => {
+    it('T1-F16-05: index.html and React AppShell provide valid HTML5 document, title, viewport, and accessibility tags', () => {
       const indexHtml = fs.readFileSync(path.join(repoRoot, 'src/presentation/web/public/index.html'), 'utf8');
+      const appShell = fs.readFileSync(path.join(repoRoot, 'src/presentation/web/src/components/layout/AppShell.tsx'), 'utf8');
       expect(indexHtml).toContain('<!DOCTYPE html>');
       expect(indexHtml).toContain('<html');
       expect(indexHtml).toContain('<head>');
       expect(indexHtml).toContain('<title>');
-      expect(indexHtml).toContain('skip-link');
+      expect(indexHtml).toContain('viewport');
+      expect(appShell).toContain('skip-link');
     });
   });
 

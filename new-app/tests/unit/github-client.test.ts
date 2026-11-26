@@ -156,6 +156,31 @@ describe('GitHubClient', () => {
   });
 
   describe('getPrDeliverablesForDate', () => {
+    it('coalesces concurrent evidence reads and reuses the successful result for five minutes', async () => {
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      const mockFetch = vi.fn(async () => {
+        await gate;
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          json: async () => ({ total_count: 0, incomplete_results: false, items: [] }),
+        } as any;
+      });
+      const client = new GitHubClient({ token: 'test-token', fetchFn: mockFetch });
+
+      const first = client.getPrDeliverablesForDate('alice', '2026-10-15', 'UTC');
+      const second = client.getPrDeliverablesForDate('alice', '2026-10-15', 'UTC');
+      release();
+      const [a, b] = await Promise.all([first, second]);
+
+      expect(a).toBe(b);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      await expect(client.getPrDeliverablesForDate('alice', '2026-10-15', 'UTC')).resolves.toBe(a);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
     it('filters PRs to specified target date in timezone and formats deliverables', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -318,6 +343,33 @@ describe('GitHubClient', () => {
   });
 
   describe('resilience, retries and timeout', () => {
+    it('serializes search dispatches so separate users do not burst GitHub search requests', async () => {
+      let active = 0;
+      let maxActive = 0;
+      const fetchFn = vi.fn(async () => {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        await new Promise(resolve => setTimeout(resolve, 5));
+        active--;
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          json: async () => ({ total_count: 0, incomplete_results: false, items: [] }),
+        } as any;
+      });
+      const client = new GitHubClient({ fetchFn });
+
+      await Promise.all([
+        client.getUserPullRequests('alice'),
+        client.getUserPullRequests('bob'),
+        client.getUserPullRequests('carol'),
+      ]);
+
+      expect(maxActive).toBe(1);
+      expect(fetchFn).toHaveBeenCalledTimes(3);
+    });
+
     it('times out and aborts long-hanging requests', async () => {
       const fetchFn = vi.fn().mockImplementation((_url: string, init: any) => {
         return new Promise((_, reject) => {

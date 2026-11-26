@@ -107,6 +107,9 @@ jobs:
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
 
+      - name: Build Application
+        run: npm run build
+
       - name: Run Playwright Tests
         run: npm run test:playwright
 

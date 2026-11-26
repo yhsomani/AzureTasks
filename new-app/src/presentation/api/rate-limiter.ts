@@ -141,10 +141,15 @@ export const authLimiter = rateLimit({
   statusCode: RATE_LIMIT_CONFIG.auth.statusCode,
   standardHeaders: false,
   skip: (req) => {
-    // Only apply to auth / session requests and never health
+    // Only apply to actual authentication/login/callback endpoints; never rate-limit /api/health or /api/session
     const path = (req.path || '').toLowerCase();
-    if (path === '/api/health') return true;
-    return !path.includes('auth') && !path.includes('session') && !path.includes('login');
+    if (path === '/api/health' || path === '/api/session') return true;
+    const isAuthEndpoint =
+      path === '/auth' ||
+      path.startsWith('/auth/') ||
+      path.includes('/login') ||
+      path.includes('/callback');
+    return !isAuthEndpoint;
   },
   handler: (_req, res, _next, options) => {
     const ip = _req.ip || 'unknown';
@@ -168,9 +173,23 @@ export const bulkOperationsLimiter = rateLimit({
   statusCode: RATE_LIMIT_CONFIG.bulk.statusCode,
   standardHeaders: false,
   skip: (req) => {
-    // Only apply to bulk operation endpoints
-    const path = req.path.toLowerCase();
-    return !path.includes('bulk') && !path.includes('batch');
+    // Apply to bulk/batch routes and high-impact POST bulk mutation endpoints
+    const path = (req.path || '').toLowerCase();
+    if (path.includes('bulk') || path.includes('batch')) {
+      return false;
+    }
+    if (req.method.toUpperCase() !== 'POST') {
+      return true;
+    }
+    const bulkPaths = new Set([
+      '/api/tasks/execute',
+      '/api/tasks/close-today',
+      '/api/tasks/activate-today',
+      '/api/explorer/create-missing',
+      '/api/tasks/repair',
+      '/api/auto-closure/run',
+    ]);
+    return !bulkPaths.has(path);
   },
   handler: (_req, res, _next, options) => {
     const ip = _req.ip || 'unknown';

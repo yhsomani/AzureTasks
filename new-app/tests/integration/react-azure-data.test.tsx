@@ -290,10 +290,8 @@ describe('React 19 Azure DevOps Intelligence Workspace & Data Presentation', () 
   });
 
   it('verifies AppShell exposes the 4th navigation group Azure Intelligence alongside legacy groups', async () => {
-    let container: HTMLElement;
     await act(async () => {
-      const res = render(<AppShell />);
-      container = res.container;
+      render(<AppShell />);
     });
 
     const nav = screen.getByRole('navigation', { name: /primary navigation/i });
@@ -388,9 +386,8 @@ describe('React 19 Azure DevOps Intelligence Workspace & Data Presentation', () 
 
   describe('UnassignedTaskManager robustness edge cases', () => {
     it('handles undefined workItems gracefully without crashing and renders empty state', async () => {
-      let renderResult: any;
       expect(() => {
-        renderResult = render(
+        render(
           <UnassignedTaskManager
             workItems={undefined as any}
             totalCount={0}
@@ -410,9 +407,8 @@ describe('React 19 Azure DevOps Intelligence Workspace & Data Presentation', () 
     });
 
     it('handles null workItems gracefully without crashing and renders empty state', async () => {
-      let renderResult: any;
       expect(() => {
-        renderResult = render(
+        render(
           <UnassignedTaskManager
             workItems={null as any}
             totalCount={0}

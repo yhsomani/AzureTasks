@@ -351,6 +351,8 @@ export class ActivateDailyTasksUseCase {
                   fieldCopyStatus: 'SUCCESS',
                   relationCopyStatus: 'SUCCESS',
                   verified,
+                  action: 'ACTIVATED',
+                  taskId,
                   error: verified ? undefined : 'Activation accepted; independent read-back incomplete.',
                 });
               } catch (jErr: any) {

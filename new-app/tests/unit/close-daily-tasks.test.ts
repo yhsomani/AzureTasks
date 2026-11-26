@@ -258,6 +258,45 @@ describe('CloseDailyTasksUseCase - Process Rule Recovery (TF401320)', () => {
     expect(paths.some((value: string) => value.includes('/Custom.'))).toBe(false);
   });
 
+  it('classifies validate-only TF401320 required-field errors as reviewable without mutating Azure', async () => {
+    const candidateTasks = [{
+      id: 10922562,
+      fields: {
+        'System.Title': '3in1_PWA_MyAccount | 15 Oct',
+        'System.AssignedTo': { displayName: 'Alice Smith', uniqueName: 'alice@example.com' },
+        'System.State': 'New',
+        'Custom.PlannedStartDate': '2026-10-15T04:00:00.000Z',
+        'System.Description': 'Human-entered completion notes',
+      },
+    }];
+
+    const validateWorkItemPatch = vi.fn().mockRejectedValue(
+      new Error('TF401320: Rule Error for field Actual Start date. Error code: Required, InvalidEmpty. One additional error occurred during validation of the work item.')
+    );
+    const patchWorkItem = vi.fn();
+    const mockRepo = {
+      findCandidateTasks: vi.fn().mockResolvedValue(candidateTasks),
+      validateWorkItemPatch,
+      patchWorkItem,
+    } as unknown as WorkItemRepository;
+
+    const output = await new CloseDailyTasksUseCase(
+      baseConfig, mockRepo, mockDatePlanning, mockGitHubClient
+    ).execute({ asOf: '2026-10-15', dryRun: true });
+
+    expect(validateWorkItemPatch).toHaveBeenCalledWith(10922562, expect.any(Array), { bypassRules: false });
+    expect(patchWorkItem).not.toHaveBeenCalled();
+    expect(mockGitHubClient.getPrDeliverablesForDate).not.toHaveBeenCalled();
+    expect(output.totalClosed).toBe(0);
+    expect(output.totalNeedsReview).toBe(1);
+    expect(output.results[0]).toMatchObject({
+      status: 'needs_review',
+      policyStatus: 'NEEDS_REVIEW',
+      htmlDescription: 'Human-entered completion notes',
+    });
+    expect(output.results[0].error).toContain('Actual Start date');
+  });
+
   it('excludes people who have autoCloseEnabled set to false when running in all-members mode', async () => {
     const configWithExclusions: AppConfig = {
       ...baseConfig,

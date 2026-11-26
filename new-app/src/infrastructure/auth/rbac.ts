@@ -191,6 +191,105 @@ export function oidcAuthGuard(allowedRoles?: Role[]): RequestHandler {
   };
 }
 
+/**
+ * Determine whether HTTP or OIDC authentication is active for the incoming request.
+ */
+export function isAuthConfigured(req?: Request): boolean {
+  return (
+    process.env.NODE_ENV === 'production' ||
+    Boolean(process.env.API_AUTH_TOKEN?.trim()) ||
+    Boolean(process.env.OIDC_ISSUER?.trim()) ||
+    Boolean(process.env.ENTRA_ID_ISSUER?.trim()) ||
+    Boolean(req?.headers?.authorization)
+  );
+}
+
+export interface MutationRoleOptions {
+  isPreview?: boolean;
+  adminUsers?: string[];
+  resolvedUser?: string;
+  onForbiddenAdminUser?: (user: string) => void;
+}
+
+/**
+ * Unified RBAC enforcement helper for state-mutating (and preview) HTTP endpoints.
+ * Blocks read-only Auditor role from mutating state, enforces HTTP 401 when
+ * authentication is configured and req.user is missing, and optionally checks
+ * adminUsers when authentication is disabled in local/test environments.
+ */
+export function enforceMutationRole(
+  req: Request,
+  res: Response,
+  allowedRoles: Role[],
+  optionsOrIsPreview: boolean | MutationRoleOptions = false
+): boolean {
+  const options: MutationRoleOptions =
+    typeof optionsOrIsPreview === 'boolean' ? { isPreview: optionsOrIsPreview } : optionsOrIsPreview;
+  const isPreview = Boolean(options.isPreview);
+
+  if (req.user) {
+    if (isPreview && req.authRole === 'viewer') {
+      return true;
+    }
+    const isAuditorOnly =
+      Array.isArray(req.user.roles) &&
+      req.user.roles.includes('Auditor') &&
+      !req.user.roles.some((r: Role) => ['Admin', 'Lead', 'Developer'].includes(r));
+    if (isAuditorOnly) {
+      res.status(403).json({ success: false, error: "Role 'Auditor' is read-only." });
+      return false;
+    }
+    if (!hasRole(req.user, allowedRoles)) {
+      const error =
+        Array.isArray(req.user.roles) &&
+        req.user.roles.includes('Developer') &&
+        !allowedRoles.includes('Developer')
+          ? "Role 'Developer' cannot execute team plans."
+          : `Insufficient permissions. Allowed roles: ${allowedRoles.join(', ')}.`;
+      res.status(403).json({ success: false, error });
+      return false;
+    }
+    return true;
+  }
+
+  if (req.authRole === 'viewer') {
+    if (isPreview) return true;
+    res.status(403).json({ success: false, error: "Role 'Auditor' is read-only." });
+    return false;
+  }
+
+  if (isAuthConfigured(req)) {
+    res.status(401).json({
+      success: false,
+      error: 'Authentication required before role verification.',
+    });
+    return false;
+  }
+
+  if (options.adminUsers !== undefined) {
+    const user = (options.resolvedUser || req.authUser || 'anonymous').trim();
+    if (options.adminUsers.length === 0) {
+      options.onForbiddenAdminUser?.(user);
+      res.status(403).json({
+        success: false,
+        error: 'No admin users configured for auto-closure management',
+      });
+      return false;
+    }
+    const allowed = options.adminUsers.map((u) => u.trim().toLowerCase());
+    if (!allowed.includes(user.toLowerCase())) {
+      options.onForbiddenAdminUser?.(user);
+      res.status(403).json({
+        success: false,
+        error: `User ${user} is not authorized to modify auto-closure configuration`,
+      });
+      return false;
+    }
+  }
+
+  return true;
+}
+
 export {
   sanitizeOperatorEmail,
   resolveOperator,

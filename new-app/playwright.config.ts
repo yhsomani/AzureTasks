@@ -43,7 +43,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'NODE_ENV=test GITHUB_OFFLINE=true ENABLE_RATE_LIMIT_IN_TEST=false GITHUB_TOKEN= GH_PAT= AZURE_DEVOPS_PAT= npm start',
+    command: 'NODE_ENV=test ENABLE_MOCK_AUTH=true GITHUB_OFFLINE=true ENABLE_RATE_LIMIT_IN_TEST=false GITHUB_TOKEN= GH_PAT= AZURE_DEVOPS_PAT= npm start',
     url: 'http://127.0.0.1:3000/api/health',
     reuseExistingServer: !process.env.CI,
     timeout: 30000,

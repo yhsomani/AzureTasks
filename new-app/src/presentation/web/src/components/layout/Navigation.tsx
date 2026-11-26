@@ -10,7 +10,7 @@ export interface NavigationProps {
 }
 
 export function Navigation({
-  currentWorkspace,
+  currentWorkspace: _currentWorkspace,
   currentSubView,
   onNavigate,
   mobileOpen,

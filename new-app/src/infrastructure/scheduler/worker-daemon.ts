@@ -1,4 +1,5 @@
 import { logger } from '../logging/logger.js';
+import { metricsRegistry } from '../telemetry/metrics.js';
 import { ILockManager } from '../../domain/ports/repositories.js';
 
 export interface WorkerJob {
@@ -96,6 +97,7 @@ export class WorkerDaemon {
     }
 
     this.activeJobs++;
+    metricsRegistry.setActiveJobs(this.activeJobs);
     const maxRetries = job.maxRetries ?? 3;
     let attempt = 0;
     let lastError = '';
@@ -130,6 +132,7 @@ export class WorkerDaemon {
       return false;
     } finally {
       this.activeJobs--;
+      metricsRegistry.setActiveJobs(this.activeJobs);
       if (lockHandle && this.lockManager) {
         await this.lockManager.release(lockHandle);
       }

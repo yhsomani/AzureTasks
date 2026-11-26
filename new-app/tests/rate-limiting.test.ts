@@ -270,6 +270,44 @@ describe('Rate Limiting Middleware', () => {
       expect(response.status).toBe(200);
     });
   });
+
+  describe('Endpoint Scope Enforcement (F1)', () => {
+    it('does not rate-limit GET /api/session with authLimiter while limiting /auth/login after 5 attempts', async () => {
+      const scopedApp = express();
+      scopedApp.use(express.json());
+      scopedApp.use(authLimiter);
+      scopedApp.get('/api/session', (_req, res) => res.json({ success: true }));
+      scopedApp.get('/auth/login', (_req, res) => res.json({ success: true }));
+
+      for (let i = 0; i < 8; i++) {
+        const sessionRes = await makeRequest(scopedApp, 'GET', '/api/session', {});
+        expect(sessionRes.status).toBe(200);
+      }
+
+      const statuses: number[] = [];
+      for (let i = 0; i < 6; i++) {
+        const loginRes = await makeRequest(scopedApp, 'GET', '/auth/login', {});
+        statuses.push(loginRes.status);
+      }
+      expect(statuses.slice(0, 5)).toEqual([200, 200, 200, 200, 200]);
+      expect(statuses[5]).toBe(429);
+    });
+
+    it('applies bulkOperationsLimiter to real bulk mutation routes like POST /api/tasks/execute', async () => {
+      const bulkApp = express();
+      bulkApp.use(express.json());
+      bulkApp.use(bulkOperationsLimiter);
+      bulkApp.post('/api/tasks/execute', (_req, res) => res.json({ success: true }));
+
+      const statuses: number[] = [];
+      for (let i = 0; i < 11; i++) {
+        const res = await makeRequest(bulkApp, 'POST', '/api/tasks/execute', { confirm: true });
+        statuses.push(res.status);
+      }
+      expect(statuses.slice(0, 10).every((s) => s === 200)).toBe(true);
+      expect(statuses[10]).toBe(429);
+    });
+  });
 });
 
 // Helper functions

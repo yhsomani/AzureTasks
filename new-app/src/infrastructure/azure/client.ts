@@ -3,6 +3,8 @@
  * Low-level HTTP client for Azure DevOps REST API
  */
 
+import { metricsRegistry } from '../telemetry/metrics.js';
+
 export interface AzureClientConfig {
   organization: string;
   pat?: string;
@@ -109,8 +111,18 @@ export class AzureDevOpsClient {
           clearTimeout(timeoutId);
         }
 
+        // Report upstream Azure rate-limit budget when provided
+        const remainingHeader = response.headers?.get?.('X-RateLimit-Remaining');
+        if (typeof remainingHeader === 'string' && remainingHeader.trim() !== '') {
+          const parsedRemaining = Number(remainingHeader);
+          if (Number.isFinite(parsedRemaining) && parsedRemaining >= 0) {
+            metricsRegistry.setAzureRateLimitRemaining(parsedRemaining);
+          }
+        }
+
         // Handle rate limiting
         if (response.status === 429) {
+          metricsRegistry.setAzureRateLimitRemaining(0);
           if (!replaySafe) {
             throw new AzureClientError('Azure DevOps rate-limited a write request. Its result is unverified; inspect Azure before retrying.', false);
           }

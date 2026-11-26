@@ -216,11 +216,13 @@ describe('Tier 2: Boundary & Corner Cases - Group 5: Clean Architecture, UI & Ve
   // Feature F17 Boundary: Dashboard UI Architecture & Reactivity (5 Tests)
   // =========================================================================
   describe('Feature F17 Boundary: Dashboard UI Architecture & Reactivity (5)', () => {
-    it('T2-F17-01: Empty dashboard state rendering: index.html contains essential root mounting elements', () => {
+    it('T2-F17-01: Empty dashboard state rendering: index.html and AppShell contain essential root mounting elements', () => {
       const indexPath = path.join(repoRoot, 'src/presentation/web/public/index.html');
+      const shellPath = path.join(repoRoot, 'src/presentation/web/src/components/layout/AppShell.tsx');
       const html = fs.readFileSync(indexPath, 'utf8');
+      const shell = fs.readFileSync(shellPath, 'utf8');
       expect(html).toContain('id="root"');
-      expect(html).toContain('<main');
+      expect(shell).toContain('<main');
     });
 
     it('T2-F17-02: High task volume aggregation performance: aggregating 1,000 tasks executes under 50ms', () => {

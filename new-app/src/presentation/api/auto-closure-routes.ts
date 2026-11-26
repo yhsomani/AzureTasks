@@ -11,7 +11,7 @@ import {
 } from '../../domain/ports/repositories.js';
 import { AutoClosureService } from '../../domain/services/auto-closure-service.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-import { hasRole } from '../../infrastructure/auth/rbac.js';
+import { enforceMutationRole } from '../../infrastructure/auth/rbac.js';
 
 function getErrorMessage(err: unknown): string {
   if (err instanceof Error) {
@@ -43,54 +43,15 @@ export function createAutoClosureRouter(deps: AutoClosureRouteDependencies): Rou
     return (req as any).user?.email || (req as any).authUser || 'anonymous';
   };
 
-  // Helper to check admin/lead authorization
+  // Helper to check admin/lead authorization via unified RBAC
   const checkAdminAuth = (req: Request, res: Response): boolean => {
-    if (req.user && Array.isArray(req.user.roles)) {
-      const isAuditorOnly =
-        req.user.roles.includes('Auditor') &&
-        !req.user.roles.some((r) => ['Admin', 'Lead'].includes(r));
-      if (isAuditorOnly) {
-        res.status(403).json({ success: false, error: "Role 'Auditor' is read-only." });
-        return false;
-      }
-      if (!hasRole(req.user, ['Admin', 'Lead'])) {
-        res.status(403).json({ success: false, error: 'Insufficient permissions. Allowed roles: Admin, Lead.' });
-        return false;
-      }
-      return true;
-    }
-
-    if ((req as any).authRole === 'viewer') {
-      res.status(403).json({ success: false, error: "Role 'Auditor' is read-only." });
-      return false;
-    }
-
-    const authConfigured =
-      process.env.NODE_ENV === 'production' ||
-      Boolean(process.env.API_AUTH_TOKEN) ||
-      Boolean(process.env.OIDC_ISSUER) ||
-      Boolean(process.env.ENTRA_ID_ISSUER) ||
-      Boolean(req.headers?.authorization);
-
-    if (authConfigured && !req.user) {
-      res.status(401).json({
-        success: false,
-        error: 'Authentication required before role verification.',
-      });
-      return false;
-    }
-
-    const user = getUser(req);
-    const auth = autoClosureService.checkConfigurationAuthorization(user, deps.adminUsers);
-    if (!auth.isAuthorized) {
-      res.status(403).json({
-        success: false,
-        error: auth.reason,
-      });
-      logger.warn(`Unauthorized auto-closure config access attempt by ${user}`);
-      return false;
-    }
-    return true;
+    return enforceMutationRole(req, res, ['Admin', 'Lead'], {
+      adminUsers: deps.adminUsers,
+      resolvedUser: getUser(req),
+      onForbiddenAdminUser: (user) => {
+        logger.warn(`Unauthorized auto-closure config access attempt by ${user}`);
+      },
+    });
   };
 
   // GET /api/auto-closure/config - Get current configuration

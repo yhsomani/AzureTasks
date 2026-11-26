@@ -29,9 +29,6 @@ export function resolveOperator(
   if (email && email.trim()) {
     return sanitizeOperatorEmail(email);
   }
-  if (_untrustedHeaderEmail && typeof _untrustedHeaderEmail === 'string' && _untrustedHeaderEmail.trim()) {
-    return sanitizeOperatorEmail(_untrustedHeaderEmail);
-  }
   throw new Error('Operator identity required for audit compliance.');
 }
 

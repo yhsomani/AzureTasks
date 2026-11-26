@@ -18,6 +18,7 @@ import { validateEnvironmentSecrets, validateGitIgnore, ensureEnvExample } from 
 import { EntraIdAuthProvider } from '../../infrastructure/auth/entra-id-auth-provider.js';
 import { createAuthRouter } from '../../infrastructure/auth/session-routes.js';
 import { normalizeRole } from '../../infrastructure/auth/rbac.js';
+import { tenantGuard } from '../../infrastructure/auth/tenant-guard.js';
 import { tracingMiddleware } from '../../infrastructure/telemetry/tracer.js';
 import { createMetricsRouter } from './metrics-routes.js';
 import { createAzureDataRouter } from './azure-data-routes.js';
@@ -148,25 +149,6 @@ export class AppServer {
     // Mount Auth session endpoints (/auth/login, /auth/callback, /auth/logout)
     this.app.use('/auth', createAuthRouter({ authProvider }));
 
-    // Mock role/identity support for local test headers
-    this.app.use((req, _res, next) => {
-      if (!req.user && process.env.NODE_ENV !== 'production') {
-        const mockRole = (req.headers['x-mock-role'] as string) || (req.headers['x-user-role'] as string);
-        const mockEmail = (req.headers['x-mock-email'] as string) || (req.headers['x-operator-email'] as string);
-        if (mockRole || mockEmail) {
-          const role = mockRole ? normalizeRole(mockRole) : 'Admin';
-          req.user = {
-            id: 'mock-user',
-            email: mockEmail ? mockEmail.trim().toLowerCase() : 'admin@workops.test',
-            name: 'Mock User',
-            roles: [role],
-            tenantId: 'tenant-enterprise-01',
-          };
-        }
-      }
-      next();
-    });
-
     // Production endpoints can mutate remote Azure DevOps items and therefore
     // must never boot without an access-control boundary.
     const token = process.env.API_AUTH_TOKEN?.trim();
@@ -196,6 +178,30 @@ export class AppServer {
       logger.warn('HTTP authentication disabled. Set API_AUTH_TOKEN to require a login.');
     }
 
+    // Mock role/identity support ONLY for explicit test harness (after basicAuth, never bypassing API_AUTH_TOKEN)
+    this.app.use((req, _res, next) => {
+      if (
+        !req.user &&
+        !token &&
+        process.env.NODE_ENV === 'test' &&
+        process.env.ENABLE_MOCK_AUTH === 'true'
+      ) {
+        const mockRole = (req.headers['x-mock-role'] as string) || (req.headers['x-user-role'] as string);
+        const mockEmail = (req.headers['x-mock-email'] as string) || (req.headers['x-operator-email'] as string);
+        if (mockRole || mockEmail) {
+          const role = mockRole ? normalizeRole(mockRole) : 'Admin';
+          req.user = {
+            id: 'mock-user',
+            email: mockEmail ? mockEmail.trim().toLowerCase() : 'admin@workops.test',
+            name: 'Mock User',
+            roles: [role],
+            tenantId: 'tenant-enterprise-01',
+          };
+        }
+      }
+      next();
+    });
+
     // Rate limiting middleware (applied after origin guard and auth)
     if (process.env.NODE_ENV !== 'test' || process.env.ENABLE_RATE_LIMIT_IN_TEST === 'true') {
       this.app.use(generalLimiter);
@@ -215,6 +221,13 @@ export class AppServer {
       });
     }
 
+    // Tenant isolation guard for all API endpoints except health probe
+    const tenantIsolation = tenantGuard({ requireTenant: process.env.REQUIRE_TENANT === 'true' });
+    this.app.use('/api', (req, res, next) => {
+      if (req.path === '/health') return next();
+      return tenantIsolation(req, res, next);
+    });
+
     // Azure Data Intelligence API
     this.app.use('/api/azure-data', createAzureDataRouter(this.options.azureDataRepo || this.deps.azureDataRepo));
 
@@ -225,15 +238,12 @@ export class AppServer {
       res.status(404).json({ success: false, error: 'API route not found.' });
     });
 
-    // Static UI: in development, prioritize src directory so edits take effect immediately
+    // Static UI: in non-prod serve src/presentation/web/public first (for index.html/styles.css)
+    // and fall back to dist/presentation/web/public (for Vite-built /assets/*) without copying into src/.
     const publicDir = path.resolve(process.cwd(), 'src/presentation/web/public');
     const distPublicDir = path.resolve(process.cwd(), 'dist/presentation/web/public');
     const isProd = process.env.NODE_ENV === 'production';
-    const staticDir = (isProd && fs.existsSync(distPublicDir)) || !fs.existsSync(publicDir)
-      ? (fs.existsSync(distPublicDir) ? distPublicDir : publicDir)
-      : publicDir;
-
-    this.app.use(express.static(staticDir, {
+    const staticOptions: Parameters<typeof express.static>[1] = {
       maxAge: 0,
       setHeaders: (res, filePath) => {
         if (filePath.endsWith('.html') || filePath.endsWith('.js') || filePath.endsWith('.css')) {
@@ -242,11 +252,30 @@ export class AppServer {
           res.setHeader('Expires', '0');
         }
       },
-    }));
+    };
+
+    if (isProd) {
+      const prodStaticDir = fs.existsSync(distPublicDir) ? distPublicDir : publicDir;
+      this.app.use(express.static(prodStaticDir, staticOptions));
+    } else {
+      if (fs.existsSync(publicDir)) {
+        this.app.use(express.static(publicDir, staticOptions));
+      }
+      if (fs.existsSync(distPublicDir)) {
+        this.app.use(express.static(distPublicDir, staticOptions));
+      }
+    }
 
     // SPA fallback (Express 5: use middleware, not a '*' route)
-    this.app.use((_req, res) => {
-      const indexPath = path.join(staticDir, 'index.html');
+    this.app.use((req, res) => {
+      if (req.path.startsWith('/assets/')) {
+        res.status(404).send('Not Found');
+        return;
+      }
+      const indexDir = isProd
+        ? (fs.existsSync(distPublicDir) ? distPublicDir : publicDir)
+        : (fs.existsSync(path.join(publicDir, 'index.html')) ? publicDir : distPublicDir);
+      const indexPath = path.join(indexDir, 'index.html');
       if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
       } else {

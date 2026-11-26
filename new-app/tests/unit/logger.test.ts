@@ -81,4 +81,25 @@ describe('Logger secret scrubbing', () => {
     const secret = 'ghp_' + 'C'.repeat(36);
     expect(logger.mask(secret)).toBe('***');
   });
+
+  it('preserves unrelated 52-character identifiers and hashes while scrubbing real credential contexts', () => {
+    const hash52 = '9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e';
+    expect(hash52.length).toBe(52);
+    expect(logger.sanitize(`Processed artifact hash ${hash52} in build`)).toBe(
+      `Processed artifact hash ${hash52} in build`
+    );
+
+    expect(logger.sanitize('postgres://workops:superSecretPass@db.internal:5432/app')).toBe(
+      'postgres://workops:***@db.internal:5432/app'
+    );
+    expect(logger.sanitize(JSON.stringify({ apiKey: 'secret-api-key-val', user: 'alex' }))).toBe(
+      JSON.stringify({ apiKey: '***', user: 'alex' })
+    );
+    expect(logger.sanitize(`OAuth token ghs_${'D'.repeat(36)} and gho_${'E'.repeat(36)}`)).toBe(
+      'OAuth token *** and ***'
+    );
+    expect(logger.sanitize(`https://example.com/cb?client_secret=mySecret99&ok=1`)).toBe(
+      'https://example.com/cb?client_secret=***&ok=1'
+    );
+  });
 });

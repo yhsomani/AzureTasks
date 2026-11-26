@@ -188,6 +188,83 @@ describe('Milestone 4 — Feature 23: Entra ID (Azure AD) SSO (OIDC)', () => {
       expect(res2.valid).toBe(false);
       expect(res2.status).toBe(401);
     });
+
+    it('rejects tokens with non-RS256 alg or missing kid header', async () => {
+      const provider = new EntraIdAuthProvider({ clientId, issuer, audience });
+      provider.jwksCache.setKey(kid, publicKey);
+      const now = Math.floor(Date.now() / 1000);
+
+      for (const alg of ['none', 'HS256']) {
+        const hB64 = Buffer.from(JSON.stringify({ alg, typ: 'JWT', kid })).toString('base64url');
+        const pB64 = Buffer.from(JSON.stringify({ sub: 'u', iss: issuer, aud: audience, exp: now + 3600 })).toString('base64url');
+        const res = await provider.verifyToken(`${hB64}.${pB64}.sig`);
+        expect(res.valid).toBe(false);
+        expect(res.status).toBe(401);
+        expect(res.error).toBe('INVALID_ALGORITHM');
+      }
+
+      const noKidHeader = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+      const pB64 = Buffer.from(JSON.stringify({ sub: 'u', iss: issuer, aud: audience, exp: now + 3600 })).toString('base64url');
+      const resNoKid = await provider.verifyToken(`${noKidHeader}.${pB64}.sig`);
+      expect(resNoKid.valid).toBe(false);
+      expect(resNoKid.status).toBe(401);
+      expect(resNoKid.error).toBe('TOKEN_MISSING_KID');
+    });
+
+    it('rejects tokens missing exp, iss, or aud claims when configured', async () => {
+      const provider = new EntraIdAuthProvider({ clientId, issuer, audience });
+      provider.jwksCache.setKey(kid, publicKey);
+      const now = Math.floor(Date.now() / 1000);
+
+      const noExp = createTestJwt({ sub: 'u', iss: issuer, aud: audience, iat: now });
+      const resNoExp = await provider.verifyToken(noExp);
+      expect(resNoExp.valid).toBe(false);
+      expect(resNoExp.status).toBe(401);
+      expect(resNoExp.error).toBe('TOKEN_MISSING_EXP');
+
+      const noIss = createTestJwt({ sub: 'u', aud: audience, iat: now, exp: now + 3600 });
+      const resNoIss = await provider.verifyToken(noIss);
+      expect(resNoIss.valid).toBe(false);
+      expect(resNoIss.status).toBe(401);
+      expect(resNoIss.error).toBe('INVALID_ISSUER');
+
+      const noAud = createTestJwt({ sub: 'u', iss: issuer, iat: now, exp: now + 3600 });
+      const resNoAud = await provider.verifyToken(noAud);
+      expect(resNoAud.valid).toBe(false);
+      expect(resNoAud.status).toBe(403);
+      expect(resNoAud.error).toBe('INVALID_AUDIENCE');
+    });
+
+    it('validates nbf claim with 60s clock skew tolerance', async () => {
+      const provider = new EntraIdAuthProvider({ clientId, issuer, audience });
+      provider.jwksCache.setKey(kid, publicKey);
+      const now = Math.floor(Date.now() / 1000);
+
+      const tooEarly = createTestJwt({
+        sub: 'u',
+        iss: issuer,
+        aud: audience,
+        nbf: now + 120,
+        exp: now + 3600,
+      });
+      const resEarly = await provider.verifyToken(tooEarly);
+      expect(resEarly.valid).toBe(false);
+      expect(resEarly.status).toBe(401);
+      expect(resEarly.error).toBe('TOKEN_NOT_YET_VALID');
+
+      const withinSkew = createTestJwt({
+        sub: 'u',
+        email: 'skew@workops.test',
+        roles: ['Developer'],
+        iss: issuer,
+        aud: audience,
+        nbf: now + 30,
+        exp: now + 3600,
+      });
+      const resSkew = await provider.verifyToken(withinSkew);
+      expect(resSkew.valid).toBe(true);
+      expect(resSkew.status).toBe(200);
+    });
   });
 
   describe('JwksKeyCache', () => {

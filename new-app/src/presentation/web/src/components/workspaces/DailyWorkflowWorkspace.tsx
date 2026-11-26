@@ -531,7 +531,7 @@ export function DailyWorkflowWorkspace({
                 id="executeBtn"
                 onClick={handleExecuteEod}
                 isLoading={isClosing}
-                disabled={isViewer}
+                disabled={isViewer || !eodPreview.canExecute}
               >
                 Execute EOD Closure
               </Button>
@@ -552,8 +552,14 @@ export function DailyWorkflowWorkspace({
           </div>
 
           {eodPreview.ready ? (
-            <div className="p-3 bg-emerald-950/20 border border-emerald-800 rounded text-xs text-emerald-300">
-              ✓ Dry run completed successfully. You may now execute end-of-day closure.
+            <div className={`p-3 rounded text-xs ${
+              eodPreview.canExecute
+                ? 'bg-emerald-950/20 border border-emerald-800 text-emerald-300'
+                : 'bg-amber-950/20 border border-amber-800 text-amber-300'
+            }`}>
+              {eodPreview.canExecute
+                ? 'Dry run completed. Closure-ready tasks can now be executed.'
+                : 'Dry run found no closure-ready tasks. Resolve required-evidence or review blockers first.'}
             </div>
           ) : (
             <div className="p-3 bg-surface-card border border-border rounded text-xs text-text-muted">

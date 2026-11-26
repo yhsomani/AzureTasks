@@ -39,10 +39,11 @@ describe('Milestone 4 — Feature 25: Personal Identity Attribution', () => {
       expect(finalOperator).not.toBe('alex@example.com');
     });
 
-    it('falls back to header email only if jwt email is missing', () => {
+    it('rejects untrusted header fallback when jwt email is missing', () => {
       const headerEmail = 'alex@example.com';
-      const finalOperator = resolveOperator(undefined, headerEmail);
-      expect(finalOperator).toBe('alex@example.com');
+      expect(() => resolveOperator(undefined, headerEmail)).toThrow(
+        'Operator identity required for audit compliance.'
+      );
     });
 
     it('throws error when neither JWT nor header identity is present', () => {

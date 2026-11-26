@@ -42,7 +42,6 @@ import {
   IPlanTokenRepository,
   ILockManager,
   JournalRepository,
-  JournalEntry,
   ConfigRepository,
   AutoClosureConfigRepository,
   AutoClosureAuditLogRepository,

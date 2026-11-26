@@ -327,15 +327,18 @@ describe('Tier 3: Cross-Feature Combinations (38 Pairwise Interactions)', () => 
     expect(dailySrc).not.toContain('dangerouslySetInnerHTML');
     expect(dailySrc).not.toContain('.innerHTML =');
 
-    // 3. Verify static HTML mount point served by web process
+    // 3. Verify static HTML mount point served by web process and React layout landmarks
     const res = await harness.get('/');
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain('<!DOCTYPE html>');
-    expect(html).toContain('id="main"');
-    expect(html).toContain('data-view="mywork"');
-    expect(html).toContain('data-view="planner"');
-    expect(html).toContain('data-view="journal"');
+    expect(html).toContain('id="root"');
+    expect(html).toContain('/assets/main.js');
+    const appShellSrc = fs.readFileSync('src/presentation/web/src/components/layout/AppShell.tsx', 'utf8');
+    expect(appShellSrc).toContain('id="main"');
+    expect(navSource).toContain("id: 'mywork'");
+    expect(navSource).toContain("id: 'planner'");
+    expect(navSource).toContain("id: 'journal'");
   });
 
   // T3-09: Fluid CSS Typography (F11) + Mobile Card Accordion (F12) + WCAG 2.1 AA Accessibility (F14)
@@ -368,13 +371,11 @@ describe('Tier 3: Cross-Feature Combinations (38 Pairwise Interactions)', () => 
     expect(css).toContain('--surface: #ffffff'); // light mode
 
     const html = fs.readFileSync('src/presentation/web/public/index.html', 'utf8');
-    expect(html).toContain('vendor/chart.umd.js');
+    expect(html).toContain('/assets/main.js');
+    expect(html).toContain('/styles.css');
     expect(html).not.toContain('cdn.jsdelivr.net');
-
-    const chartFile = 'src/presentation/web/public/vendor/chart.umd.js';
-    expect(fs.existsSync(chartFile)).toBe(true);
-    const stat = fs.statSync(chartFile);
-    expect(stat.size).toBeGreaterThan(50000);
+    expect(html).not.toContain('legacyUiTemplate');
+    expect(html).not.toContain('vendor/chart.umd.js');
   });
 
   // T3-11: Deterministic Time Mocking (F1) + Decoupled Worker Daemon (F21) + Verified Auto-Closure (F26)
@@ -678,9 +679,11 @@ describe('Tier 3: Cross-Feature Combinations (38 Pairwise Interactions)', () => 
     const res = await harness.get('/');
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('data-view="mywork"');
-    expect(html).toContain('data-view="planner"');
-    expect(html).toContain('data-view="journal"');
+    expect(html).toContain('id="root"');
+    expect(html).toContain('/assets/main.js');
+    expect(navSource).toContain("id: 'mywork'");
+    expect(navSource).toContain("id: 'planner'");
+    expect(navSource).toContain("id: 'journal'");
   });
 
   // T3-22: Formal Playwright E2E (F32) + Immutable Plan Generation (F19) + Plan Execution (F20)
@@ -1002,8 +1005,11 @@ describe('Tier 3: Cross-Feature Combinations (38 Pairwise Interactions)', () => 
   // T3-35: Local Chart.js Bundling (F5) + Governance Workspace (F9) + Dark/Light Surface Tokens (F13)
   it('T3-35: Local Chart.js Bundling (F5) + Governance Workspace (F9) + Dark/Light Surface Tokens (F13)', () => {
     const indexHtml = fs.readFileSync('src/presentation/web/public/index.html', 'utf8');
-    expect(indexHtml).toContain('vendor/chart.umd.js');
+    expect(indexHtml).toContain('/assets/main.js');
+    expect(indexHtml).toContain('/styles.css');
     expect(indexHtml).not.toContain('cdn.jsdelivr.net');
+    expect(indexHtml).not.toContain('legacyUiTemplate');
+    expect(indexHtml).not.toContain('vendor/chart.umd.js');
 
     const css = fs.readFileSync('src/presentation/web/public/styles.css', 'utf8');
     expect(css).toContain('--surface-base');

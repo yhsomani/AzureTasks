@@ -149,23 +149,47 @@ export class EntraIdAuthProvider {
       return { valid: false, status: 401, error: 'TOKEN_MALFORMED' };
     }
 
-    // 1. Check expiration claim
+    if (!header || typeof header !== 'object' || Array.isArray(header) || !payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return { valid: false, status: 401, error: 'TOKEN_MALFORMED' };
+    }
+
+    // 0. Enforce RS256 algorithm and non-empty kid header
+    if (header.alg !== 'RS256') {
+      return { valid: false, status: 401, error: 'INVALID_ALGORITHM' };
+    }
+    if (typeof header.kid !== 'string' || !header.kid.trim()) {
+      return { valid: false, status: 401, error: 'TOKEN_MISSING_KID' };
+    }
+
+    // 1. Check mandatory expiration claim (no positive clock skew past exp)
     const now = Math.floor(Date.now() / 1000);
-    if (payload.exp && payload.exp < now) {
+    if (typeof payload.exp !== 'number' || !Number.isFinite(payload.exp)) {
+      return { valid: false, status: 401, error: 'TOKEN_MISSING_EXP' };
+    }
+    if (payload.exp <= now) {
       return { valid: false, status: 401, error: 'TOKEN_EXPIRED' };
     }
 
-    // 2. Check issuer claim
-    if (this.issuer && payload.iss && payload.iss !== this.issuer) {
-      return { valid: false, status: 401, error: 'INVALID_ISSUER' };
+    // 1b. Check optional not-before (nbf) claim when present (allow up to 60s clock skew)
+    if (payload.nbf !== undefined) {
+      if (typeof payload.nbf !== 'number' || !Number.isFinite(payload.nbf) || payload.nbf > now + 60) {
+        return { valid: false, status: 401, error: 'TOKEN_NOT_YET_VALID' };
+      }
     }
 
-    // 3. Check audience claim
+    // 2. Check mandatory issuer claim when issuer is configured
+    if (this.issuer) {
+      if (typeof payload.iss !== 'string' || payload.iss !== this.issuer) {
+        return { valid: false, status: 401, error: 'INVALID_ISSUER' };
+      }
+    }
+
+    // 3. Check mandatory audience claim when expectedAudience is configured
     const expectedAudience = this.audience || this.clientId;
-    if (expectedAudience && payload.aud) {
+    if (expectedAudience) {
       const audMatches = Array.isArray(payload.aud)
         ? payload.aud.includes(expectedAudience)
-        : payload.aud === expectedAudience;
+        : typeof payload.aud === 'string' && payload.aud === expectedAudience;
 
       if (!audMatches) {
         return { valid: false, status: 403, error: 'INVALID_AUDIENCE' };
@@ -176,9 +200,11 @@ export class EntraIdAuthProvider {
     const kid = header.kid;
     try {
       // In test environments or when mock/fake kid is passed without mock server running,
-      // prevent long-hanging HTTP GET requests against Microsoft JWKS endpoints
+      // prevent long-hanging HTTP GET requests against external Microsoft JWKS endpoints,
+      // while still allowing local mock OIDC servers (127.0.0.1 / localhost).
       const isTestEnv = Boolean(process.env.NODE_ENV === 'test' || process.env.VITEST);
-      const publicKey = await this.jwksCache.getKey(kid, isTestEnv);
+      const isLocalJwks = /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?(?:\/|$)/i.test(this.jwksCache.jwksUri);
+      const publicKey = await this.jwksCache.getKey(kid, isTestEnv && !isLocalJwks);
       const verifier = crypto.createVerify('RSA-SHA256');
       verifier.update(`${headerB64}.${payloadB64}`);
       const isValid = verifier.verify(publicKey, Buffer.from(sigB64, 'base64url'));

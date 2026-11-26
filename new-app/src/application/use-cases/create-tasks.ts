@@ -5,6 +5,7 @@
 
 import * as readline from 'node:readline/promises';
 import { logger } from '../../infrastructure/logging/logger.js';
+import { metricsRegistry } from '../../infrastructure/telemetry/metrics.js';
 import { WorkItemRepository, JournalRepository, LockRepository, AppConfig } from '../../domain/ports/repositories.js';
 import { Person } from '../../domain/entities/person.js';
 import { workdayEligibility } from '../../domain/services/work-calendar.js';
@@ -139,6 +140,7 @@ export class CreateTasksUseCase {
       );
 
       // Build execution plans
+      const planStarted = performance.now();
       const plans = await this.planBuilder.buildPlans(people, discoveredTasks, todayIso, thursdayMode);
 
       // Get existing tasks for duplicate detection
@@ -146,6 +148,7 @@ export class CreateTasksUseCase {
 
       // Recalculate plans with duplicate info
       const finalPlans = this.planBuilder.recalculatePlans(plans, todayIso, thursdayMode);
+      metricsRegistry.recordPlanDuration((performance.now() - planStarted) / 1000);
 
       // Dry run - just return plans
       if (input.dryRun) {
@@ -321,6 +324,7 @@ export class CreateTasksUseCase {
         plannedDate,
         person
       );
+      metricsRegistry.incrementTasksCreated(1);
 
       // Verify creation
       const verified = await this.executor.verifyCreatedTask(
@@ -414,6 +418,7 @@ export class CreateTasksUseCase {
           item.createdWorkItemId = task.id;
           item.status = 'CREATED';
           createdTasks.push(task);
+          metricsRegistry.incrementTasksCreated(1);
           relsProcessed++;
           relsFailed += relationResult.failedCount;
 

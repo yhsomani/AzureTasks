@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -15,7 +15,7 @@ import { DualAutoClosureConfigRepository } from '../../src/infrastructure/config
 import { RelationalAutoClosureAuditRepository } from '../../src/infrastructure/journal/relational-auto-closure-audit-repo.js';
 import { FileAutoClosureAuditRepository } from '../../src/infrastructure/journal/file-auto-closure-audit-repo.js';
 import { DualAutoClosureAuditRepository } from '../../src/infrastructure/journal/dual-auto-closure-audit-repo.js';
-import { JournalEntry, AppConfig, PersonConfig } from '../../src/domain/ports/repositories.js';
+import { JournalEntry, PersonConfig } from '../../src/domain/ports/repositories.js';
 import { AutoClosureConfig, AutoClosureAuditLog } from '../../src/domain/entities/auto-closure-config.js';
 import { WorkCalendar } from '../../src/domain/services/work-calendar.js';
 

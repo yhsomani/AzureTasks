@@ -321,6 +321,37 @@ describe('Modern React 19 UI Shell & Workspaces', () => {
     expect(adhocBtn.hasAttribute('disabled')).toBe(true);
   });
 
+  it('keeps EOD execution disabled when preview has only required-evidence blockers', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/api/tasks/close-today') && init?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({
+            success: true,
+            data: {
+              totalClosed: 0,
+              totalNeedsReview: 1,
+              totalFailed: 0,
+              results: [{ status: 'needs_review', error: 'REQUIRED_EVIDENCE_MISSING: Actual Start date' }],
+            },
+          }),
+        });
+      }
+      return (originalFetch as typeof fetch)(url, init);
+    }) as typeof fetch;
+
+    render(<DailyWorkflowWorkspace subView="mywork" isViewer={false} onNotify={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /eod closure review/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/no closure-ready tasks/i)).toBeDefined();
+    });
+    expect(screen.getByRole('button', { name: /execute eod closure/i }).hasAttribute('disabled')).toBe(true);
+  });
+
   it('verifies safe rendering of PR deliverable links with target="_blank"', async () => {
     const notifySpy = vi.fn();
     render(<DailyWorkflowWorkspace subView="mywork" isViewer={false} onNotify={notifySpy} />);

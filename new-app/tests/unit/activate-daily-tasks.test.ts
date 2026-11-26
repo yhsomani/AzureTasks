@@ -118,6 +118,46 @@ describe('ActivateDailyTasksUseCase', () => {
     expect(ops.some((operation: { path: string }) => operation.path.includes('ActualStart'))).toBe(false);
   });
 
+  it('records ACTIVATED action metadata in the lifecycle journal', async () => {
+    const candidateTasks = [{
+      id: 2055,
+      fields: {
+        'System.Title': '3in1_PWA_MyAccount | 15 Oct',
+        'System.AssignedTo': { displayName: 'Alice Smith', uniqueName: 'alice@example.com' },
+        'System.State': 'New',
+        'Custom.PlannedStartDate': '2026-10-15T04:00:00.000Z',
+      },
+    }];
+    const journal = { record: vi.fn().mockResolvedValue(undefined) } as any;
+    const repository = {
+      findCandidateTasks: vi.fn().mockResolvedValue(candidateTasks),
+      patchWorkItem: vi.fn().mockResolvedValue({ id: 2055 }),
+      getWorkItem: vi.fn().mockResolvedValue({
+        id: 2055,
+        fields: {
+          'System.State': 'Active',
+          'System.AssignedTo': { displayName: 'Alice Smith', uniqueName: 'alice@example.com' },
+        },
+      }),
+    } as unknown as WorkItemRepository;
+
+    const result = await new ActivateDailyTasksUseCase(
+      baseConfig,
+      repository,
+      mockDatePlanning,
+      mockGitHubClient,
+      undefined,
+      journal
+    ).execute({ asOf: '2026-10-15', personKeys: ['user1'] });
+
+    expect(result.totalActivated).toBe(1);
+    expect(journal.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'ACTIVATED',
+      taskId: 2055,
+      verified: true,
+    }));
+  });
+
   it('does NOT re-change tasks that are already in Active state', async () => {
     const candidateTasks = [{
       id: 2002,

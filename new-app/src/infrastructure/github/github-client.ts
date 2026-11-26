@@ -25,6 +25,16 @@ export interface GitHubClientOptions {
   timeout?: number;    // default 30000 ms
   maxRetries?: number; // default 3 attempts
   initialRetryDelayMs?: number; // default 1000 ms
+ }
+
+interface GitHubDeliverablesCacheEntry {
+  expiresAt: number;
+  value: GitHubPrDeliverables;
+}
+
+interface DailyPrSummaryCacheEntry {
+  expiresAt: number;
+  value: DailyPrTrackingResult;
 }
 
 export class GitHubClient implements IGitHubClient {
@@ -32,6 +42,11 @@ export class GitHubClient implements IGitHubClient {
   private readonly apiUrl: string;
   private readonly fetchFn: typeof fetch;
   private readonly emailCache = new Map<string, string | null>();
+  private readonly deliverablesCache = new Map<string, GitHubDeliverablesCacheEntry>();
+  private readonly deliverablesPending = new Map<string, Promise<GitHubPrDeliverables>>();
+  private readonly dailySummaryCache = new Map<string, DailyPrSummaryCacheEntry>();
+  private readonly dailySummaryPending = new Map<string, Promise<DailyPrTrackingResult>>();
+  private searchQueue: Promise<void> = Promise.resolve();
   private readonly timeout: number;
   private readonly maxRetries: number;
   private readonly initialRetryDelayMs: number;
@@ -55,6 +70,16 @@ export class GitHubClient implements IGitHubClient {
 
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private async withSearchSpacing<T>(operation: () => Promise<T>): Promise<T> {
+    const queued = this.searchQueue.then(async () => {
+      const result = await operation();
+      await this.sleep(350);
+      return result;
+    });
+    this.searchQueue = queued.then(() => undefined, () => undefined);
+    return queued;
   }
 
   get token(): string | undefined {
@@ -180,8 +205,9 @@ export class GitHubClient implements IGitHubClient {
       };
       const prs: GitHubPullRequest[] = [];
       for (let page = 1; page <= (options.exhaustive ? 10 : 1); page++) {
-        const data = await this.request<SearchResult>(
+        const data = await this.withSearchSpacing(() => this.request<SearchResult>(
           `/search/issues?q=${encodeURIComponent(query)}&sort=created&order=desc&per_page=${limit}&page=${page}`
+        )
         );
         if (!Array.isArray(data.items)) {
           throw new Error('GitHub returned an invalid search response; completeness is unknown.');
@@ -304,6 +330,42 @@ export class GitHubClient implements IGitHubClient {
     timezone: string,
     options: { org?: string; role?: string; repositories?: string[]; branches?: string[] } = {}
   ): Promise<GitHubPrDeliverables> {
+    const cacheKey = JSON.stringify({
+      username,
+      targetIsoDate,
+      timezone,
+      org: options.org || this.defaultOrg || '',
+      role: options.role || '',
+      repositories: [...new Set(options.repositories || [])].sort(),
+      branches: [...new Set(options.branches || [])].sort(),
+    });
+    const cached = this.deliverablesCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    if (cached) this.deliverablesCache.delete(cacheKey);
+
+    const pending = this.deliverablesPending.get(cacheKey);
+    if (pending) return pending;
+
+    const request = this.loadPrDeliverablesForDate(username, targetIsoDate, timezone, options);
+    this.deliverablesPending.set(cacheKey, request);
+    try {
+      const value = await request;
+      this.deliverablesCache.set(cacheKey, { value, expiresAt: Date.now() + 5 * 60 * 1000 });
+      while (this.deliverablesCache.size > 200) {
+        this.deliverablesCache.delete(this.deliverablesCache.keys().next().value!);
+      }
+      return value;
+    } finally {
+      this.deliverablesPending.delete(cacheKey);
+    }
+  }
+
+  private async loadPrDeliverablesForDate(
+    username: string,
+    targetIsoDate: string,
+    timezone: string,
+    options: { org?: string; role?: string; repositories?: string[]; branches?: string[] }
+  ): Promise<GitHubPrDeliverables> {
     // A 50-most-recent PR search can hide work from a busy contributor.
     // Query a bounded UTC date range that safely covers the local date at
     // every timezone offset, then exhaust GitHub's pages before filtering.
@@ -362,102 +424,137 @@ export class GitHubClient implements IGitHubClient {
     timezone: string;
     org?: string;
   }): Promise<DailyPrTrackingResult> {
-    const { people, targetIsoDate, timezone, org = this.defaultOrg } = options;
-
-    const day = new Date(`${targetIsoDate}T00:00:00Z`);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetIsoDate) ||
-      !Number.isFinite(day.getTime()) || day.toISOString().slice(0, 10) !== targetIsoDate) {
-      throw new Error('Daily PR evidence date must be a valid YYYY-MM-DD date.');
-    }
-    new Intl.DateTimeFormat('en-CA', { timeZone: timezone });
-    const utcDay = (offset: number) =>
-      new Date(day.getTime() + offset * 86400000).toISOString().slice(0, 10);
-
-    const members: MemberDailyPrSummary[] = [];
-    if (process.env.GITHUB_OFFLINE === 'true') {
-      for (const person of people) {
-        if (person.enabled === false) continue;
-        members.push({
+    const cacheKey = JSON.stringify({
+      targetIsoDate: options.targetIsoDate,
+      timezone: options.timezone,
+      org: options.org || this.defaultOrg || '',
+      people: options.people
+        .filter(person => person.enabled !== false)
+        .map(person => ({
           key: person.key,
-          status: 'UPSTREAM_ERROR',
-          error: 'GitHub external integration is disabled by GITHUB_OFFLINE.',
-          name: person.name,
+          username: person.githubUsername?.trim() || '',
           email: person.assignedTo,
-          githubUsername: person.githubUsername || '',
-          prCount: 0,
-          openCount: 0,
-          mergedCount: 0,
-          pullRequests: [],
-          openPrs: [],
-          mergedPrs: [],
-        });
+          repositories: [...(person.githubRepositories || [])].sort(),
+        }))
+        .sort((a, b) => a.key.localeCompare(b.key)),
+    });
+    const cached = this.dailySummaryCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    if (cached) this.dailySummaryCache.delete(cacheKey);
+
+    const pending = this.dailySummaryPending.get(cacheKey);
+    if (pending) return pending;
+
+    const request = this.loadDailyPullRequestsSummary(options);
+    this.dailySummaryPending.set(cacheKey, request);
+    try {
+      const value = await request;
+      this.dailySummaryCache.set(cacheKey, { value, expiresAt: Date.now() + 60 * 1000 });
+      while (this.dailySummaryCache.size > 50) {
+        this.dailySummaryCache.delete(this.dailySummaryCache.keys().next().value!);
       }
-      return {
-        targetDate: targetIsoDate,
-        timezone,
-        totalPrsToday: 0,
-        totalOpenPrsToday: 0,
-        totalMergedPrsToday: 0,
-        members,
-      };
+      return value;
+    } finally {
+      this.dailySummaryPending.delete(cacheKey);
     }
+  }
 
-    let totalPrsToday = 0;
-    let totalOpenPrsToday = 0;
-    let totalMergedPrsToday = 0;
+  private async loadDailyPullRequestsSummary(options: {
+    people: PersonConfig[];
+    targetIsoDate: string;
+    timezone: string;
+    org?: string;
+  }): Promise<DailyPrTrackingResult> {
+     const { people, targetIsoDate, timezone, org = this.defaultOrg } = options;
 
-    for (const person of people) {
-      if (person.enabled === false) continue;
+     const day = new Date(`${targetIsoDate}T00:00:00Z`);
+     if (!/^\d{4}-\d{2}-\d{2}$/.test(targetIsoDate) ||
+       !Number.isFinite(day.getTime()) || day.toISOString().slice(0, 10) !== targetIsoDate) {
+       throw new Error('Daily PR evidence date must be a valid YYYY-MM-DD date.');
+     }
+     new Intl.DateTimeFormat('en-CA', { timeZone: timezone });
+     const utcDay = (offset: number) =>
+       new Date(day.getTime() + offset * 86400000).toISOString().slice(0, 10);
 
-      let ghUsername = person.githubUsername?.trim() || '';
-      if (!ghUsername && person.assignedTo) {
-        ghUsername = (await this.resolveUserByEmail(person.assignedTo)) || '';
-      }
+     const members: MemberDailyPrSummary[] = [];
+     if (process.env.GITHUB_OFFLINE === 'true') {
+       for (const person of people) {
+         if (person.enabled === false) continue;
+         members.push({
+           key: person.key,
+           status: 'UPSTREAM_ERROR',
+           error: 'GitHub external integration is disabled by GITHUB_OFFLINE.',
+           name: person.name,
+           email: person.assignedTo,
+           githubUsername: person.githubUsername || '',
+           prCount: 0,
+           openCount: 0,
+           mergedCount: 0,
+           pullRequests: [],
+           openPrs: [],
+           mergedPrs: [],
+         });
+       }
+       return {
+         targetDate: targetIsoDate,
+         timezone,
+         totalPrsToday: 0,
+         totalOpenPrsToday: 0,
+         totalMergedPrsToday: 0,
+         members,
+       };
+     }
 
-      if (!ghUsername) {
-        members.push({
-          key: person.key,
-          status: 'UNRESOLVED_IDENTITY',
-          name: person.name,
-          email: person.assignedTo,
-          githubUsername: '',
-          prCount: 0,
-          openCount: 0,
-          mergedCount: 0,
-          pullRequests: [],
-          openPrs: [],
-          mergedPrs: [],
-        });
-        continue;
-      }
+     let totalPrsToday = 0;
+     let totalOpenPrsToday = 0;
+     let totalMergedPrsToday = 0;
 
-      try {
-        // Query PRs created in the range or updated in the range sequentially to prevent hitting GitHub burst search limits
-        const createdPrs = await this.getUserPullRequests(ghUsername, {
-          org,
-          createdRange: { from: utcDay(-1), to: utcDay(1) },
-          exhaustive: true,
-        });
+     for (const person of people) {
+       if (person.enabled === false) continue;
 
-        // Small delay between searches to respect GitHub search secondary rate limits
-        await this.sleep(300);
+       let ghUsername = person.githubUsername?.trim() || '';
+       if (!ghUsername && person.assignedTo) {
+         ghUsername = (await this.resolveUserByEmail(person.assignedTo)) || '';
+       }
 
-        const updatedPrs = await this.getUserPullRequests(ghUsername, {
-          org,
-          updatedRange: { from: utcDay(-1), to: utcDay(1) },
-          exhaustive: true,
-        });
+       if (!ghUsername) {
+         members.push({
+           key: person.key,
+           status: 'UNRESOLVED_IDENTITY',
+           name: person.name,
+           email: person.assignedTo,
+           githubUsername: '',
+           prCount: 0,
+           openCount: 0,
+           mergedCount: 0,
+           pullRequests: [],
+           openPrs: [],
+           mergedPrs: [],
+         });
+         continue;
+       }
 
-        // Delay before moving to the next member
-        await this.sleep(200);
+       try {
+         // Query PRs created or updated in the range, sequentially, to preserve coverage.
+         const createdPrs = await this.getUserPullRequests(ghUsername, {
+           org,
+           createdRange: { from: utcDay(-1), to: utcDay(1) },
+           exhaustive: true,
+         });
 
-        // Merge without duplicates by PR ID
-        const prMap = new Map<number, GitHubPullRequest>();
-        for (const pr of [...createdPrs, ...updatedPrs]) {
-          prMap.set(pr.id, pr);
-        }
+         const updatedPrs = await this.getUserPullRequests(ghUsername, {
+           org,
+           updatedRange: { from: utcDay(-1), to: utcDay(1) },
+           exhaustive: true,
+         });
 
-        // Filter to PRs created OR updated on targetIsoDate in configured timezone
+         // Merge without duplicates by PR ID.
+         const prMap = new Map<number, GitHubPullRequest>();
+         for (const pr of [...createdPrs, ...updatedPrs]) {
+           prMap.set(pr.id, pr);
+         }
+
+         // Filter to PRs created OR updated on targetIsoDate in configured timezone
         let memberPrs = Array.from(prMap.values()).filter(pr => {
           const createdDate = this.toLocalDateIso(pr.createdAt, timezone);
           const updatedDate = pr.updatedAt ? this.toLocalDateIso(pr.updatedAt, timezone) : createdDate;

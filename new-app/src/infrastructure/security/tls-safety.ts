@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import crypto from 'node:crypto';
+import { logger } from '../logging/logger.js';
 
 /**
  * Standard Enterprise CA Injection & TLS Safety.
@@ -125,7 +126,7 @@ export function installEnterpriseCaCertificates(environment: NodeJS.ProcessEnv =
   if (caPath) {
     const pathCheck = validateCaPath(caPath);
     if (!pathCheck.valid) {
-      // Log warning for non-existent CA path to fail safely without crashing
+      logger.warn(pathCheck.warning || `Invalid CA path in NODE_EXTRA_CA_CERTS: '${caPath}'`);
       return;
     }
 
@@ -137,13 +138,15 @@ export function installEnterpriseCaCertificates(environment: NodeJS.ProcessEnv =
         const cert = new crypto.X509Certificate(content);
         const expiry = checkCertExpiry(new Date(cert.validTo));
         if (!expiry.valid) {
-          // Warning logged if cert is expired
+          logger.warn(`TLS CA certificate '${caPath}' is expired (validTo=${cert.validTo}).`);
         }
-      } catch {
-        // Multi-cert bundles or standard PEM bundles
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.warn(`Unable to inspect X509 metadata for CA bundle '${caPath}': ${msg}`);
       }
-    } catch {
-      // Non-fatal validation warning
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`Invalid CA certificate bundle at '${caPath}': ${msg}`);
     }
   }
 }

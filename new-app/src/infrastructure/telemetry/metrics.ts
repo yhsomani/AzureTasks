@@ -72,16 +72,12 @@ export class MetricsRegistry {
     // HTTP Requests Total
     lines.push('# HELP http_requests_total Total number of HTTP requests processed');
     lines.push('# TYPE http_requests_total counter');
-    if (this.httpRequestsTotal.size === 0) {
-      lines.push('http_requests_total{method="GET",route="/api/health",status="200"} 1');
-    } else {
-      for (const [labels, val] of this.httpRequestsTotal.entries()) {
-        lines.push(`http_requests_total{${labels}} ${val}`);
-        // Also add short status format for compatibility
-        const statusMatch = labels.match(/status="(\d+)"/);
-        if (statusMatch) {
-          lines.push(`workops_http_requests_total{status="${statusMatch[1]}"} ${val}`);
-        }
+    for (const [labels, val] of this.httpRequestsTotal.entries()) {
+      lines.push(`http_requests_total{${labels}} ${val}`);
+      // Also add short status format for compatibility
+      const statusMatch = labels.match(/status="(\d+)"/);
+      if (statusMatch) {
+        lines.push(`workops_http_requests_total{status="${statusMatch[1]}"} ${val}`);
       }
     }
 

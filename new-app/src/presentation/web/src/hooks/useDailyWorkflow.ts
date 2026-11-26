@@ -15,6 +15,7 @@ export function useDailyWorkflow() {
     ready: boolean;
     data: unknown;
     timestamp?: number;
+    canExecute?: boolean;
   }>({ ready: false, data: null });
 
   // Load members and PR deliverables
@@ -28,10 +29,6 @@ export function useDailyWorkflow() {
         email: member.email || member.assignedTo || '',
       }));
       setMembers(teamList);
-
-      if (teamList.length > 0 && !selectedPersonKey) {
-        setSelectedPersonKey(teamList[0].key);
-      }
 
       // Fetch GitHub PR deliverables
       try {
@@ -52,11 +49,17 @@ export function useDailyWorkflow() {
     } finally {
       setIsLoading(false);
     }
-  }, [selectedPersonKey]);
+  }, []);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (!selectedPersonKey && members.length > 0) {
+      setSelectedPersonKey(members[0].key);
+    }
+  }, [members, selectedPersonKey]);
 
   // Load tasks for selected person
   useEffect(() => {
@@ -93,30 +96,39 @@ export function useDailyWorkflow() {
 
   // Action: EOD Closure Preview (Dry Run)
   const previewEodClosure = async (asOf?: string) => {
-    const res = await api.post('/api/tasks/close-today', {
-      dryRun: true,
-      asOf: asOf || new Date().toISOString().slice(0, 10),
-    });
-    setEodPreview({
-      ready: true,
-      data: res,
-      timestamp: Date.now(),
-    });
-    return res;
+    const res = await api.post<{
+      totalClosed?: number;
+      totalNeedsReview?: number;
+      totalFailed?: number;
+      results?: Array<{ status?: string }>;
+    }>('/api/tasks/close-today', {
+       dryRun: true,
+       asOf: asOf || new Date().toISOString().slice(0, 10),
+     });
+     setEodPreview({
+       ready: true,
+       data: res,
+       timestamp: Date.now(),
+       canExecute: (res.totalClosed ?? res.results?.filter(row => row.status === 'simulated').length ?? 0) > 0,
+     });
+     return res;
   };
 
   // Action: EOD Closure Execute
   const executeEodClosure = async (asOf?: string) => {
-    if (!eodPreview.ready) {
-      throw new Error('Preview EOD closure before executing.');
-    }
+     if (!eodPreview.ready) {
+       throw new Error('Preview EOD closure before executing.');
+     }
+     if (!eodPreview.canExecute) {
+       throw new Error('No closure-ready tasks remain in the preview. Resolve review or failure items first.');
+     }
     const res = await api.post('/api/tasks/close-today', {
       dryRun: false,
       confirm: true,
       all: true,
       asOf: asOf || new Date().toISOString().slice(0, 10),
     });
-    setEodPreview({ ready: false, data: null });
+    setEodPreview({ ready: false, data: null, canExecute: false });
     await loadData();
     return res;
   };

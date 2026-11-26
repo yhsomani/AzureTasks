@@ -564,6 +564,31 @@ describe('API routes', () => {
     expect(deps.githubClient?.resolveUserByEmail).toHaveBeenCalledWith('test@org.com');
   });
 
+  it('coalesces concurrent identical daily PR reads before invoking GitHub', async () => {
+    const summary = vi.fn(async () => {
+      await new Promise(resolve => setTimeout(resolve, 25));
+      return {
+        targetDate: '2026-11-25', timezone: 'Asia/Kolkata',
+        totalPrsToday: 0, totalOpenPrsToday: 0, totalMergedPrsToday: 0, members: [],
+      };
+    });
+    (deps.githubClient as any).getDailyPullRequestsSummary = summary;
+    (deps.config.getConfig as any).mockResolvedValueOnce({
+      timezone: 'Asia/Kolkata', githubOrg: 'org', people: [],
+    }).mockResolvedValueOnce({
+      timezone: 'Asia/Kolkata', githubOrg: 'org', people: [],
+    });
+
+    const [first, second] = await Promise.all([
+      json('/api/github/daily-prs?date=2026-11-25'),
+      json('/api/github/daily-prs?date=2026-11-25'),
+    ]);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(summary).toHaveBeenCalledTimes(1);
+  });
+
   it('GET /api/logs/stream responds as an SSE stream', async () => {
     const controller = new AbortController();
     const res = await fetch(base + '/api/logs/stream', { signal: controller.signal });

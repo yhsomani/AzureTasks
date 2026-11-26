@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as http from 'node:http';
+import * as crypto from 'node:crypto';
 import { AppServer } from '../../src/presentation/api/server';
 import { ApiDependencies } from '../../src/presentation/api/routes';
 import { buildApp } from '../../src/container';
@@ -282,5 +285,189 @@ describe('Defense-in-depth TLS safety assertions in buildApp()', () => {
   it('rejects buildApp() initialization when NODE_TLS_REJECT_UNAUTHORIZED is 0', async () => {
     vi.stubEnv('NODE_TLS_REJECT_UNAUTHORIZED', '0');
     await expect(buildApp()).rejects.toThrow(/TLS certificate verification must remain enabled/);
+  });
+});
+
+describe('F1 security hardening regressions', () => {
+  it('blocks x-mock-role bypass when API_AUTH_TOKEN is configured even in test mode', async () => {
+    vi.stubEnv('NODE_ENV', 'test');
+    vi.stubEnv('ENABLE_MOCK_AUTH', 'true');
+    vi.stubEnv('API_AUTH_TOKEN', 'secret-token');
+    const deps = {
+      getStatus: { execute: async () => ({ connected: true }) },
+      config: { getConfig: async () => ({ timezone: 'UTC', people: [] }) },
+      scheduler: { getStatus: () => ({ running: false }) },
+    } as unknown as ApiDependencies;
+    const server = new AppServer(deps, 0);
+    const port = await server.start();
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/status`, {
+        headers: { 'x-mock-role': 'Admin', 'x-mock-email': 'attacker@evil.test' },
+      });
+      expect(res.status).toBe(401);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it('ignores x-mock-role in development and in test without ENABLE_MOCK_AUTH=true, and returns null role for unauthenticated /api/session', async () => {
+    for (const envCase of [
+      { NODE_ENV: 'development', ENABLE_MOCK_AUTH: 'true' },
+      { NODE_ENV: 'test', ENABLE_MOCK_AUTH: '' },
+    ]) {
+      vi.stubEnv('NODE_ENV', envCase.NODE_ENV);
+      vi.stubEnv('ENABLE_MOCK_AUTH', envCase.ENABLE_MOCK_AUTH);
+      vi.stubEnv('API_AUTH_TOKEN', '');
+      const deps = {
+        getStatus: { execute: async () => ({ connected: true }) },
+        config: { getConfig: async () => ({ timezone: 'UTC', people: [] }) },
+        scheduler: { getStatus: () => ({ running: false }) },
+      } as unknown as ApiDependencies;
+      const server = new AppServer(deps, 0);
+      const port = await server.start();
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/api/session`, {
+          headers: { 'x-mock-role': 'Admin', 'x-mock-email': 'spoof@evil.test' },
+        });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as any;
+        expect(body.authenticated).toBe(false);
+        expect(body.user).toBeNull();
+        expect(body.role).toBeNull();
+        expect(body.data.role).toBeNull();
+        expect(body.data.user).toBeNull();
+        expect(body.authMode).toBe('disabled');
+      } finally {
+        await server.stop();
+      }
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('removes unauthenticated /api/metrics duplicate and double-prefixed /api/api/identities/*', async () => {
+    vi.stubEnv('NODE_ENV', 'test');
+    vi.stubEnv('API_AUTH_TOKEN', '');
+    const deps = {
+      getStatus: { execute: async () => ({ connected: true }) },
+      config: { getConfig: async () => ({ timezone: 'UTC', people: [] }) },
+      scheduler: { getStatus: () => ({ running: false }) },
+    } as unknown as ApiDependencies;
+    const server = new AppServer(deps, 0);
+    const port = await server.start();
+    try {
+      const apiMetrics = await fetch(`http://127.0.0.1:${port}/api/metrics`);
+      expect(apiMetrics.status).toBe(404);
+
+      const doublePrefixed = await fetch(`http://127.0.0.1:${port}/api/api/identities/diagnostics`);
+      expect(doublePrefixed.status).toBe(404);
+
+      const diagnostics = await fetch(`http://127.0.0.1:${port}/api/identities/diagnostics`);
+      expect(diagnostics.status).toBe(503); // mounted cleanly, db not configured in minimal deps
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it('enforces tenantGuard cross-tenant isolation on /api/* when OIDC user tenant differs from X-Tenant-ID', async () => {
+    const pair = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const audience = 'workops-api';
+    const kid = 'tenant-test-kid';
+    const now = Math.floor(Date.now() / 1000);
+    const hB64 = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid })).toString('base64url');
+
+    const oidcServer = http.createServer((req, res) => {
+      if (req.url === '/discovery/keys') {
+        const jwk = pair.publicKey.export({ format: 'jwk' });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ keys: [{ ...jwk, kid, use: 'sig', alg: 'RS256' }] }));
+        return;
+      }
+      res.writeHead(404).end();
+    });
+    await new Promise<void>((resolve) => oidcServer.listen(0, '127.0.0.1', resolve));
+    const oidcPort = (oidcServer.address() as any).port;
+    const localIssuer = `http://127.0.0.1:${oidcPort}`;
+    vi.stubEnv('NODE_ENV', 'test');
+    vi.stubEnv('OIDC_ISSUER', localIssuer);
+    vi.stubEnv('OIDC_AUDIENCE', audience);
+
+    const pB64Local = Buffer.from(
+      JSON.stringify({
+        sub: 'dev-tenant-a',
+        email: 'dev@tenant-a.test',
+        roles: ['Developer'],
+        tenantId: 'tenant-a',
+        iss: localIssuer,
+        aud: audience,
+        iat: now - 10,
+        exp: now + 3600,
+      })
+    ).toString('base64url');
+    const signerLocal = crypto.createSign('RSA-SHA256');
+    signerLocal.update(`${hB64}.${pB64Local}`);
+    const localToken = `${hB64}.${pB64Local}.${signerLocal.sign(pair.privateKey).toString('base64url')}`;
+
+    const deps = {
+      getStatus: { execute: async () => ({ connected: true }) },
+      config: { getConfig: async () => ({ timezone: 'UTC', people: [] }) },
+      scheduler: { getStatus: () => ({ running: false }) },
+    } as unknown as ApiDependencies;
+    const appServer = new AppServer(deps, 0);
+    const port = await appServer.start();
+    try {
+      const crossTenant = await fetch(`http://127.0.0.1:${port}/api/status`, {
+        headers: {
+          Authorization: `Bearer ${localToken}`,
+          'X-Tenant-ID': 'tenant-b',
+        },
+      });
+      expect(crossTenant.status).toBe(403);
+      const body = (await crossTenant.json()) as any;
+      expect(body.error).toBe('CROSS_TENANT_ACCESS_FORBIDDEN');
+
+      const sameTenant = await fetch(`http://127.0.0.1:${port}/api/status`, {
+        headers: {
+          Authorization: `Bearer ${localToken}`,
+          'X-Tenant-ID': 'tenant-a',
+        },
+      });
+      expect(sameTenant.status).toBe(200);
+    } finally {
+      await appServer.stop();
+      await new Promise<void>((resolve) => oidcServer.close(() => resolve()));
+    }
+  });
+
+  it('serves built /assets/main.js in non-prod without src/ write-back and returns 404 for missing /assets/*', async () => {
+    vi.stubEnv('NODE_ENV', 'test');
+    vi.stubEnv('API_AUTH_TOKEN', '');
+    const deps = {
+      getStatus: { execute: async () => ({ connected: true }) },
+      config: { getConfig: async () => ({ timezone: 'UTC', people: [] }) },
+      scheduler: { getStatus: () => ({ running: false }) },
+    } as unknown as ApiDependencies;
+    const server = new AppServer(deps, 0);
+    const port = await server.start();
+    try {
+      expect(fs.existsSync(path.resolve(process.cwd(), 'src/presentation/web/public/assets'))).toBe(false);
+
+      const rootRes = await fetch(`http://127.0.0.1:${port}/`);
+      expect(rootRes.status).toBe(200);
+      const html = await rootRes.text();
+      expect(html).toContain('id="root"');
+      expect(html).not.toContain('legacyUiTemplate');
+
+      const missingAsset = await fetch(`http://127.0.0.1:${port}/assets/missing-does-not-exist.js`);
+      expect(missingAsset.status).toBe(404);
+
+      const builtMainJs = path.resolve(process.cwd(), 'dist/presentation/web/public/assets/main.js');
+      if (fs.existsSync(builtMainJs)) {
+        const mainRes = await fetch(`http://127.0.0.1:${port}/assets/main.js`);
+        expect(mainRes.status).toBe(200);
+        expect(mainRes.headers.get('content-type') || '').toMatch(/javascript/);
+      }
+    } finally {
+      await server.stop();
+    }
   });
 });

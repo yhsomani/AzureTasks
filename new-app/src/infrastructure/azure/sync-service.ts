@@ -127,7 +127,7 @@ export class AzureSyncService {
   public async queryWiqlWithPagination(
     projectName: string,
     query: string = 'SELECT [System.Id] FROM WorkItems ORDER BY [System.ChangedDate] DESC',
-    pageSize: number = 100,
+    _pageSize: number = 100,
     maxPages: number = 50
   ): Promise<{ workItemIds: number[]; pageCount: number }> {
     const allIds: number[] = [];

@@ -11,6 +11,7 @@ import {
   PlanSnapshot,
 } from '../../domain/entities/plan-token.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import { metricsRegistry } from '../../infrastructure/telemetry/metrics.js';
 import { Person } from '../../domain/entities/person.js';
 import { FieldCopyService, RelationCopyService } from '../../domain/services/task-services.js';
 import { filterCopyableRelations } from '../../domain/entities/task.js';
@@ -235,6 +236,7 @@ export class ExecuteTasksUseCase {
           personKey: item.personKey,
           isoDate: item.targetIsoDate,
         });
+        metricsRegistry.incrementTasksCreated(1);
       }
 
       // 5. Atomically mark token as executed

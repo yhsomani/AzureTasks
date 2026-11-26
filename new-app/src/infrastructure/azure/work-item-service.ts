@@ -5,6 +5,7 @@
 
 import { AzureDevOpsClient } from './client.js';
 import { logger } from '../logging/logger.js';
+import { metricsRegistry } from '../telemetry/metrics.js';
 import { 
   WorkItemRepository, 
   WorkItem, 
@@ -297,6 +298,7 @@ export class AzureWorkItemService implements WorkItemRepository {
         ids,
         async (chunkIds) => {
           await this.rateLimiter.acquire(1);
+          metricsRegistry.setAzureRateLimitRemaining(this.rateLimiter.getRemainingTokens());
           const chunk = chunkIds.join(',');
           const batchResult = await this.client.get<WorkItemBatchResult>(
             `/${project}/_apis/wit/workitems?ids=${chunk}&$expand=relations&api-version=7.0`
@@ -467,6 +469,7 @@ export class AzureWorkItemService implements WorkItemRepository {
         ids,
         async (chunkIds) => {
           await this.rateLimiter.acquire(1);
+          metricsRegistry.setAzureRateLimitRemaining(this.rateLimiter.getRemainingTokens());
           const chunk = chunkIds.join(',');
           const batchResult = await this.client.get<WorkItemBatchResult>(
             `/${project}/_apis/wit/workitems?ids=${chunk}&$expand=relations&api-version=7.0`
@@ -755,6 +758,21 @@ export class AzureWorkItemService implements WorkItemRepository {
     } finally {
       this.workItemCache.delete(id);
     }
+  }
+
+  async validateWorkItemPatch(
+    id: number,
+    fieldOps: any[],
+    options?: { bypassRules?: boolean }
+  ): Promise<WorkItem> {
+    const qs = options?.bypassRules
+      ? '?bypassRules=true&validateOnly=true&api-version=7.0'
+      : '?validateOnly=true&api-version=7.0';
+    return this.client.patch<WorkItem>(
+      `/_apis/wit/workitems/${id}${qs}`,
+      fieldOps,
+      { headers: { 'Content-Type': 'application/json-patch+json' } }
+    );
   }
 
   async findUnassignedTasks(project: string, workItemType: string): Promise<WorkItem[]> {

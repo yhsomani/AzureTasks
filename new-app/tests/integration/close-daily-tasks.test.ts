@@ -449,6 +449,50 @@ describe('CloseDailyTasksUseCase', () => {
     }));
   });
 
+  it('records an accepted closure in the dedicated auto-closure audit repository', async () => {
+    (mockWorkItemRepo.findCandidateTasks as any).mockResolvedValue([{
+      id: 5055,
+      fields: {
+        'System.Title': '3in1_PWA_MyAccount | Oct 15',
+        'System.AssignedTo': 'alex.developer@example.com',
+        'System.State': 'Active',
+        'Custom.PlannedStartdate': '2026-10-15T04:00:00.000Z',
+      },
+    }]);
+    (mockWorkItemRepo.getWorkItem as any).mockResolvedValue({
+      id: 5055,
+      fields: { 'System.State': 'Closed', 'System.AssignedTo': 'alex.developer@example.com' },
+    });
+    const auditRepo = { record: vi.fn().mockResolvedValue(undefined) } as any;
+    const configRepo = { getVersion: vi.fn().mockResolvedValue(7) } as any;
+    const useCase = new CloseDailyTasksUseCase(
+      baseConfig,
+      mockWorkItemRepo,
+      datePlanning,
+      mockGitHubClient as unknown as GitHubClient,
+      undefined,
+      undefined,
+      undefined,
+      configRepo,
+      auditRepo
+    );
+
+    const output = await useCase.execute({ asOf: '2026-10-15', personKeys: ['alex_dev'] });
+
+    expect(output.totalClosed).toBe(1);
+    expect(auditRepo.record).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: 5055,
+      assignedUser: 'alex.developer@example.com',
+      triggerSource: 'manual',
+      configurationVersion: 7,
+      status: 'success',
+      validationResults: expect.objectContaining({ passed: true }),
+      patchOperations: expect.arrayContaining([
+        expect.objectContaining({ path: '/fields/System.State', value: 'Closed' }),
+      ]),
+    }));
+  });
+
   it('gracefully handles patch failure and marks task as failed', async () => {
     const targetDate = '2026-10-15';
     const candidateTasks = [

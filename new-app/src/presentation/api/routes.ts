@@ -29,8 +29,7 @@ import { createAutoClosureRouter } from './auto-closure-routes.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { getTodayIso } from '../../domain/value-objects/date-window.js';
 import { ReadCoordinator } from './read-coordinator.js';
-import { hasRole, normalizeRole, Role } from '../../infrastructure/auth/rbac.js';
-import { metricsRegistry } from '../../infrastructure/telemetry/metrics.js';
+import { normalizeRole, enforceMutationRole, isAuthConfigured } from '../../infrastructure/auth/rbac.js';
 import { CanonicalIdentityService } from '../../domain/services/canonical-identity-service.js';
 
 /** Extract error message from unknown caught value. */
@@ -42,63 +41,6 @@ function getErrorMessage(err: unknown): string {
     return err;
   }
   return 'An unknown error occurred';
-}
-
-/**
- * Enforce RBAC permissions on state-mutating endpoints.
- * Blocks read-only Auditor role from mutating any state.
- * Enforces HTTP 401 when authentication is configured but request is unauthenticated.
- */
-function enforceMutationRole(
-  req: any,
-  res: any,
-  allowedRoles: Role[],
-  isPreview = false
-): boolean {
-  if (req.user) {
-    if (isPreview && req.authRole === 'viewer') {
-      return true;
-    }
-    const isAuditorOnly =
-      req.user.roles.includes('Auditor') &&
-      !req.user.roles.some((r: Role) => ['Admin', 'Lead', 'Developer'].includes(r));
-    if (isAuditorOnly) {
-      res.status(403).json({ success: false, error: "Role 'Auditor' is read-only." });
-      return false;
-    }
-    if (!hasRole(req.user, allowedRoles)) {
-      const error =
-        req.user.roles.includes('Developer') && !allowedRoles.includes('Developer')
-          ? "Role 'Developer' cannot execute team plans."
-          : `Insufficient permissions. Allowed roles: ${allowedRoles.join(', ')}.`;
-      res.status(403).json({ success: false, error });
-      return false;
-    }
-    return true;
-  }
-
-  if (req.authRole === 'viewer') {
-    if (isPreview) return true;
-    res.status(403).json({ success: false, error: "Role 'Auditor' is read-only." });
-    return false;
-  }
-
-  const authConfigured =
-    process.env.NODE_ENV === 'production' ||
-    Boolean(process.env.API_AUTH_TOKEN) ||
-    Boolean(process.env.OIDC_ISSUER) ||
-    Boolean(process.env.ENTRA_ID_ISSUER) ||
-    Boolean(req.headers?.authorization);
-
-  if (authConfigured) {
-    res.status(401).json({
-      success: false,
-      error: 'Authentication required before role verification.',
-    });
-    return false;
-  }
-
-  return true;
 }
 
 export interface ApiDependencies {
@@ -183,18 +125,49 @@ export function createApiRouter(deps: ApiDependencies): Router {
 
   // Auth session endpoint: returns user identity, roles, and authorization status
   router.get('/session', (req, res) => {
+    const oidcConfigured = Boolean(process.env.OIDC_ISSUER?.trim() || process.env.ENTRA_ID_ISSUER?.trim());
+    const basicConfigured = Boolean(process.env.API_AUTH_TOKEN?.trim());
+    const authMode: 'oidc' | 'basic' | 'disabled' = oidcConfigured
+      ? 'oidc'
+      : (basicConfigured ? 'basic' : 'disabled');
+    const authReq = req as typeof req & { authRole?: string; authUser?: string };
     const user = req.user;
+    const isAuthenticated = Boolean(user || authReq.authUser);
+
+    if (!isAuthenticated) {
+      const isReadOnlyViewer = authReq.authRole === 'viewer';
+      return res.json({
+        success: true,
+        authenticated: false,
+        authMode,
+        user: null,
+        role: isReadOnlyViewer ? 'auditor' : null,
+        roles: isReadOnlyViewer ? ['Auditor'] : [],
+        tenantId: null,
+        viewerMode: isReadOnlyViewer,
+        data: {
+          role: isReadOnlyViewer ? 'viewer' : null,
+          user: null,
+          name: null,
+          roles: isReadOnlyViewer ? ['Auditor'] : [],
+          authenticated: false,
+          authMode,
+        },
+      });
+    }
+
     const primaryRole = user?.roles?.[0]
       ? normalizeRole(user.roles[0])
-      : ((req as typeof req & { authRole?: string }).authRole === 'viewer' ? 'Auditor' : 'Admin');
-    const isViewer = primaryRole === 'Auditor' || (req as typeof req & { authRole?: string }).authRole === 'viewer';
-    const email = user?.email || ((req as typeof req & { authUser?: string }).authUser ? `${(req as typeof req & { authUser?: string }).authUser}@workops.test` : 'operator@workops.test');
-    const name = user?.name || (req as typeof req & { authUser?: string }).authUser || 'WorkOps User';
+      : (authReq.authRole === 'viewer' ? 'Auditor' : 'Admin');
+    const isViewer = primaryRole === 'Auditor' || authReq.authRole === 'viewer';
+    const email = user?.email || `${authReq.authUser}@workops.test`;
+    const name = user?.name || authReq.authUser || 'WorkOps User';
     const roles = user?.roles || [primaryRole];
 
     res.json({
       success: true,
-      authenticated: Boolean(user || (req as typeof req & { authUser?: string }).authUser),
+      authenticated: true,
+      authMode,
       user: email,
       role: primaryRole.toLowerCase(),
       roles,
@@ -205,7 +178,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
         user: email,
         name,
         roles,
-        authenticated: Boolean(user || (req as typeof req & { authUser?: string }).authUser),
+        authenticated: true,
+        authMode,
       },
     });
   });
@@ -356,12 +330,6 @@ export function createApiRouter(deps: ApiDependencies): Router {
       },
     });
   }));
-
-  // Prometheus Metrics export
-  router.get('/metrics', (_req, res) => {
-    res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
-    res.send(metricsRegistry.renderPrometheusMetrics());
-  });
 
   // Status
   router.get('/status', asyncHandler(async (_req, res) => {
@@ -551,13 +519,7 @@ export function createApiRouter(deps: ApiDependencies): Router {
           }
           const { asOf } = req.body || {};
           const dryRun = req.body?.dryRun === true;
-          if (!dryRun) {
-            if (!enforceMutationRole(req, res, ['Admin', 'Lead', 'Developer'])) return;
-          } else {
-            if ((req as typeof req & { authRole?: string }).authRole === 'viewer') {
-              // Read-only viewer credentials may preview EOD
-            }
-          }
+          if (!enforceMutationRole(req, res, ['Admin', 'Lead', 'Developer'], { isPreview: dryRun })) return;
           const runtimeConfig = await deps.config.getConfig();
           const today = getTodayIso(runtimeConfig.timezone || 'UTC');
           if (asOf !== undefined &&
@@ -640,13 +602,7 @@ export function createApiRouter(deps: ApiDependencies): Router {
     }
     const { asOf } = req.body || {};
     const dryRun = req.body?.dryRun === true;
-    if (!dryRun) {
-      if (!enforceMutationRole(req, res, ['Admin', 'Lead'])) return;
-    } else {
-      if ((req as typeof req & { authRole?: string }).authRole === 'viewer') {
-        // Read-only viewer credentials may preview task activation
-      }
-    }
+    if (!enforceMutationRole(req, res, dryRun ? ['Admin', 'Lead', 'Developer'] : ['Admin', 'Lead'], { isPreview: dryRun })) return;
     const runtimeConfig = await deps.config.getConfig();
     const today = getTodayIso(runtimeConfig.timezone || 'UTC');
     if (asOf !== undefined &&
@@ -871,13 +827,16 @@ export function createApiRouter(deps: ApiDependencies): Router {
           const config = await deps.config.getConfig();
           const timezone = config.timezone || 'Asia/Kolkata';
           const targetDate = String(req.query.date || '').trim() || getTodayIso(timezone);
-          const result = await deps.githubClient.getDailyPullRequestsSummary({
-            people: config.people || [],
-            targetIsoDate: targetDate,
-            timezone,
-            org: config.githubOrg,
-          });
-          res.json({ success: true, data: result });
+          const result = await reads.run(
+            `github:daily-prs:${config.githubOrg || ''}:${targetDate}:${timezone}`,
+            () => deps.githubClient!.getDailyPullRequestsSummary({
+              people: config.people || [],
+              targetIsoDate: targetDate,
+              timezone,
+              org: config.githubOrg,
+            })
+          );
+           res.json({ success: true, data: result });
   }));
 
   // Logs
@@ -925,7 +884,8 @@ export function createApiRouter(deps: ApiDependencies): Router {
   });
 
   // Feature F13: Canonical Identity Resolution & Diagnostics
-  router.post(['/identities/resolve', '/api/identities/resolve'], async (req, res) => {
+  router.post('/identities/resolve', async (req, res) => {
+    if (!enforceMutationRole(req, res, ['Admin', 'Lead', 'Developer'])) return;
     try {
       const query = typeof req.body?.query === 'string' ? req.body.query : '';
       if (!query.trim()) {
@@ -947,7 +907,13 @@ export function createApiRouter(deps: ApiDependencies): Router {
     }
   });
 
-  router.get(['/identities/diagnostics', '/api/identities/diagnostics'], async (_req, res) => {
+  router.get('/identities/diagnostics', async (req, res) => {
+    if (isAuthConfigured(req) && !req.user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required before accessing identity diagnostics.',
+      });
+    }
     try {
       if (!canonicalIdentityService) {
         return res.status(503).json({ success: false, error: 'Identity database service is unavailable.' });

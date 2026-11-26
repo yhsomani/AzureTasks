@@ -326,13 +326,6 @@ describe('Auto-Closure API Routes Integration Tests', () => {
     expect(body.data.deleted).toBe(1);
   });
 
-  it('serves local Chart.js vendor asset', async () => {
-    const res = await fetch(`${baseUrl}/vendor/chart.umd.js`);
-    expect(res.status).toBe(200);
-    const text = await res.text();
-    expect(text).toContain('Chart');
-  });
-
   it('returns 503 when repositories are not provided', async () => {
     const emptyDeps = makeDeps({
       autoClosureConfigRepo: undefined,

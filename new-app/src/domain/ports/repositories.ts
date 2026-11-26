@@ -135,6 +135,16 @@ export interface WorkItemRepository {
   ): Promise<WorkItem>;
 
   /**
+   * Validate a field update with Azure process rules without persisting it.
+   * Implementations must keep this non-mutating (validateOnly=true).
+   */
+  validateWorkItemPatch?(
+    id: number,
+    fieldOps: any[],
+    options?: { bypassRules?: boolean }
+  ): Promise<WorkItem>;
+
+  /**
    * Find unassigned tasks in Azure DevOps for a project and work item type
    */
   findUnassignedTasks?(project: string, workItemType: string): Promise<WorkItem[]>;

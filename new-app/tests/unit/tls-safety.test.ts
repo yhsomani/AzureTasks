@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import tls from 'node:tls';
 import https from 'node:https';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { logger } from '../../src/infrastructure/logging/logger.js';
 import {
   assertTlsSafety,
   validateCaPath,
@@ -135,6 +137,64 @@ describe('Milestone 4 — Feature 28: Standard Enterprise CA Injection & TLS Saf
       const customPath = '/custom/path/ca.pem';
       const resolved = getEffectiveCaCertPath({ NODE_EXTRA_CA_CERTS: customPath });
       expect(resolved).toBe(customPath);
+    });
+  });
+
+  describe('installEnterpriseCaCertificates() warning diagnostics', () => {
+    it('logs warning for missing CA certificate path without throwing', () => {
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+      try {
+        expect(() =>
+          installEnterpriseCaCertificates({ NODE_EXTRA_CA_CERTS: '/non/existent/ca-bundle.pem' })
+        ).not.toThrow();
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('NODE_EXTRA_CA_CERTS'));
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('logs warning for invalid PEM certificate file without throwing', () => {
+      const tmpFile = path.join(os.tmpdir(), `invalid-pem-${Date.now()}.pem`);
+      fs.writeFileSync(tmpFile, 'NOT_A_CERTIFICATE');
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+      try {
+        expect(() => installEnterpriseCaCertificates({ NODE_EXTRA_CA_CERTS: tmpFile })).not.toThrow();
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid CA certificate bundle'));
+      } finally {
+        warnSpy.mockRestore();
+        if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+      }
+    });
+
+    it('logs warning when an X509 CA certificate is expired', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'expired-ca-'));
+      const keyPath = path.join(tmpDir, 'ca.key');
+      const certPath = path.join(tmpDir, 'ca.pem');
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+      try {
+        execFileSync('openssl', [
+          'req',
+          '-x509',
+          '-newkey',
+          'rsa:2048',
+          '-keyout',
+          keyPath,
+          '-out',
+          certPath,
+          '-nodes',
+          '-subj',
+          '/CN=ExpiredTestCA',
+          '-not_before',
+          '20200101000000Z',
+          '-not_after',
+          '20200102000000Z',
+        ]);
+        installEnterpriseCaCertificates({ NODE_EXTRA_CA_CERTS: certPath });
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('is expired'));
+      } finally {
+        warnSpy.mockRestore();
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
   });
 });

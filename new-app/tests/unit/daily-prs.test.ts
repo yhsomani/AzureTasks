@@ -3,6 +3,37 @@ import { GitHubClient } from '../../src/infrastructure/github/github-client.js';
 import { PersonConfig } from '../../src/domain/entities/person.js';
 
 describe('Daily PR Tracking by Team Member', () => {
+  it('coalesces and caches an identical daily summary request', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const mockFetch = vi.fn(async () => {
+      await gate;
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({ total_count: 0, incomplete_results: false, items: [] }),
+      } as any;
+    });
+    const client = new GitHubClient({ fetchFn: mockFetch });
+    const options = {
+      people: [{ key: 'dev', name: 'Dev', assignedTo: 'dev@example.com', githubUsername: 'dev', enabled: true }],
+      targetIsoDate: '2026-10-19',
+      timezone: 'UTC',
+      org: 'org',
+    };
+
+    const first = client.getDailyPullRequestsSummary(options);
+    const second = client.getDailyPullRequestsSummary(options);
+    release();
+    const [a, b] = await Promise.all([first, second]);
+
+    expect(a).toBe(b);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    await expect(client.getDailyPullRequestsSummary(options)).resolves.toBe(a);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
   it('correctly aggregates daily PR counts created on the target date in local timezone', async () => {
     const mockFetch = vi.fn().mockImplementation((url: string) => {
       // Mock GitHub search API response

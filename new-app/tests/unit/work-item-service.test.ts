@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { AzureWorkItemService } from '../../src/infrastructure/azure/work-item-service';
 import { addDays, formatTitleDate } from '../../src/domain/value-objects/date-window';
 
@@ -196,6 +196,20 @@ describe('AzureWorkItemService.copyRelations', () => {
 });
 
 describe('AzureWorkItemService.findCandidateTasks', () => {
+  it('routes process-rule preflights through Azure validateOnly without using bypass rules', async () => {
+    const patch = vi.fn().mockResolvedValue({ id: 17, fields: {} });
+    const service = new AzureWorkItemService({ patch } as any);
+    const ops = [{ op: 'add', path: '/fields/System.State', value: 'Closed' }];
+
+    await service.validateWorkItemPatch(17, ops, { bypassRules: false });
+
+    expect(patch).toHaveBeenCalledWith(
+      '/_apis/wit/workitems/17?validateOnly=true&api-version=7.0',
+      ops,
+      { headers: { 'Content-Type': 'application/json-patch+json' } }
+    );
+  });
+
   it('loads all available Azure fields without requesting tenant-specific Custom.* names', async () => {
     const calls: string[] = [];
     const client = {

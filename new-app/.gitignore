@@ -1,6 +1,7 @@
 # Dependencies and Build Artifacts
 node_modules/
 dist/
+src/presentation/web/public/assets/
 coverage/
 .build/
 *.tsbuildinfo

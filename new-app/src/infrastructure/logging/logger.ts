@@ -67,21 +67,39 @@ export class Logger {
     }
 
     // 2. Pattern-based regex scrubbing for standard credentials and authorization headers
-    // Bearer tokens
+    // Bearer tokens (must run before key=value token= scrubbing so token=Bearer *** stays intact)
     out = out.replace(/\bBearer\s+[A-Za-z0-9_\-.]+/gi, 'Bearer ***');
 
     // HTTP Basic Authorization headers (e.g. Azure DevOps base64 PAT credentials)
     out = out.replace(/\bBasic\s+[A-Za-z0-9+/=]{10,}/gi, 'Basic ***');
 
-    // GitHub classic Personal Access Tokens (ghp_ prefix + 36 alphanumeric characters)
-    out = out.replace(/\bghp_[A-Za-z0-9]{36}\b/g, '***');
+    // GitHub Personal Access Tokens (ghp_, gho_, ghu_, ghs_, ghr_ + 36+ chars)
+    out = out.replace(/\bgh[pousr]_[A-Za-z0-9]{36,}\b/g, '***');
 
-    // GitHub fine-grained Personal Access Tokens (github_pat_ prefix + 82 chars)
-    out = out.replace(/\bgithub_pat_[A-Za-z0-9_]{82}\b/g, '***');
+    // GitHub fine-grained Personal Access Tokens (github_pat_ prefix + 82+ chars)
+    out = out.replace(/\bgithub_pat_[A-Za-z0-9_]{82,}\b/g, '***');
 
-    // Azure DevOps Personal Access Tokens (standard 52-char base32 / alphanumeric format)
-    out = out.replace(/\b[a-z2-7]{52}\b/gi, '***');
-    out = out.replace(/\b[A-Za-z0-9]{52}\b/g, '***');
+    // URL userinfo credentials (https://:pat@host or postgresql://user:pass@host)
+    out = out.replace(/([a-z][a-z0-9+.-]*:\/\/[^:\s/@]*:)([^@\s/]+)(@)/gi, '$1***$3');
+
+    // JSON secret fields
+    out = out.replace(
+      /("(?:pat|token|password|passwd|secret|client[_-]?secret|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|connection[_-]?string|azurePat|githubToken)"\s*:\s*")((?:\\.|[^"\\])*)(")/gi,
+      (_match, prefix: string, value: string, suffix: string) =>
+        value === '***' ? _match : `${prefix}***${suffix}`
+    );
+
+    // Query-string and key=value secret assignments (preserve Bearer ***/Basic ***)
+    out = out.replace(
+      /(\b(?:pat|token|password|passwd|secret|client_secret|api_key|access_token|refresh_token|id_token)=)(?!Bearer\s|Basic\s)([^\s&"';]+)/gi,
+      '$1***'
+    );
+
+    // Context-aware Azure DevOps PATs (52-84 char tokens in explicit PAT/token/Azure: phrasing)
+    out = out.replace(
+      /(\b(?:azure\s*[:=]|azure\s+(?:pat|token)\s*[:=]?|using\s+pat\s*[:=]?|pat\s+token\s*[:=]?|with\s+pat\s*[:=]?|pat\s*[:=])\s*)([A-Za-z0-9]{52,84})\b/gi,
+      '$1***'
+    );
 
     return out;
   }

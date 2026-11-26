@@ -8,6 +8,7 @@
 import { SchedulerRepository, SchedulerStatus, AppConfig, ConfigRepository } from '../../domain/ports/repositories.js';
 import { addDays, getDayOfWeek, zonedTimeToUtcIso } from '../../domain/value-objects/date-window.js';
 import { logger } from '../logging/logger.js';
+import { metricsRegistry } from '../telemetry/metrics.js';
 
 export type SchedulerConfig = Pick<AppConfig, 'timezone' | 'startTime'> &
   Partial<
@@ -533,6 +534,14 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     return new Date(from.getTime() + 24 * 60 * 60 * 1000);
   }
 
+  private updateActiveJobsMetric(): void {
+    const activeCount =
+      (this.isExecuting ? 1 : 0) +
+      (this.isAutoCloseExecuting ? 1 : 0) +
+      (this.isAutoActiveExecuting ? 1 : 0);
+    metricsRegistry.setActiveJobs(activeCount);
+  }
+
   private async runScheduled(): Promise<void> {
     if (!this.scheduleFn) {
       logger.warn('Scheduler: no schedule function configured');
@@ -544,6 +553,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     }
 
     this.isExecuting = true;
+    this.updateActiveJobsMetric();
     logger.info(`Scheduler: running scheduled task creation (time: ${this.startTime}, tz: ${this.timezone})...`);
     try {
       await this.scheduleFn();
@@ -556,6 +566,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       logger.error(`Scheduler run failed: ${error?.message || error}`);
     } finally {
       this.isExecuting = false;
+      this.updateActiveJobsMetric();
     }
   }
 
@@ -570,6 +581,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     }
 
     this.isAutoCloseExecuting = true;
+    this.updateActiveJobsMetric();
     // Checkpoint every attempt, even failures and empty scans. Subsequent
     // automatic attempts on the same day require explicit operator action.
     this.status.lastAutoClose = new Date().toISOString();
@@ -610,6 +622,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       logger.error(`Scheduler: EOD task auto-close failed: ${error?.message || error}`);
     } finally {
       this.isAutoCloseExecuting = false;
+      this.updateActiveJobsMetric();
     }
   }
 
@@ -676,6 +689,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
     }
 
     this.isAutoActiveExecuting = true;
+    this.updateActiveJobsMetric();
     this.status.lastAutoActive = new Date().toISOString();
     logger.info(`Scheduler: running automated task activation (time: ${this.autoActiveTime}, tz: ${this.timezone})...`);
     try {
@@ -712,6 +726,7 @@ export class NodeSchedulerRepository implements SchedulerRepository {
       logger.error(`Scheduler: task auto-active failed: ${error?.message || error}`);
     } finally {
       this.isAutoActiveExecuting = false;
+      this.updateActiveJobsMetric();
     }
   }
 }

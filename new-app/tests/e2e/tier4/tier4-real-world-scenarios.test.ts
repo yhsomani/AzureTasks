@@ -331,7 +331,8 @@ describe('Tier 4: Real-World Application Scenarios (8 Multi-Step Operational Jou
     expect(spaRes.headers.get('content-type')).toContain('text/html');
     const html = await spaRes.text();
     expect(html).toContain('id="root"');
-    expect(html).toContain('id="view-dashboard"');
+    expect(html).toContain('src="/assets/main.js"');
+    expect(html).not.toContain('legacyUiTemplate');
 
     // 3. Test HTTP security headers (F16)
     expect(spaRes.headers.get('x-content-type-options')).toBe('nosniff');

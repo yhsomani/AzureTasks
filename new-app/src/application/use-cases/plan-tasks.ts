@@ -10,6 +10,7 @@ import { TaskDiscoveryService, DuplicateDetector, DatePlanningService } from '..
 import { validateNotPastDate } from '../../domain/value-objects/date-window.js';
 import { PersonExecutionPlan } from './create-tasks.js';
 import { generatePlanToken, PlanSnapshotItem } from '../../domain/entities/plan-token.js';
+import { metricsRegistry } from '../../infrastructure/telemetry/metrics.js';
 
 export interface PlanTasksInput {
   personKeys?: string[];
@@ -49,6 +50,7 @@ export class PlanTasksUseCase {
   }
 
   async execute(input: PlanTasksInput = {}): Promise<PlanTasksOutput> {
+    const started = performance.now();
     const people = this.selectPeople(input);
     if (people.length === 0) {
       throw new Error('No people selected for planning');
@@ -147,6 +149,8 @@ export class PlanTasksUseCase {
         operatorEmail: input.operatorEmail || 'lead@workops.test',
       });
     }
+
+    metricsRegistry.recordPlanDuration((performance.now() - started) / 1000);
 
     return {
       todayIso,
