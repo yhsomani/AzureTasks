@@ -1,7 +1,7 @@
 {
   "name": "azure-3in1-task-creator",
   "version": "2.0.0",
-  "description": "Azure DevOps 3in1 Task Studio - task planning, creation, audit and automation",
+  "description": "3in1 Work - project planning, team coordination, and delivery management",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

@@ -74,7 +74,7 @@ export function AzureIntelligenceWorkspace({
 
   const handleRefresh = async () => {
     await refreshAll();
-    onNotify?.('Azure DevOps intelligence refreshed', 'success');
+    onNotify?.('Delivery data refreshed', 'success');
   };
 
   const parseTeamDescription = (desc: string | null) => {
@@ -100,9 +100,9 @@ export function AzureIntelligenceWorkspace({
       {/* Intro Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border">
         <div>
-          <h2 className="text-xl font-bold text-text">Azure DevOps ALM Intelligence</h2>
+          <h2 className="text-xl font-bold text-text">Project delivery health</h2>
           <p className="text-sm text-text-muted">
-            Live telemetry, CI/CD build health, and enterprise PODs from azure-data.db
+            Build, pipeline, test, and team activity from your connected Azure DevOps projects.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -111,9 +111,9 @@ export function AzureIntelligenceWorkspace({
             size="sm"
             onClick={handleRefresh}
             isLoading={isLoading}
-            aria-label="Refresh Azure DevOps intelligence"
+            aria-label="Refresh project delivery data"
           >
-            Refresh Telemetry
+            Refresh data
           </Button>
         </div>
       </div>

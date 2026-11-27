@@ -11,6 +11,7 @@ import type {
   AzureTeamsResponse,
   AzureUnassignedResponse,
   AzureProjectsResponse,
+  WorkItemTask,
 } from '../types/index.js';
 
 export interface RequestOptions extends RequestInit {
@@ -120,6 +121,11 @@ export const api = {
     }),
   delete: <T = unknown>(url: string, options?: RequestOptions) =>
     apiRequest<T>(url, { ...options, method: 'DELETE' }),
+  getMemberTasks: (personKey: string, options?: RequestOptions) =>
+    apiRequest<{ tasks: WorkItemTask[] }>(
+      `/api/tasks/member?personKey=${encodeURIComponent(personKey)}`,
+      { ...options, method: 'GET' }
+    ),
   invalidateCache: (pattern?: string) => {
     if (!pattern) {
       cache.clear();
@@ -184,7 +190,7 @@ export const azureDataApi = {
 
   getProjects: (options?: RequestOptions) =>
     api.get<AzureProjectsResponse>('/api/azure-data/projects', options),
+
 };
 
 api.azureData = azureDataApi;
-

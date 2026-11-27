@@ -17,6 +17,7 @@ import { GetSystemStatusUseCase, SystemStatusOutput } from './application/use-ca
 import { ConfigUseCases } from './application/use-cases/config.js';
 import { RepairRelationsUseCase } from './application/use-cases/repair-relations.js';
 import { ExploreTasksUseCase, ExploreTasksInput, ExploreTasksOutput } from './application/use-cases/explore-tasks.js';
+import { GetMemberTasksUseCase } from './application/use-cases/get-member-tasks.js';
 import { CloseDailyTasksUseCase, CloseDailyTasksInput, CloseDailyTasksOutput } from './application/use-cases/close-daily-tasks.js';
 import { ActivateDailyTasksUseCase } from './application/use-cases/activate-daily-tasks.js';
 import { ExecuteTasksUseCase, ExecuteTasksInput, ExecuteTasksOutput } from './application/use-cases/execute-tasks.js';
@@ -64,6 +65,7 @@ export interface App {
   planTasks: PlanTasksUseCase;
   executeTasks: ExecuteTasksUseCase;
   exploreTasks: ExploreTasksUseCase;
+  getMemberTasks: GetMemberTasksUseCase;
   getStatus: GetSystemStatusUseCase;
   configUseCases: ConfigUseCases;
   repairRelations: RepairRelationsUseCase;
@@ -219,6 +221,7 @@ export async function buildApp(
   const planTasks = new PlanTasksUseCase(workItemRepo, config, planTokenRepo);
   const executeTasks = new ExecuteTasksUseCase(workItemRepo, journalRepo, planTokenRepo, lockManager, config);
   const exploreTasks = new ExploreTasksUseCase(workItemRepo, config);
+  const getMemberTasks = new GetMemberTasksUseCase(workItemRepo, config);
   const getStatus = new GetSystemStatusUseCase(workItemRepo, config);
   const configUseCases = new ConfigUseCases(configRepo, config);
   const repairRelations = new RepairRelationsUseCase(workItemRepo, journalRepo, lockRepo);
@@ -295,6 +298,7 @@ export async function buildApp(
     planTasks,
     executeTasks,
     exploreTasks,
+    getMemberTasks,
     getStatus,
     configUseCases,
     repairRelations,

@@ -66,19 +66,24 @@ export function AppShell() {
     window.location.hash = view;
   };
 
-  const getWorkspaceTitle = () => {
-    switch (currentWorkspace) {
-      case 'daily':
-        return 'Daily Workflow Cockpit';
-      case 'planning':
-        return 'Team & Sprint Planning';
-      case 'governance':
-        return 'Governance & Operations';
-      case 'intelligence':
-        return 'Azure DevOps ALM Intelligence';
-      default:
-        return 'Task Studio';
-    }
+  const pageCopy: Record<SubViewId, { title: string; subtitle: string }> = {
+    mywork: { title: 'My work', subtitle: 'A clear view of what needs your attention today.' },
+    dashboard: { title: "Today's delivery", subtitle: 'Review team deliverables and work completed today.' },
+    logs: { title: 'System activity', subtitle: 'Live operational events and application logs.' },
+    planner: { title: 'Plan & review', subtitle: "Shape the team's workload before creating work items." },
+    explorer: { title: 'Team workload', subtitle: 'Understand work distribution, capacity, and coverage.' },
+    burndown: { title: 'Sprint burndown', subtitle: 'Track progress against the current iteration.' },
+    lifecycle: { title: 'Work item lifecycle', subtitle: 'Review task state transitions and delivery flow.' },
+    people: { title: 'People', subtitle: 'Manage team identities, roles, and capacity.' },
+    calendar: { title: 'Team calendar', subtitle: 'Coordinate working days, holidays, and availability.' },
+    journal: { title: 'Audit trail', subtitle: 'Review attributed actions and operational outcomes.' },
+    scheduler: { title: 'Automation', subtitle: 'Manage scheduled jobs and recurring workflows.' },
+    settings: { title: 'Access & settings', subtitle: 'Configure identity, permissions, and workspace behavior.' },
+    'azure-overview': { title: 'Projects & health', subtitle: 'A cross-project view of delivery and engineering health.' },
+    'azure-builds': { title: 'Builds & pipelines', subtitle: 'Find delivery risks and inspect recent pipeline runs.' },
+    'azure-teams': { title: 'Connected teams', subtitle: 'Explore teams and project ownership from Azure DevOps.' },
+    unassigned: { title: 'Unassigned work', subtitle: 'Find work items that need a clear owner.' },
+    'sprint-progress': { title: 'Sprint progress', subtitle: 'See how work is moving through the current sprint.' },
   };
 
   return (
@@ -103,8 +108,8 @@ export function AppShell() {
       {/* Main Content Area */}
       <main id="main" tabIndex={-1} className="main flex-1 p-4 md:p-8 overflow-y-auto focus:outline-none">
         <Header
-          title={getWorkspaceTitle()}
-          subtitle="Work Operations platform for planning, review, and automation"
+          title={pageCopy[currentSubView].title}
+          subtitle={pageCopy[currentSubView].subtitle}
           session={session}
           theme={theme}
           onToggleTheme={toggleTheme}
@@ -118,6 +123,7 @@ export function AppShell() {
           <DailyWorkflowWorkspace
             subView={currentSubView}
             isViewer={isViewer}
+            currentUser={session.user}
             onNotify={addToast}
           />
         )}

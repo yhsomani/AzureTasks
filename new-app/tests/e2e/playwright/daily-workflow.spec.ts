@@ -8,15 +8,15 @@ test.describe('Daily Workflow Workspace Journeys', () => {
     await openNavigationIfNeeded(page);
   });
 
-  test('loads Daily Workflow workspace by default and displays cockpit metrics', async ({ page }) => {
+  test('loads My Work by default and displays the primary workspace', async ({ page }) => {
     await expect(page.locator('#view-mywork')).toBeVisible();
     await expect(page.locator('header')).toBeVisible();
     // Verify navigation label
-    await expect(page.getByRole('heading', { name: /Daily Workflow/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /My work/i })).toBeVisible();
   });
 
-  test('navigates between Personal Cockpit, Today Summary, and Live SSE Stream', async ({ page }) => {
-    // Click Today's Summary
+  test('navigates between My Work, Today's Delivery, and Activity Stream', async ({ page }) => {
+    // Click Today's delivery
     const summaryBtn = page.locator('#view-dashboard');
     await expect(summaryBtn).toBeVisible();
     await summaryBtn.click();

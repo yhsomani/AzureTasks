@@ -165,6 +165,7 @@ async function main(): Promise<void> {
         createTasks: app.createTasks,
         planTasks: app.planTasks,
         exploreTasks: app.exploreTasks,
+        getMemberTasks: app.getMemberTasks,
         getStatus: app.getStatus,
         config: app.configUseCases,
         repairRelations: app.repairRelations,

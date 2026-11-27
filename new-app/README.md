@@ -1,4 +1,4 @@
-# WorkOps: Enterprise DevOps & ALM Automation Platform
+# 3in1 Work: Project Management & Productivity
 
 [![CI/CD](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
 [![Tests](https://img.shields.io/badge/tests-1425%20passed-brightgreen.svg)]()
@@ -6,7 +6,7 @@
 [![Architecture](https://img.shields.io/badge/architecture-Clean%20%2F%20Hexagonal-blue.svg)]()
 [![UI](https://img.shields.io/badge/frontend-React%2019%20%2B%20Tailwind-61dafb.svg)]()
 
-WorkOps (formerly Azure 3in1 Task Studio) is an enterprise-grade DevOps operations platform that provides intelligent task planning, creation, lifecycle automation, and ALM analytics across **Azure DevOps** and **GitHub**.
+3in1 Work is a work-management platform for individuals, teams, and cross-functional groups. It brings personal work, team planning, and delivery visibility into one workspace, with **Azure DevOps as the primary integration** and GitHub providing code-delivery evidence.
 
 ---
 
@@ -23,10 +23,10 @@ For the full architectural specification, database migration verification, and t
 
 - **Clean & Hexagonal Architecture:** Strict separation between pure domain logic, application use cases, ports, infrastructure adapters, and presentation layers.
 - **Relational Persistence (18 Normalized Tables):** Powered by Drizzle ORM supporting SQLite and PostgreSQL, with automated zero-data-loss migration from legacy JSON persistence (`MigrationService`).
-- **Dual-Project Azure Synchronization:** Reliable external synchronization spanning `3in1_Agile_Projects` and `3_in_1_AppFrontEnd_Tasks` with WIQL continuation-token pagination, exponential backoff with jitter (handling HTTP 429/503), and atomic staging table swaps.
+- **Azure DevOps-first delivery:** Reliable synchronization across configured Azure DevOps projects, with WIQL continuation-token pagination, exponential backoff with jitter (handling HTTP 429/503), and atomic staging table swaps.
 - **Canonical Identity Engine:** Robust normalization of Azure Claims descriptors (`claims.vss:sid:...`), Subject descriptors (`aad....`), GUIDs, UPNs, emails, and aliases with collision defense and diagnostics (`/api/identities/diagnostics`).
 - **Unassigned Task Discovery & Dynamic Sprints:** Real-time discovery of unassigned tasks across projects and dynamic iteration path resolution.
-- **Modern React 19 UI:** Built with React 19, Tailwind CSS, Lucide icons, and compiled with Vite into `/assets/main.js`. Legacy monolithic scripts (`app.js`) are fully retired.
+- **Modern React 19 workspace:** Personal work, team planning, project health, and workspace administration are organized around everyday work rather than backend subsystems.
 - **Enterprise Security & Auditability:** Mandatory PAT masking in structured logs, distributed tracing with W3C `traceparent` headers, Prometheus metrics (`/metrics`), cryptographic plan tokens (`PlanTokenRecord`), and 4-tier RBAC (`Admin`, `Lead`, `Member`, `Auditor`).
 
 ---

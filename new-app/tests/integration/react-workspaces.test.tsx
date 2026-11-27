@@ -51,10 +51,26 @@ describe('Modern React 19 UI Shell & Workspaces', () => {
           ],
         });
       }
+      if (url.includes('/api/tasks/member')) {
+        return makeJsonResponse({
+          tasks: [
+            { id: 901, title: 'Unit testing PR changes', state: 'Active', assignedTo: 'Alex Developer', remainingWork: 4 },
+            { id: 902, title: 'Historical closed task', state: 'Closed', assignedTo: 'Alex Developer', completedWork: 4 },
+          ],
+        });
+      }
       if (url.includes('/api/explorer')) {
         return makeJsonResponse({
-          items: [
-            { id: 901, title: 'Unit testing PR changes', state: 'Active', assignedTo: 'Alex Developer', remainingWork: 4 },
+          matrix: [
+            {
+              cells: {
+                monday: {
+                  tasks: [
+                    { id: 901, title: 'Unit testing PR changes', state: 'Active', assignedTo: 'Alex Developer', remainingWork: 4 },
+                  ],
+                },
+              },
+            },
           ],
         });
       }
@@ -81,7 +97,7 @@ describe('Modern React 19 UI Shell & Workspaces', () => {
     });
   });
 
-  it('renders AppShell with accessible landmarks and 3 consolidated workspaces', async () => {
+  it('renders AppShell with accessible landmarks and product-centered navigation', async () => {
     render(<AppShell />);
 
     // Accessible skip link
@@ -93,18 +109,19 @@ describe('Modern React 19 UI Shell & Workspaces', () => {
     const nav = screen.getByRole('navigation', { name: /primary navigation/i });
     expect(nav).toBeDefined();
 
-    // 3 Consolidated Workspace navigation groups in nav
-    expect(within(nav).getByText(/daily workflow/i)).toBeDefined();
-    expect(within(nav).getByText(/team & planning/i)).toBeDefined();
-    expect(within(nav).getByText(/governance & ops/i)).toBeDefined();
+    // Product navigation is organized around work, team, delivery, and management.
+    expect(within(nav).getByText(/^work$/i)).toBeDefined();
+    expect(within(nav).getByText(/^team$/i)).toBeDefined();
+    expect(within(nav).getByText(/^delivery$/i)).toBeDefined();
+    expect(within(nav).getByText(/^manage$/i)).toBeDefined();
 
     // Main Content Landmark
     const main = document.getElementById('main');
     expect(main).toBeDefined();
     expect(main?.getAttribute('tabindex')).toBe('-1');
 
-    // Quick Action button safely links to planning review
-    const quickRunBtn = screen.getByRole('button', { name: /review plan/i });
+    // The primary action links directly to team planning.
+    const quickRunBtn = screen.getByRole('button', { name: /plan work/i });
     expect(quickRunBtn).toBeDefined();
     expect(quickRunBtn.id).toBe('quickRunBtn');
   });
@@ -166,9 +183,9 @@ describe('Modern React 19 UI Shell & Workspaces', () => {
 
     unmount();
 
-    render(<DailyWorkflowWorkspace subView="mywork" isViewer={false} onNotify={vi.fn()} />);
+    render(<DailyWorkflowWorkspace subView="logs" isViewer={false} currentUser="alex@example.com" onNotify={vi.fn()} />);
     await waitFor(() => {
-      expect(screen.getByText(/live sse activity stream/i)).toBeDefined();
+      expect(screen.getByRole('log', { name: /application server log terminal/i })).toBeDefined();
     });
 
     const pauseBtn = screen.getByRole('button', { name: /pause/i });
@@ -308,17 +325,27 @@ describe('Modern React 19 UI Shell & Workspaces', () => {
 
   it('verifies viewer mode disables mutating action buttons in DailyWorkflowWorkspace', async () => {
     const notifySpy = vi.fn();
-    render(<DailyWorkflowWorkspace subView="mywork" isViewer={true} onNotify={notifySpy} />);
+    render(<DailyWorkflowWorkspace subView="mywork" isViewer={true} currentUser="alex@example.com" onNotify={notifySpy} />);
 
     await waitFor(() => {
-      expect(screen.getByText(/1-click action bar/i)).toBeDefined();
+      expect(screen.getByText(/daily lifecycle/i)).toBeDefined();
     });
 
     const activateBtn = screen.getByRole('button', { name: /morning activation/i });
     expect(activateBtn.hasAttribute('disabled')).toBe(true);
 
-    const adhocBtn = screen.getByRole('button', { name: /\+ ad-hoc task/i });
+    const adhocBtn = screen.getByRole('button', { name: /add task/i });
     expect(adhocBtn.hasAttribute('disabled')).toBe(true);
+  });
+
+  it('shows closed historical member tasks from the date-independent task endpoint', async () => {
+    render(<DailyWorkflowWorkspace subView="mywork" isViewer={false} currentUser="alex@example.com" onNotify={vi.fn()} />);
+
+    expect(await screen.findByText('Historical closed task')).toBeDefined();
+    expect(screen.getByText('Closed')).toBeDefined();
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.some(([url]) =>
+      String(url).includes('/api/tasks/member?personKey=alex'),
+    )).toBe(true);
   });
 
   it('keeps EOD execution disabled when preview has only required-evidence blockers', async () => {
@@ -343,7 +370,7 @@ describe('Modern React 19 UI Shell & Workspaces', () => {
       return (originalFetch as typeof fetch)(url, init);
     }) as typeof fetch;
 
-    render(<DailyWorkflowWorkspace subView="mywork" isViewer={false} onNotify={vi.fn()} />);
+    render(<DailyWorkflowWorkspace subView="mywork" isViewer={false} currentUser="alex@example.com" onNotify={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /eod closure review/i }));
 
     await waitFor(() => {
@@ -354,7 +381,7 @@ describe('Modern React 19 UI Shell & Workspaces', () => {
 
   it('verifies safe rendering of PR deliverable links with target="_blank"', async () => {
     const notifySpy = vi.fn();
-    render(<DailyWorkflowWorkspace subView="mywork" isViewer={false} onNotify={notifySpy} />);
+    render(<DailyWorkflowWorkspace subView="mywork" isViewer={false} currentUser="alex@example.com" onNotify={notifySpy} />);
 
     await waitFor(() => {
       const prLink = screen.getByRole('link', { name: /feature pr/i });
@@ -363,6 +390,24 @@ describe('Modern React 19 UI Shell & Workspaces', () => {
       expect(prLink.getAttribute('rel')).toBe('noopener noreferrer');
       expect(prLink.getAttribute('href')).toBe('https://github.com/org/repo/pull/42');
     });
+  });
+
+  it('does not silently show another team member when the signed-in user cannot be matched', async () => {
+    render(
+      <DailyWorkflowWorkspace
+        subView="mywork"
+        isViewer={false}
+        currentUser="unmatched-operator"
+        onNotify={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/your view will not switch to another person's work automatically/i)).toBeDefined();
+    });
+
+    expect((screen.getByRole('combobox', { name: /select team member/i }) as HTMLSelectElement).value).toBe('');
+    expect((screen.getByRole('button', { name: /add task/i }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('verifies GovernanceWorkspace scheduler daemon controls and journal filtering', async () => {

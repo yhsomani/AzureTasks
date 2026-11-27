@@ -2,13 +2,36 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/client.js';
 import type { TeamMember, PersonPrSummary, WorkItemTask } from '../types/index.js';
 
-export function useDailyWorkflow() {
+function normalizeIdentity(value: string): string {
+  return value.trim().toLocaleLowerCase();
+}
+
+function findCurrentMemberKey(user: string, members: TeamMember[]): string {
+  const identity = normalizeIdentity(user);
+  if (!identity) return '';
+
+  return members.find((member) => {
+    const identifiers = [
+      member.key,
+      member.name,
+      member.email,
+      member.assignedTo,
+      member.canonicalId,
+      member.githubUsername,
+      ...(member.aliases || []),
+    ];
+    return identifiers.some((identifier) => identifier && normalizeIdentity(identifier) === identity);
+  })?.key || '';
+}
+
+export function useDailyWorkflow(currentUser: string) {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [selectedPersonKey, setSelectedPersonKey] = useState<string>('');
   const [myTasks, setMyTasks] = useState<WorkItemTask[]>([]);
   const [prSummaries, setPrSummaries] = useState<PersonPrSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [taskRefreshVersion, setTaskRefreshVersion] = useState(0);
 
   // EOD State: preview before execute
   const [eodPreview, setEodPreview] = useState<{
@@ -24,10 +47,12 @@ export function useDailyWorkflow() {
     setError(null);
     try {
       const configRes = await api.get<{ people?: TeamMember[] }>('/api/config');
-      const teamList = (configRes.people || []).map((member) => ({
-        ...member,
-        email: member.email || member.assignedTo || '',
-      }));
+      const teamList = (configRes.people || [])
+        .filter((member) => member.enabled !== false)
+        .map((member) => ({
+          ...member,
+          email: member.email || member.assignedTo || '',
+        }));
       setMembers(teamList);
 
       // Fetch GitHub PR deliverables
@@ -48,6 +73,7 @@ export function useDailyWorkflow() {
       setError(err instanceof Error ? err.message : 'Failed to load daily workflow data');
     } finally {
       setIsLoading(false);
+      setTaskRefreshVersion((version) => version + 1);
     }
   }, []);
 
@@ -57,32 +83,36 @@ export function useDailyWorkflow() {
 
   useEffect(() => {
     if (!selectedPersonKey && members.length > 0) {
-      setSelectedPersonKey(members[0].key);
+      setSelectedPersonKey(findCurrentMemberKey(currentUser, members));
     }
-  }, [members, selectedPersonKey]);
+  }, [currentUser, members, selectedPersonKey]);
 
   // Load tasks for selected person
   useEffect(() => {
+    setMyTasks([]);
+    setError(null);
     if (!selectedPersonKey) return;
     let active = true;
 
+    setIsLoading(true);
     api
-      .get<{ matrix?: Array<{ cells: Record<string, { tasks?: WorkItemTask[] }> }> }>(`/api/explorer?personKeys=${encodeURIComponent(selectedPersonKey)}`)
+      .getMemberTasks(selectedPersonKey, { skipCache: true })
       .then((res) => {
         if (active) {
-          setMyTasks((res.matrix || []).flatMap(row =>
-            (row?.cells ? Object.values(row.cells) : []).flatMap(cell => cell?.tasks || [])
-          ));
+          setMyTasks(res.tasks);
         }
       })
-      .catch(() => {
-        if (active) setMyTasks([]);
+      .catch((err: unknown) => {
+        if (active) setError(err instanceof Error ? err.message : 'Failed to load selected member work');
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
       });
 
     return () => {
       active = false;
     };
-  }, [selectedPersonKey]);
+  }, [selectedPersonKey, taskRefreshVersion]);
 
   // Action: Morning Activation
   const activateDailyTasks = async () => {

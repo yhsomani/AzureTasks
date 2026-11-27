@@ -53,7 +53,7 @@ export function Header({
           onClick={onQuickRun}
           className="font-semibold"
         >
-          Review plan
+          Plan work
         </Button>
 
         {/* Theme Toggle */}

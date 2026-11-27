@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { GitBranch, Home, ListTodo } from 'lucide-react';
 import { useDailyWorkflow } from '../../hooks/useDailyWorkflow.js';
 import { useLogStream } from '../../hooks/useLogStream.js';
 import { Card } from '../common/Card.js';
@@ -8,13 +9,25 @@ import { Modal } from '../common/Modal.js';
 import { Skeleton } from '../common/Skeleton.js';
 import type { SubViewId } from '../../types/index.js';
 
+function getSafeWorkItemUrl(value?: string): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function DailyWorkflowWorkspace({
   subView,
   isViewer,
+  currentUser,
   onNotify,
 }: {
   subView: SubViewId;
   isViewer: boolean;
+  currentUser: string;
   onNotify: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }) {
   const {
@@ -30,7 +43,7 @@ export function DailyWorkflowWorkspace({
     previewEodClosure,
     executeEodClosure,
     createAdHocTask,
-  } = useDailyWorkflow();
+  } = useDailyWorkflow(currentUser);
 
   const { logs, isConnected, isPaused, setIsPaused, clearLogs } = useLogStream();
 
@@ -88,13 +101,17 @@ export function DailyWorkflowWorkspace({
 
   const handleCreateAdHoc = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedPersonKey) {
+      onNotify('Choose a team member before assigning a task', 'error');
+      return;
+    }
     if (!adHocTitle.trim()) {
       onNotify('Please enter a task title', 'error');
       return;
     }
     try {
       await createAdHocTask({
-        personKey: selectedPersonKey || members[0]?.key,
+        personKey: selectedPersonKey,
         targetIsoDate: adHocDate,
         customTitle: adHocTitle.trim(),
         originalEstimate: adHocHours,
@@ -109,100 +126,76 @@ export function DailyWorkflowWorkspace({
 
   const selectedMember = members.find((m) => m.key === selectedPersonKey);
   const selectedMemberPrs = prSummaries.find((p) => p.personKey === selectedPersonKey);
+  const activeTasks = myTasks.filter((task) => !['closed', 'done', 'resolved', 'removed'].includes(task.state.trim().toLowerCase()));
+  const activeTaskCount = activeTasks.length;
+  const remainingHours = activeTasks.reduce(
+    (total, task) => total + (Number.isFinite(task.remainingWork) ? task.remainingWork || 0 : 0),
+    0
+  );
+  const dateLabel = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date());
 
   return (
-    <div className="daily-workflow-workspace space-y-6">
-      {/* 1-Click Operational Action Bar */}
-      <Card
-        title="1-Click Action Bar"
-        subtitle="Operational controls for daily task lifecycle"
-        className="border-accent/40 bg-surface-card"
-        actions={
-          <div className="flex items-center gap-2 flex-wrap">
+    <div className="daily-workflow-workspace work-page space-y-6">
+      {subView !== 'logs' && (
+        <section className="work-intro">
+          <div>
+            <p className="section-kicker">{dateLabel}</p>
+            <h2>{subView === 'dashboard' ? 'Make progress visible.' : 'Make room for focused work.'}</h2>
+            <p>
+              {subView === 'dashboard'
+                ? 'Review what is moving across the team and the pull requests behind it.'
+                : 'Your active work, delivery evidence, and the next useful action in one place.'}
+            </p>
+          </div>
+          {subView === 'mywork' && (
+            <Button
+              variant="primary"
+              onClick={() => setAdHocModalOpen(true)}
+              disabled={isViewer || !selectedPersonKey}
+              aria-label="Add task"
+            >
+              + Add task
+            </Button>
+          )}
+        </section>
+      )}
+
+      {subView === 'mywork' && (
+        <section className="team-operations" aria-labelledby="team-operations-title">
+          <div className="team-operations-copy">
+            <div>
+              <p className="section-kicker">Team operations</p>
+              <h2 id="team-operations-title">Daily lifecycle</h2>
+            </div>
+            <p>These controls affect the team, not just the person selected below.</p>
+          </div>
+          <div className="team-operations-actions">
             <Button
               variant="secondary"
               onClick={handleActivate}
               isLoading={isActivating}
               disabled={isViewer}
-              className="font-semibold"
+              aria-label="Morning Activation — all team members"
             >
-              ☀️ Morning Activation
+              Activate today's plan
             </Button>
             <Button
               variant="secondary"
               id="eodRunNowBtn"
               onClick={handleOpenEod}
-              className="font-semibold"
+              aria-label="EOD Closure Review — all team members"
             >
-              🌙 EOD Closure Review
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => setAdHocModalOpen(true)}
-              disabled={isViewer}
-            >
-              + Ad-Hoc Task
+              Review end of day
             </Button>
           </div>
-        }
-      >
-        <p className="text-xs text-text-muted">
-          Activate morning tasks for the day, review deliverable PR evidence before EOD task closure, or schedule ad-hoc work items.
-        </p>
-      </Card>
+        </section>
+      )}
 
-      {/* Main Content: Filtered by subView (mywork, dashboard, logs) */}
-      {subView === 'dashboard' ? (
-        /* Dashboard Only SubView: Today's Deliverable PR Sync */
+      {subView === 'logs' ? (
         <div className="w-full space-y-6">
           <Card
-            title="Today's Deliverable PR Sync"
-            subtitle="Verified GitHub pull requests and commit deliverables"
-          >
-            {selectedMemberPrs?.pullRequests && selectedMemberPrs.pullRequests.length > 0 ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs text-text-muted mb-2">
-                  <span>
-                    Total: {selectedMemberPrs.totalCount} (Open: {selectedMemberPrs.openCount}, Merged: {selectedMemberPrs.mergedCount})
-                  </span>
-                  <span>Deliverables verified for auto-closure</span>
-                </div>
-                <div className="divide-y divide-border">
-                  {selectedMemberPrs.pullRequests.map((pr) => (
-                    <div key={pr.id} className="py-2.5 flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <a
-                          href={pr.htmlUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm font-medium text-accent hover:underline flex items-center gap-1.5"
-                        >
-                          <span>#{pr.number}</span>
-                          <span>{pr.title}</span>
-                          <span aria-hidden="true">↗</span>
-                        </a>
-                        <p className="text-xs text-text-muted">Repo: {pr.repository}</p>
-                      </div>
-                      <Badge variant={pr.state === 'merged' ? 'success' : 'info'}>
-                        {pr.state}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-6 text-text-muted text-xs">
-                No deliverable pull requests recorded for {selectedMember?.name || 'this member'} today.
-              </div>
-            )}
-          </Card>
-        </div>
-      ) : subView === 'logs' ? (
-        /* Logs Only SubView: Live SSE Activity Stream Terminal */
-        <div className="w-full space-y-6">
-          <Card
-            title="Live SSE Activity Stream"
-            subtitle="Real-time log stream from /api/logs/stream"
+            title="System activity"
+            subtitle="Live operational events and application logs"
             actions={
               <div className="flex items-center gap-2">
                 <Badge variant={isConnected ? 'success' : 'warning'}>
@@ -232,7 +225,7 @@ export function DailyWorkflowWorkspace({
               aria-label="Application server log terminal"
             >
               {logs.length === 0 ? (
-                <p className="text-neutral-500 italic">Waiting for events from server…</p>
+                <p className="text-neutral-500 italic">Waiting for events from server...</p>
               ) : (
                 logs.map((log) => (
                   <div key={log.id} className="leading-tight flex items-start gap-2">
@@ -244,8 +237,8 @@ export function DailyWorkflowWorkspace({
                         log.level === 'error'
                           ? 'text-rose-400'
                           : log.level === 'warn'
-                          ? 'text-amber-400'
-                          : 'text-emerald-300'
+                            ? 'text-amber-400'
+                            : 'text-emerald-300'
                       }
                     >
                       [{log.level.toUpperCase()}]
@@ -258,13 +251,30 @@ export function DailyWorkflowWorkspace({
           </Card>
         </div>
       ) : (
-        /* Default / MyWork SubView: Full Cockpit Grid */
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Column 1 & 2: Personal Cockpit (My Work) */}
-          <div className="lg:col-span-2 space-y-6">
+        <>
+          <section className="work-summary-grid" aria-label="Work summary">
+            <div className="work-summary-card">
+              <span>Active work</span>
+              <strong>{selectedPersonKey ? activeTaskCount : '--'}</strong>
+              <small>{selectedMember?.name || 'Choose a person to view'}</small>
+            </div>
+            <div className="work-summary-card">
+              <span>Remaining estimate</span>
+              <strong>{selectedPersonKey ? `${remainingHours}h` : '--'}</strong>
+              <small>Across active work items</small>
+            </div>
+            <div className="work-summary-card">
+              <span>Pull requests</span>
+              <strong>{selectedPersonKey ? selectedMemberPrs?.totalCount ?? 0 : '--'}</strong>
+              <small>{selectedMemberPrs?.mergedCount ?? 0} merged</small>
+            </div>
+          </section>
+
+          <div className="work-content-grid">
             <Card
-              title="Personal Cockpit (My Work)"
-              subtitle="Current active work items, estimates, and daily tasks"
+              title="Assigned work items"
+              subtitle={selectedMember ? `Viewing ${selectedMember.name}` : 'Choose a person to see their assigned work'}
+              className="work-panel work-tasks-panel"
               actions={
                 <select
                   aria-label="Select team member"
@@ -272,6 +282,9 @@ export function DailyWorkflowWorkspace({
                   onChange={(e) => setSelectedPersonKey(e.target.value)}
                   className="bg-surface-base border border-border text-text rounded px-3 py-1.5 text-sm min-h-[44px]"
                 >
+                  <option value="" disabled>
+                    Choose a team member
+                  </option>
                   {members.map((m) => (
                     <option key={m.key} value={m.key}>
                       {m.name} ({m.role})
@@ -284,168 +297,112 @@ export function DailyWorkflowWorkspace({
                 <Skeleton count={4} />
               ) : error ? (
                 <p className="text-sm text-danger p-4">{error}</p>
+              ) : !selectedPersonKey ? (
+                <div className="work-empty-state">
+                  <Home size={22} aria-hidden="true" />
+                  <p className="font-medium">Choose a team member to see their work.</p>
+                  <span>Your view will not switch to another person's work automatically.</span>
+                </div>
               ) : myTasks.length === 0 ? (
-                <div className="text-center py-8 text-text-muted">
-                  <p className="text-sm font-medium">No tasks recorded for this member today.</p>
-                  <p className="text-xs mt-1">Use "+ Ad-Hoc Task" to assign work or run Morning Activation.</p>
+                <div className="work-empty-state">
+                  <ListTodo size={22} aria-hidden="true" />
+                  <p className="font-medium">No assigned work items found.</p>
+                  <span>Add a task or review the team plan to get started.</span>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {myTasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="task-card flex items-center justify-between p-3.5 bg-surface-base border border-border rounded-lg hover:border-border-strong transition-colors"
-                    >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-mono text-text-muted">#{task.id}</span>
-                          <h4 className="font-semibold text-sm text-text task-title">{task.title}</h4>
+                <div className="work-task-list">
+                  {myTasks.map((task) => {
+                    const workItemUrl = getSafeWorkItemUrl(task.url);
+                    return (
+                      <article key={task.id} className="work-task-row">
+                        <div className="work-task-main">
+                          <div className="work-task-title">
+                            <span className="work-task-id">#{task.id}</span>
+                            {workItemUrl ? (
+                              <a href={workItemUrl} target="_blank" rel="noopener noreferrer">
+                                {task.title}
+                              </a>
+                            ) : (
+                              <h3>{task.title}</h3>
+                            )}
+                          </div>
+                          <div className="work-task-meta">
+                            <span>{task.assignedTo || selectedMember?.name}</span>
+                            {task.targetDate && <span>Due {task.targetDate}</span>}
+                            {task.remainingWork !== undefined && <span>{task.remainingWork}h remaining</span>}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3 text-xs text-text-muted">
-                          <span>Assigned: {task.assignedTo || selectedMember?.name}</span>
-                          {task.targetDate && <span>Date: {task.targetDate}</span>}
-                          {task.remainingWork !== undefined && (
-                            <span>Remaining: {task.remainingWork}h</span>
-                          )}
-                        </div>
-                      </div>
-                      <div>
                         <Badge
                           variant={
-                            task.state === 'Closed'
+                            task.state.toLowerCase() === 'closed'
                               ? 'success'
-                              : task.state === 'Active'
-                              ? 'info'
-                              : 'neutral'
+                              : task.state.toLowerCase() === 'active'
+                                ? 'info'
+                                : 'neutral'
                           }
                         >
                           {task.state}
                         </Badge>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+
+            <Card
+              title="Today's pull requests"
+              subtitle="GitHub work linked to delivery evidence"
+              className="work-panel work-delivery-panel"
+            >
+              {!selectedPersonKey ? (
+                <div className="work-empty-state compact">
+                  <GitBranch size={20} aria-hidden="true" />
+                  <p>Select a team member to review pull requests.</p>
+                </div>
+              ) : selectedMemberPrs?.pullRequests && selectedMemberPrs.pullRequests.length > 0 ? (
+                <div className="work-pr-list">
+                  <div className="work-pr-summary">
+                    <strong>{selectedMemberPrs.totalCount}</strong>
+                    <span>
+                      {selectedMemberPrs.openCount} open · {selectedMemberPrs.mergedCount} merged
+                    </span>
+                  </div>
+                  {selectedMemberPrs.pullRequests.map((pr) => (
+                    <article key={pr.id} className="work-pr-row">
+                      <div>
+                        <a href={pr.htmlUrl} target="_blank" rel="noopener noreferrer">
+                          <span>#{pr.number}</span> {pr.title}
+                        </a>
+                        <p>{pr.repository}</p>
                       </div>
-                    </div>
+                      <Badge variant={pr.state === 'merged' ? 'success' : 'info'}>{pr.state}</Badge>
+                    </article>
                   ))}
                 </div>
-              )}
-            </Card>
-
-            {/* Today's Summary & PR Deliverable Sync */}
-            <Card
-              title="Today's Deliverable PR Sync"
-              subtitle="Verified GitHub pull requests and commit deliverables"
-            >
-              {selectedMemberPrs?.pullRequests && selectedMemberPrs.pullRequests.length > 0 ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs text-text-muted mb-2">
-                    <span>
-                      Total: {selectedMemberPrs.totalCount} (Open: {selectedMemberPrs.openCount}, Merged: {selectedMemberPrs.mergedCount})
-                    </span>
-                    <span>Deliverables verified for auto-closure</span>
-                  </div>
-                  <div className="divide-y divide-border">
-                    {selectedMemberPrs.pullRequests.map((pr) => (
-                      <div key={pr.id} className="py-2.5 flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <a
-                            href={pr.htmlUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm font-medium text-accent hover:underline flex items-center gap-1.5"
-                          >
-                            <span>#{pr.number}</span>
-                            <span>{pr.title}</span>
-                            <span aria-hidden="true">↗</span>
-                          </a>
-                          <p className="text-xs text-text-muted">Repo: {pr.repository}</p>
-                        </div>
-                        <Badge variant={pr.state === 'merged' ? 'success' : 'info'}>
-                          {pr.state}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               ) : (
-                <div className="text-center py-6 text-text-muted text-xs">
-                  No deliverable pull requests recorded for {selectedMember?.name || 'this member'} today.
+                <div className="work-empty-state compact">
+                  <GitBranch size={20} aria-hidden="true" />
+                  <p>No pull requests recorded for {selectedMember?.name || 'this team member'} today.</p>
                 </div>
               )}
             </Card>
           </div>
-
-          {/* Column 3: Live SSE Log Stream */}
-          <div className="lg:col-span-1 space-y-6">
-            <Card
-              title="Live SSE Activity Stream"
-              subtitle="Real-time log stream from /api/logs/stream"
-              actions={
-                <div className="flex items-center gap-2">
-                  <Badge variant={isConnected ? 'success' : 'warning'}>
-                    {isConnected ? 'LIVE' : 'RECONNECTING'}
-                  </Badge>
-                  <button
-                    type="button"
-                    onClick={() => setIsPaused(!isPaused)}
-                    className="text-xs px-3 py-1.5 rounded bg-surface border border-border text-text min-h-[44px] min-w-[44px] flex items-center justify-center"
-                  >
-                    {isPaused ? 'Resume' : 'Pause'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={clearLogs}
-                    className="text-xs px-3 py-1.5 rounded bg-surface border border-border text-text min-h-[44px] min-w-[44px] flex items-center justify-center"
-                  >
-                    Clear
-                  </button>
-                </div>
-              }
-            >
-              <div
-                className="log-terminal font-mono text-xs bg-black/80 text-emerald-400 p-3 rounded-lg h-96 overflow-y-auto space-y-1.5 border border-border"
-                role="log"
-                aria-live="polite"
-                aria-label="Application server log terminal"
-              >
-                {logs.length === 0 ? (
-                  <p className="text-neutral-500 italic">Waiting for events from server…</p>
-                ) : (
-                  logs.map((log) => (
-                    <div key={log.id} className="leading-tight flex items-start gap-2">
-                      <span className="text-neutral-500 select-none text-[10px]">
-                        {log.timestamp.slice(11, 19)}
-                      </span>
-                      <span
-                        className={
-                          log.level === 'error'
-                            ? 'text-rose-400'
-                            : log.level === 'warn'
-                            ? 'text-amber-400'
-                            : 'text-emerald-300'
-                        }
-                      >
-                        [{log.level.toUpperCase()}]
-                      </span>
-                      <span className="text-neutral-200">{log.message}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </Card>
-          </div>
-        </div>
+        </>
       )}
 
       {/* Ad-Hoc Task Modal */}
       <Modal
         isOpen={adHocModalOpen}
         onClose={() => setAdHocModalOpen(false)}
-        title="Create Ad-Hoc Work Item"
+        title="Add a task"
         footer={
           <>
             <Button variant="ghost" onClick={() => setAdHocModalOpen(false)}>
               Cancel
             </Button>
             <Button variant="primary" onClick={handleCreateAdHoc}>
-              Create Work Item
+              Add task
             </Button>
           </>
         }
@@ -459,8 +416,12 @@ export function DailyWorkflowWorkspace({
               id="adhoc-member"
               value={selectedPersonKey}
               onChange={(e) => setSelectedPersonKey(e.target.value)}
+              required
               className="w-full bg-surface-base border border-border text-text rounded p-2 text-sm min-h-[44px]"
             >
+              <option value="" disabled>
+                Choose a team member
+              </option>
               {members.map((m) => (
                 <option key={m.key} value={m.key}>
                   {m.name}

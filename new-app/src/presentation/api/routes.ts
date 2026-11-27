@@ -11,6 +11,7 @@ import { ExecuteTasksUseCase } from '../../application/use-cases/execute-tasks.j
 import { GetSystemStatusUseCase } from '../../application/use-cases/get-status.js';
 import { ConfigUseCases } from '../../application/use-cases/config.js';
 import { ExploreTasksUseCase } from '../../application/use-cases/explore-tasks.js';
+import { GetMemberTasksUseCase } from '../../application/use-cases/get-member-tasks.js';
 import { RepairRelationsUseCase } from '../../application/use-cases/repair-relations.js';
 import { CloseDailyTasksUseCase } from '../../application/use-cases/close-daily-tasks.js';
 import { ActivateDailyTasksUseCase } from '../../application/use-cases/activate-daily-tasks.js';
@@ -48,6 +49,7 @@ export interface ApiDependencies {
   planTasks: PlanTasksUseCase;
   executeTasks?: ExecuteTasksUseCase;
   exploreTasks: ExploreTasksUseCase;
+  getMemberTasks?: GetMemberTasksUseCase;
   getStatus: GetSystemStatusUseCase;
   config: ConfigUseCases;
   repairRelations?: RepairRelationsUseCase;
@@ -404,6 +406,26 @@ export function createApiRouter(deps: ApiDependencies): Router {
   }));
 
   // Tasks
+  router.get('/tasks/member', asyncHandler(async (req, res) => {
+    if (!deps.getMemberTasks) {
+      return res.status(501).json({ success: false, error: 'Member task retrieval is not configured' });
+    }
+    const personKey = typeof req.query.personKey === 'string' ? req.query.personKey.trim() : '';
+    if (!personKey) {
+      return res.status(400).json({ success: false, error: 'personKey is required.' });
+    }
+    const getMemberTasks = deps.getMemberTasks;
+    const started = performance.now();
+    const role = (req as typeof req & { authRole?: string }).authRole || 'operator';
+    const tasks = await reads.run(
+      `member-tasks:${role}:${personKey.toLowerCase()}`,
+      () => getMemberTasks.execute(personKey),
+    );
+    res.setHeader('Server-Timing', `member-tasks;dur=${(performance.now() - started).toFixed(1)}`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ success: true, data: { tasks } });
+  }));
+
   router.post('/tasks/plan', asyncHandler(async (req, res) => {
     if (!enforceMutationRole(req, res, ['Admin', 'Lead'], true)) return;
     const { asOf, thursdayMode } = req.body || {};

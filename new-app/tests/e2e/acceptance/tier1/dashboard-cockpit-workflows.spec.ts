@@ -339,6 +339,7 @@ test.describe('Tier 1 — Dashboard, Cockpit, Auto-Closure & SPA Core (F10, F13,
     try {
       await page.setExtraHTTPHeaders({ Authorization: server.basicAdminHeader });
       await page.goto(`${server.baseUrl}/mywork`, { waitUntil: 'domcontentloaded' });
+      await page.getByLabel(/select team member/i).selectOption({ label: 'Alice Chen (Developer)' });
       await assertLandmarks(page);
 
       await page.evaluate(() => {
@@ -458,7 +459,7 @@ test.describe('Tier 1 — Dashboard, Cockpit, Auto-Closure & SPA Core (F10, F13,
 
       const main = page.locator('main#main');
       await expect(main).toContainText(/Cockpit Visibility Check/i);
-      await expect(main).toContainText(/daily deliverable/i);
+      await expect(main).toContainText(/today's pull requests/i);
     } finally {
       await server.stop();
     }
@@ -571,7 +572,8 @@ test.describe('Tier 1 — Dashboard, Cockpit, Auto-Closure & SPA Core (F10, F13,
       await page.setExtraHTTPHeaders({ Authorization: server.basicAdminHeader });
       await page.goto(`${server.baseUrl}/mywork`, { waitUntil: 'domcontentloaded' });
 
-      const openModalBtn = page.getByRole('button', { name: /ad-hoc|adhoc|new task|create task/i }).first();
+      await page.getByLabel(/select team member/i).selectOption({ label: 'Alice Chen (Developer)' });
+      const openModalBtn = page.getByRole('button', { name: /add task/i }).first();
       await expect(openModalBtn).toBeVisible();
       await openModalBtn.click();
 
@@ -587,7 +589,7 @@ test.describe('Tier 1 — Dashboard, Cockpit, Auto-Closure & SPA Core (F10, F13,
       const createPromise = page.waitForResponse(
         (res) => res.url().includes('/api/tasks/adhoc') && res.request().method() === 'POST'
       );
-      await dialog.getByRole('button', { name: /create|submit|save/i }).first().click();
+      await dialog.getByRole('button', { name: /add task|create|submit|save/i }).first().click();
       const createRes = await createPromise;
       expect([200, 201]).toContain(createRes.status());
 

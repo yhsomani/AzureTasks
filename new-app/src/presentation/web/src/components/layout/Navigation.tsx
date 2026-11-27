@@ -1,4 +1,19 @@
 import React from 'react';
+import {
+  Activity,
+  BarChart3,
+  CalendarDays,
+  CircleAlert,
+  ClipboardList,
+  GitBranch,
+  Home,
+  ListTodo,
+  Settings,
+  ShieldCheck,
+  Users,
+  Workflow,
+  type LucideIcon,
+} from 'lucide-react';
 import type { WorkspaceId, SubViewId } from '../../types/index.js';
 
 export interface NavigationProps {
@@ -20,53 +35,48 @@ export function Navigation({
     id: WorkspaceId;
     defaultSubView: SubViewId;
     label: string;
-    icon: string;
-    subViews: Array<{ id: SubViewId; label: string }>;
+    subViews: Array<{ id: SubViewId; label: string; icon: LucideIcon }>;
   }> = [
     {
       id: 'daily',
       defaultSubView: 'mywork',
-      label: 'Daily Workflow',
-      icon: '⚡',
+      label: 'Work',
       subViews: [
-        { id: 'mywork', label: 'Personal Cockpit' },
-        { id: 'dashboard', label: "Today's Summary" },
-        { id: 'logs', label: 'Live SSE Stream' },
+        { id: 'mywork', label: 'My work', icon: Home },
+        { id: 'dashboard', label: "Today's delivery", icon: ClipboardList },
       ],
     },
     {
       id: 'planning',
       defaultSubView: 'planner',
-      label: 'Team & Planning',
-      icon: '📅',
+      label: 'Team',
       subViews: [
-        { id: 'planner', label: 'Plan & Review' },
-        { id: 'explorer', label: 'Coverage Matrix' },
-        { id: 'people', label: 'Team Roster' },
-        { id: 'calendar', label: 'Work Calendar' },
-      ],
-    },
-    {
-      id: 'governance',
-      defaultSubView: 'journal',
-      label: 'Governance & Ops',
-      icon: '🛡️',
-      subViews: [
-        { id: 'journal', label: 'Audit Log' },
-        { id: 'scheduler', label: 'Scheduler Daemon' },
-        { id: 'settings', label: 'RBAC & Identity' },
+        { id: 'planner', label: 'Plan & review', icon: CalendarDays },
+        { id: 'explorer', label: 'Workload', icon: BarChart3 },
+        { id: 'people', label: 'People', icon: Users },
+        { id: 'calendar', label: 'Team calendar', icon: CalendarDays },
       ],
     },
     {
       id: 'intelligence',
       defaultSubView: 'azure-overview',
-      label: 'Azure Intelligence',
-      icon: '📊',
+      label: 'Delivery',
       subViews: [
-        { id: 'azure-overview', label: 'ALM & KPIs Overview' },
-        { id: 'azure-builds', label: 'Build Health' },
-        { id: 'azure-teams', label: 'Enterprise Teams' },
-        { id: 'unassigned', label: 'Unassigned Tasks' },
+        { id: 'azure-overview', label: 'Projects & health', icon: BarChart3 },
+        { id: 'azure-builds', label: 'Builds & pipelines', icon: Workflow },
+        { id: 'azure-teams', label: 'Connected teams', icon: Users },
+        { id: 'unassigned', label: 'Unassigned work', icon: CircleAlert },
+      ],
+    },
+    {
+      id: 'governance',
+      defaultSubView: 'journal',
+      label: 'Manage',
+      subViews: [
+        { id: 'journal', label: 'Audit trail', icon: ShieldCheck },
+        { id: 'scheduler', label: 'Automation', icon: Workflow },
+        { id: 'logs', label: 'System activity', icon: Activity },
+        { id: 'settings', label: 'Access & settings', icon: Settings },
       ],
     },
   ];
@@ -91,12 +101,12 @@ export function Navigation({
       >
         <div className="p-4 border-b border-border flex items-center justify-between">
           <div className="brand flex items-center gap-3">
-            <div className="brand-mark w-8 h-8 rounded bg-surface-card border border-border flex items-center justify-center font-bold text-accent">
-              3in1
+            <div className="brand-mark w-8 h-8 rounded bg-surface-card border border-border flex items-center justify-center font-bold text-accent" aria-hidden="true">
+              <ListTodo size={18} strokeWidth={2.2} />
             </div>
             <div>
-              <strong className="block text-sm text-text font-bold">Task Studio</strong>
-              <span className="text-xs text-text-muted">Work Operations</span>
+              <strong className="block text-sm text-text font-bold">3in1 Work</strong>
+              <span className="text-xs text-text-muted">Plan. Focus. Deliver.</span>
             </div>
           </div>
           <button
@@ -127,7 +137,7 @@ export function Navigation({
                       data-view={sub.id}
                       aria-current={isSelected ? 'page' : undefined}
                       onClick={() => {
-                        onNavigate(ws.id, sub.id);
+                        onNavigate(sub.id === 'logs' ? 'daily' : ws.id, sub.id);
                         onCloseMobile();
                       }}
                       className={`nav-item w-full flex items-center gap-3 px-3 py-2 text-sm rounded font-medium transition-colors text-left min-h-[44px] ${
@@ -136,7 +146,9 @@ export function Navigation({
                           : 'text-text hover:bg-surface-card hover:text-text'
                       }`}
                     >
-                      <span aria-hidden="true">{ws.icon}</span>
+                      <span className="nav-icon" aria-hidden="true">
+                        <sub.icon size={16} strokeWidth={1.8} />
+                      </span>
                       <span>{sub.label}</span>
                     </button>
                   );
@@ -147,7 +159,10 @@ export function Navigation({
         </nav>
 
         <div className="p-3 border-t border-border text-xs text-text-muted">
-          <span>Enterprise WorkOps Platform</span>
+          <span className="integration-note">
+            <GitBranch size={13} aria-hidden="true" />
+            Azure DevOps integration
+          </span>
         </div>
       </aside>
     </>

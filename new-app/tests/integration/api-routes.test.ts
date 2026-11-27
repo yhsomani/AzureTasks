@@ -26,6 +26,16 @@ function makeDeps(): ApiDependencies {
         detailedTasks: [],
       })),
     },
+    getMemberTasks: {
+      execute: vi.fn(async (personKey: string) => [{
+        id: 700,
+        title: `Historical task for ${personKey}`,
+        state: 'Closed',
+        assignedTo: 'Alex Developer',
+        completedWork: 4,
+        url: 'https://dev.azure.com/Org/Proj/_workitems/edit/700',
+      }]),
+    },
     createTasks: {
       execute: vi.fn(async () => ({
         totalCreatedCount: 1,
@@ -150,6 +160,26 @@ describe('API routes', () => {
     expect(execute.mock.calls.length - before).toBe(1);
     await json('/api/explorer?preset=today');
     expect(execute.mock.calls.length - before).toBe(2);
+  });
+
+  it('GET /api/tasks/member returns the selected member task list', async () => {
+    const response = await json('/api/tasks/member?personKey=alex');
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(body.data.tasks).toEqual([expect.objectContaining({
+      id: 700,
+      state: 'Closed',
+      title: 'Historical task for alex',
+    })]);
+    expect(deps.getMemberTasks!.execute).toHaveBeenCalledWith('alex');
+  });
+
+  it('GET /api/tasks/member requires a member key', async () => {
+    const response = await json('/api/tasks/member');
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain('personKey is required');
   });
 
   it('GET /api/health', async () => {

@@ -289,21 +289,21 @@ describe('React 19 Azure DevOps Intelligence Workspace & Data Presentation', () 
     expect(screen.getByText('Arun Phogat')).toBeDefined();
   });
 
-  it('verifies AppShell exposes the 4th navigation group Azure Intelligence alongside legacy groups', async () => {
+  it('verifies AppShell exposes delivery insights in product-centered navigation', async () => {
     await act(async () => {
       render(<AppShell />);
     });
 
     const nav = screen.getByRole('navigation', { name: /primary navigation/i });
-    expect(within(nav).getByText(/daily workflow/i)).toBeDefined();
-    expect(within(nav).getByText(/team & planning/i)).toBeDefined();
-    expect(within(nav).getByText(/governance & ops/i)).toBeDefined();
-    expect(within(nav).getByText(/azure intelligence/i)).toBeDefined();
+    expect(within(nav).getByText(/^work$/i)).toBeDefined();
+    expect(within(nav).getByText(/^team$/i)).toBeDefined();
+    expect(within(nav).getByText(/^manage$/i)).toBeDefined();
+    expect(within(nav).getByText(/^delivery$/i)).toBeDefined();
 
-    expect(within(nav).getByRole('button', { name: /alm & kpis overview/i })).toBeDefined();
-    expect(within(nav).getByRole('button', { name: /build health/i })).toBeDefined();
-    expect(within(nav).getByRole('button', { name: /enterprise teams/i })).toBeDefined();
-    expect(within(nav).getByRole('button', { name: /unassigned tasks/i })).toBeDefined();
+    expect(within(nav).getByRole('button', { name: /projects & health/i })).toBeDefined();
+    expect(within(nav).getByRole('button', { name: /builds & pipelines/i })).toBeDefined();
+    expect(within(nav).getByRole('button', { name: /connected teams/i })).toBeDefined();
+    expect(within(nav).getByRole('button', { name: /unassigned work/i })).toBeDefined();
   });
 
   it('navigates dynamically to Azure Intelligence workspace in AppShell', async () => {
@@ -312,14 +312,14 @@ describe('React 19 Azure DevOps Intelligence Workspace & Data Presentation', () 
     });
 
     const nav = screen.getByRole('navigation', { name: /primary navigation/i });
-    const intelBtn = within(nav).getByRole('button', { name: /alm & kpis overview/i });
+    const intelBtn = within(nav).getByRole('button', { name: /projects & health/i });
 
     await act(async () => {
       fireEvent.click(intelBtn);
     });
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1, name: /azure devops alm intelligence/i })).toBeDefined();
+      expect(screen.getByRole('heading', { level: 1, name: /projects & health/i })).toBeDefined();
     });
   });
 
@@ -373,7 +373,7 @@ describe('React 19 Azure DevOps Intelligence Workspace & Data Presentation', () 
     });
 
     const nav = screen.getByRole('navigation', { name: /primary navigation/i });
-    const unassignedBtn = within(nav).getByRole('button', { name: /unassigned tasks/i });
+    const unassignedBtn = within(nav).getByRole('button', { name: /unassigned work/i });
 
     await act(async () => {
       fireEvent.click(unassignedBtn);
